@@ -1,0 +1,489 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --toast-bg: #fff;
+    --toast-color: #1f2937;
+    --safe-area-inset-top: env(safe-area-inset-top);
+    --safe-area-inset-bottom: env(safe-area-inset-bottom);
+    --safe-area-inset-left: env(safe-area-inset-left);
+    --safe-area-inset-right: env(safe-area-inset-right);
+  }
+
+  .dark {
+    --toast-bg: #1f2937;
+    --toast-color: #f9fafb;
+  }
+
+  body {
+    @apply bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    padding-top: var(--safe-area-inset-top);
+    padding-bottom: var(--safe-area-inset-bottom);
+    padding-left: var(--safe-area-inset-left);
+    padding-right: var(--safe-area-inset-right);
+    line-height: 1.6;
+    font-size: 16px;
+  }
+
+  * {
+    @apply transition-colors duration-200;
+  }
+
+  /* Typography improvements for mobile readability - Fluid Typography */
+  h1 {
+    /* Fluid typography using clamp: min 1.875rem, preferred 4vw + 1rem, max 3rem */
+    font-size: clamp(1.875rem, 4vw + 1rem, 3rem);
+    @apply font-bold leading-tight;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    /* Fluid typography: min 1.5rem, preferred 3vw + 1rem, max 2.25rem */
+    font-size: clamp(1.5rem, 3vw + 1rem, 2.25rem);
+    @apply font-bold leading-tight;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+
+  h3 {
+    /* Fluid typography: min 1.25rem, preferred 2vw + 1rem, max 1.875rem */
+    font-size: clamp(1.25rem, 2vw + 1rem, 1.875rem);
+    @apply font-semibold;
+    line-height: 1.3;
+  }
+
+  p {
+    @apply leading-relaxed;
+    line-height: 1.7;
+  }
+
+  /* Long text content readability */
+  .readable-text {
+    max-width: 65ch;
+    line-height: 1.75;
+  }
+
+  /* Input and textarea improvements */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="date"],
+  input[type="number"],
+  input[type="tel"],
+  textarea,
+  select {
+    font-size: 16px; /* Prevents zoom on iOS */
+    line-height: 1.5;
+  }
+
+  textarea {
+    line-height: 1.6;
+  }
+
+  /* Touch targets
+     IMPORTANT: Do NOT apply global min-size to all buttons/inputs/links; it causes layout drift.
+     Use `.touch-target` / `.icon-btn` utilities for opt-in sizing on interactive elements.
+  */
+
+  /* Prevent text selection on buttons */
+  button {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+
+  /* Button active/pressed state for better touch feedback */
+  button:active {
+    transform: scale(0.97);
+    transition: transform 0.1s ease;
+  }
+
+  /* Improved button focus state for accessibility */
+  button:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
+
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    /* Use dynamic viewport height for better mobile support */
+    height: 100dvh;
+  }
+
+  /* Respect system reduced motion preferences */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+
+  /* View Transitions API support */
+  @supports (view-transition-name: none) {
+    @view-transition {
+      navigation: auto;
+    }
+
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation-duration: 0.3s;
+      animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    ::view-transition-old(root) {
+      z-index: 1;
+    }
+
+    ::view-transition-new(root) {
+      z-index: 2;
+    }
+  }
+
+  /* Full height utility using modern viewport units */
+  .full-height {
+    height: 100dvh; /* Dynamic viewport height - adjusts for mobile browser UI */
+  }
+
+  .min-full-height {
+    min-height: 100dvh;
+  }
+
+  /* Small viewport height (when browser UI is visible) */
+  .full-height-small {
+    height: 100svh;
+  }
+
+  /* Large viewport height (when browser UI is hidden) */
+  .full-height-large {
+    height: 100lvh;
+  }
+}
+
+/* Container Queries Support */
+@container {
+  /* Container query utilities */
+  .container-responsive {
+    container-type: inline-size;
+  }
+
+  @container (min-width: 400px) {
+    .memory-card-responsive {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 1rem;
+    }
+  }
+
+  @container (min-width: 600px) {
+    .memory-card-responsive {
+      grid-template-columns: 1fr 3fr;
+    }
+  }
+}
+
+@layer utilities {
+  /* Typography tokens (hibrit ton: ana akış sakin, okunaklı) */
+  .text-display {
+    font-size: clamp(2rem, 4vw + 1rem, 3rem);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  .text-title {
+    font-size: clamp(1.25rem, 2vw + 1rem, 1.875rem);
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+
+  .text-body {
+    font-size: 1rem;
+    line-height: 1.7;
+  }
+
+  .text-caption {
+    font-size: 0.875rem;
+    line-height: 1.4;
+  }
+
+  /* Layout row utilities (prevents "mysterious" alignment drift across screens) */
+  .row-between {
+    @apply flex items-center justify-between gap-4 min-w-0;
+  }
+
+  .row-left {
+    @apply flex items-center gap-3 min-w-0;
+  }
+
+  .row-right {
+    @apply flex items-center gap-2 flex-shrink-0;
+  }
+
+  .icon-btn {
+    @apply touch-target inline-flex items-center justify-center rounded-xl transition-colors;
+  }
+
+  /* Opt-in tap target helpers (use on icon buttons, nav items, list rows, etc.) */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .touch-target-lg {
+    min-height: 48px;
+    min-width: 48px;
+  }
+
+  .glass {
+    @apply bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg;
+  }
+
+  .gradient-primary {
+    @apply bg-gradient-to-r from-primary to-primary-dark;
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary-dark;
+  }
+
+  .shadow-card {
+    @apply shadow-sm hover:shadow-md transition-shadow;
+  }
+
+  .dark .shadow-card {
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.5);
+  }
+
+  .shadow-card-elevated {
+    @apply shadow-md hover:shadow-lg transition-shadow;
+  }
+
+  .dark .shadow-card-elevated {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.6), 0 2px 4px -1px rgba(0, 0, 0, 0.4);
+  }
+
+  .shadow-primary-glow {
+    box-shadow: 0 0 20px rgba(255, 107, 53, 0.2);
+  }
+
+  .dark .shadow-primary-glow {
+    box-shadow: 0 0 30px rgba(255, 107, 53, 0.3);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+  }
+
+  .safe-area-top {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
+  }
+
+  .safe-area-inset {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  .touch-manipulation {
+    touch-action: manipulation;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Content spacing utilities */
+  .content-spacing {
+    @apply space-y-6;
+  }
+
+  .card-spacing {
+    @apply space-y-4 sm:space-y-6;
+  }
+
+  .section-padding {
+    @apply py-8 sm:py-10 lg:py-12;
+  }
+
+  .container-padding {
+    @apply px-5 sm:px-6 lg:px-8;
+  }
+
+  /* Container query utilities */
+  .container-responsive {
+    container-type: inline-size;
+  }
+
+  .container-named {
+    container-type: inline-size;
+    container-name: card;
+  }
+
+  /* Aspect ratio utilities */
+  .aspect-video {
+    aspect-ratio: 16 / 9;
+  }
+
+  .aspect-square {
+    aspect-ratio: 1 / 1;
+  }
+
+  .aspect-photo {
+    aspect-ratio: 4 / 3;
+  }
+
+  /* Grid auto-fit utility */
+  .grid-auto-fit {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+  }
+
+  .grid-auto-fit-sm {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+  }
+
+  /* CSS :has() selector utilities for conditional styling */
+  /* Form group with error - parent styling based on child error state */
+  .form-group:has(.error),
+  .form-group:has([class*="border-red-500"]) {
+    border-color: rgb(239 68 68);
+  }
+
+  /* Input group with error icon */
+  .input-group:has(.error-icon) {
+    position: relative;
+  }
+
+  .input-group:has(.error-icon)::after {
+    content: '';
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  /* Card with error state */
+  .card:has(.error-message) {
+    border-color: rgb(239 68 68 / 0.5);
+    background-color: rgb(254 242 242 / 0.5);
+  }
+
+  .dark .card:has(.error-message) {
+    background-color: rgb(127 29 29 / 0.3);
+  }
+
+  /* Button group with disabled button */
+  .button-group:has(button:disabled) {
+    opacity: 0.6;
+  }
+
+  /* List item with active state */
+  .list-item:has([aria-current="true"]) {
+    background-color: rgb(255 107 53 / 0.1);
+    border-left: 3px solid rgb(255 107 53);
+  }
+
+  /* Screen reader only - visually hidden but accessible */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  .focus\:not-sr-only:focus {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: inherit;
+    margin: inherit;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+  }
+
+  /* Focus visible improvements */
+  *:focus-visible {
+    outline: 2px solid rgb(255 107 53);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Skip link styling */
+  a[href="#main-content"]:focus {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 9999;
+    padding: 0.75rem 1.5rem;
+    background-color: rgb(255 107 53);
+    color: white;
+    border-radius: 0.5rem;
+    text-decoration: none;
+    font-weight: 600;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  }
+
+  /* RTL support utilities */
+  .rtl-aware {
+    direction: ltr;
+  }
+
+  [dir="rtl"] .rtl-aware {
+    direction: rtl;
+  }
+}
+
+/* Container Query Styles */
+@container (min-width: 400px) {
+  .memory-card-responsive {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 1rem;
+  }
+}
+
+@container (min-width: 600px) {
+  .memory-card-responsive {
+    grid-template-columns: 1fr 3fr;
+  }
+}
+
+@container card (min-width: 500px) {
+  .card-responsive {
+    padding: 2rem;
+  }
+}
+

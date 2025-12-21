@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">NICEBASE</string>
+    <string name="title_activity_main">NICEBASE</string>
+    <string name="package_name">com.nicebase.app</string>
+    <string name="custom_url_scheme">com.nicebase.app</string>
+</resources>
