@@ -471,3 +471,5 @@ Uygulama genel olarak iyi bir temel üzerine kurulmuş. Yukarıdaki öneriler uy
 
 
 
+
+

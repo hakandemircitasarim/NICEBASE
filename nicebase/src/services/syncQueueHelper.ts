@@ -1,5 +1,6 @@
 import { db, SyncQueueItemV2, SyncQueueOp } from '../lib/db'
 import { Memory } from '../types'
+import { generateUUID } from '../utils/uuid'
 
 /**
  * Sync queue item data types
@@ -72,7 +73,7 @@ export async function addToSyncQueue(
   if (!entityId || !userId) {
     // Fallback to legacy queue if we can't deduce identifiers.
     await db.syncQueue.add({
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       type: type as any,
       data,
       timestamp: now(),

@@ -29,15 +29,21 @@ interface SupabaseMemoryRow {
  * @returns Supabase-formatted memory object
  */
 export function memoryToSupabase(memory: Memory) {
+  // Map 'uncategorized' to safe defaults so older DB schemas (without the
+  // CHECK constraint update) still accept the row.  AI classification will
+  // overwrite these values shortly after creation.
+  const safeCategory = memory.category === 'uncategorized' ? 'gratitude' : memory.category
+  const safeLifeArea = memory.lifeArea === 'uncategorized' ? 'personal' : memory.lifeArea
+
   return {
     id: memory.id,
     user_id: memory.userId,
     text: memory.text,
-    category: memory.category,
+    category: safeCategory,
     intensity: memory.intensity,
     date: memory.date.split('T')[0], // Just the date part
     connections: memory.connections,
-    life_area: memory.lifeArea,
+    life_area: safeLifeArea,
     is_core: memory.isCore,
     photos: memory.photos,
     created_at: memory.createdAt,
@@ -55,11 +61,11 @@ export function memoryFromSupabase(data: SupabaseMemoryRow): Memory {
     id: data.id,
     userId: data.user_id ?? data.userId ?? '',
     text: data.text,
-    category: data.category,
+    category: (data.category || 'uncategorized') as Memory['category'],
     intensity: data.intensity,
     date: data.date,
     connections: data.connections ?? [],
-    lifeArea: (data.life_area ?? data.lifeArea ?? 'personal') as Memory['lifeArea'],
+    lifeArea: (data.life_area ?? data.lifeArea ?? 'uncategorized') as Memory['lifeArea'],
     isCore: data.is_core ?? data.isCore ?? false,
     photos: data.photos ?? [],
     createdAt: data.created_at ?? data.createdAt ?? new Date().toISOString(),
@@ -77,11 +83,15 @@ export function memoryUpdatesToSupabase(updates: Partial<Memory>): Record<string
   const supabaseUpdates: Record<string, unknown> = {}
   
   if (updates.text !== undefined) supabaseUpdates.text = updates.text
-  if (updates.category !== undefined) supabaseUpdates.category = updates.category
+  if (updates.category !== undefined) {
+    supabaseUpdates.category = updates.category === 'uncategorized' ? 'gratitude' : updates.category
+  }
   if (updates.intensity !== undefined) supabaseUpdates.intensity = updates.intensity
   if (updates.date !== undefined) supabaseUpdates.date = updates.date.split('T')[0]
   if (updates.connections !== undefined) supabaseUpdates.connections = updates.connections
-  if (updates.lifeArea !== undefined) supabaseUpdates.life_area = updates.lifeArea
+  if (updates.lifeArea !== undefined) {
+    supabaseUpdates.life_area = updates.lifeArea === 'uncategorized' ? 'personal' : updates.lifeArea
+  }
   if (updates.isCore !== undefined) supabaseUpdates.is_core = updates.isCore
   if (updates.photos !== undefined) supabaseUpdates.photos = updates.photos
   
@@ -89,6 +99,8 @@ export function memoryUpdatesToSupabase(updates: Partial<Memory>): Record<string
   
   return supabaseUpdates
 }
+
+
 
 
 

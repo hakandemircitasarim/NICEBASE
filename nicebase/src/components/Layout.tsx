@@ -1,7 +1,8 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
-import { Home, Archive, MessageCircle, Settings } from 'lucide-react'
+import { Home, Archive, MessageCircle, User } from 'lucide-react'
 import { hapticFeedback } from '../utils/haptic'
 import { useStore } from '../store/useStore'
 
@@ -18,14 +19,15 @@ export default function Layout() {
     { path: '/', icon: Home, label: t('appName') },
     { path: '/vault', icon: Archive, label: t('vault') },
     { path: '/aiya', icon: MessageCircle, label: t('aiya') },
-    { path: '/settings', icon: Settings, label: t('settings') },
+    { path: '/profile', icon: User, label: t('profile') },
   ]
 
   const hideNavForRoutes = location.pathname.startsWith('/add-memory')
+  const isFullscreenChat = location.pathname.startsWith('/aiya')
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <main className="pb-20">
+      <main className={isFullscreenChat ? 'pb-0' : 'pb-20'}>
         <Outlet />
       </main>
       
@@ -41,7 +43,9 @@ export default function Layout() {
         <div className="flex justify-around items-center h-20 px-1 sm:px-2 overflow-x-auto scrollbar-hide snap-x snap-mandatory">
           {navItems.map((item) => {
             const Icon = item.icon
-            const isActive = location.pathname === item.path
+            const isActive = item.path === '/' 
+              ? location.pathname === '/' 
+              : location.pathname.startsWith(item.path)
             return (
               <motion.button
                 key={item.path}

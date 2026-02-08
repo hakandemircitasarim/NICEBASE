@@ -2,6 +2,37 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { Memory } from '../types'
 import i18n from '../i18n'
+import { isNative } from '../utils/capacitor'
+
+/**
+ * Downloads a blob — on native Android uses share sheet (since anchor-click
+ * downloads don't work inside Capacitor WebView), on web uses a hidden anchor.
+ */
+async function downloadBlob(blob: Blob, filename: string): Promise<void> {
+  if (isNative()) {
+    // On native platforms, convert blob to data-URL and share via Web Share API
+    // which Android supports natively inside WebView.
+    try {
+      const file = new File([blob], filename, { type: blob.type })
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename })
+        return
+      }
+    } catch {
+      // Web Share API not available or user cancelled — fall through to anchor approach
+    }
+  }
+
+  // Web fallback (also works on some Android WebViews)
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
 
 export const exportService = {
   async exportToPDF(memories: Memory[], filename: string = 'nicebase-export') {
@@ -36,7 +67,8 @@ export const exportService = {
       headStyles: { fillColor: [255, 107, 53] },
     })
     
-    doc.save(`${filename}.pdf`)
+    const pdfBlob = doc.output('blob')
+    await downloadBlob(pdfBlob, `${filename}.pdf`)
   },
 
   async exportToCSV(memories: Memory[], filename: string = 'nicebase-export') {
@@ -61,20 +93,13 @@ export const exportService = {
     ].join('\n')
     
     const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = `${filename}.csv`
-    link.click()
+    await downloadBlob(blob, `${filename}.csv`)
   },
 
   async exportToJSON(memories: Memory[], filename: string = 'nicebase-export') {
     const dataStr = JSON.stringify(memories, null, 2)
-    const dataBlob = new Blob([dataStr], { type: 'application/json' })
-    const url = URL.createObjectURL(dataBlob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `${filename}.json`
-    link.click()
+    const blob = new Blob([dataStr], { type: 'application/json' })
+    await downloadBlob(blob, `${filename}.json`)
   },
 }
 

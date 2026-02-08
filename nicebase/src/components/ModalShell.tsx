@@ -12,6 +12,8 @@ interface ModalShellProps {
   className?: string
   panelClassName?: string
   scroll?: boolean
+  /** When true the panel sizes to its content (maxHeight only, no forced height). */
+  autoHeight?: boolean
   header?: React.ReactNode
   footer?: React.ReactNode
   children: React.ReactNode
@@ -30,6 +32,7 @@ export default function ModalShell({
   className = '',
   panelClassName = '',
   scroll = true,
+  autoHeight = false,
   header,
   footer,
   children,
@@ -166,8 +169,13 @@ export default function ModalShell({
             ].join(' ')}
             style={{
               // Height constraint is required for inner scroll to work reliably.
-              height:
-                'min(calc(100dvh - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)), 92vh)',
+              // autoHeight: panel sizes to content; only maxHeight is set.
+              ...(autoHeight
+                ? {}
+                : {
+                    height:
+                      'min(calc(100dvh - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)), 92vh)',
+                  }),
               maxHeight:
                 'min(calc(100dvh - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)), 92vh)',
             }}
@@ -181,7 +189,7 @@ export default function ModalShell({
                 {children}
               </div>
             ) : (
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 flex flex-col">
                 {children}
               </div>
             )}

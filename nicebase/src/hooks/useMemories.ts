@@ -43,7 +43,7 @@ export function useMemories(
     try {
       setLoading(true)
       setError(null)
-      const allMemories = await memoryService.getAll(userId)
+      const allMemories: Memory[] = await memoryService.getAll(userId)
       setMemories(allMemories)
       onLoadCompleteRef.current?.(allMemories)
     } catch (err) {
@@ -73,6 +73,9 @@ export function useMemories(
     refreshMemories,
   }
 }
+
+
+
 
 
 

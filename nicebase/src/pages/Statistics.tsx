@@ -70,6 +70,7 @@ export default function Statistics() {
 
     // Category distribution
     const categoryCount: Record<MemoryCategory, number> = {
+      uncategorized: 0,
       success: 0,
       peace: 0,
       fun: 0,
@@ -89,6 +90,7 @@ export default function Statistics() {
 
     // Life area distribution
     const lifeAreaCount: Record<LifeArea, number> = {
+      uncategorized: 0,
       personal: 0,
       work: 0,
       relationship: 0,
@@ -202,7 +204,7 @@ export default function Statistics() {
 
   return (
     <div
-      className="max-w-4xl mx-auto px-5 sm:px-6 lg:px-8 py-8 sm:py-10"
+      className="w-full max-w-7xl mx-auto px-5 sm:px-6 lg:px-8 py-8 sm:py-10"
     >
 
       <motion.div

@@ -10,8 +10,13 @@ export interface StreakData {
 }
 
 export const streakService = {
-  async calculateStreak(userId: string): Promise<StreakData> {
-    const memories = await memoryService.getAll(userId)
+  /**
+   * Calculate streak data.
+   * @param userId - used to fetch memories when `existingMemories` is not provided
+   * @param existingMemories - optional pre-loaded memories to avoid duplicate DB calls
+   */
+  async calculateStreak(userId: string, existingMemories?: Memory[]): Promise<StreakData> {
+    const memories = existingMemories ?? await memoryService.getAll(userId)
     
     if (memories.length === 0) {
       return {

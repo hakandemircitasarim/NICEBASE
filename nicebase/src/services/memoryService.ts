@@ -6,6 +6,9 @@ import { errorLoggingService } from './errorLoggingService'
 import { withTimeout } from '../utils/timeout'
 import { addToSyncQueue } from './syncQueueHelper'
 import { photoStorageService } from './photoStorageService'
+import { aiyaService } from './aiyaService'
+import i18n from '../i18n'
+import { generateUUID } from '../utils/uuid'
 
 const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || ''
 const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || ''
@@ -31,7 +34,7 @@ async function hasAuthSessionCached(): Promise<boolean> {
   if (now - lastSessionCheckAt < 5000) return lastSessionOk
   lastSessionCheckAt = now
   try {
-    const { data } = await supabase.auth.getSession()
+    const { data } = await withTimeout(supabase.auth.getSession(), 3000)
     lastSessionOk = Boolean(data.session)
     return lastSessionOk
   } catch {
@@ -337,7 +340,7 @@ export const memoryService = {
   async create(memory: Omit<Memory, 'id' | 'createdAt' | 'updatedAt' | 'synced'>): Promise<Memory> {
     const newMemory: Memory = {
       ...memory,
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       synced: false,
@@ -406,6 +409,46 @@ export const memoryService = {
       if (canQueueForSync(newMemory.userId)) {
         await addToSyncQueue('create', newMemory)
       }
+    }
+
+    // Background AI classification (non-blocking)
+    // Only run if category/lifeArea are still defaults
+    if (
+      (newMemory.category === 'uncategorized' || newMemory.lifeArea === 'uncategorized') &&
+      newMemory.text.trim().length >= 10
+    ) {
+      aiyaService.classifyMemory(newMemory.text, i18n.language).then(async (result) => {
+        if (!result) return
+        try {
+          const updates: Partial<Memory> = {}
+          if (newMemory.category === 'uncategorized' && result.category) {
+            updates.category = result.category
+          }
+          if (newMemory.lifeArea === 'uncategorized' && result.lifeArea) {
+            updates.lifeArea = result.lifeArea
+          }
+          if (Object.keys(updates).length === 0) return
+
+          // Update local DB
+          await db.memories.update(newMemory.id, { ...updates, updatedAt: new Date().toISOString() })
+
+          // Update cloud if possible
+          if (hasSupabaseConfig() && !isLocalUserId(newMemory.userId) && navigator.onLine) {
+            const hasSession = await hasAuthSessionCached()
+            if (hasSession) {
+              const supabaseUpdates = memoryUpdatesToSupabase(updates)
+              await supabase.from('memories').update(supabaseUpdates).eq('id', newMemory.id)
+            }
+          }
+        } catch (err) {
+          // Silent fail - classification is best-effort
+          if (import.meta.env.DEV) {
+            console.warn('AI classification update failed:', err)
+          }
+        }
+      }).catch(() => {
+        // Silent fail
+      })
     }
 
     return newMemory

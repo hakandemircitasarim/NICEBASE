@@ -16,6 +16,7 @@ export default defineConfig({
   optimizeDeps: {
     force: false, // Don't force re-optimization unless needed
     include: ['react', 'react-dom', 'react-router-dom', 'recharts'],
+    exclude: ['@capacitor/browser'], // Exclude Capacitor plugins from optimization - they're only available in native builds
     esbuildOptions: {
       // Ensure React is treated as external dependency for recharts
       define: {
@@ -28,7 +29,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico'],
+      includeAssets: ['favicon.ico', 'favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'NICEBASE - Kişisel Duygusal Çapan',
         short_name: 'NICEBASE',
@@ -41,9 +42,21 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: '/vite.svg',
+            src: '/logo.svg',
             sizes: 'any',
             type: 'image/svg+xml',
+            purpose: 'any maskable'
+          },
+          {
+            src: '/pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: '/pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
             purpose: 'any maskable'
           }
         ]
@@ -93,6 +106,13 @@ export default defineConfig({
   ],
   build: {
     rollupOptions: {
+      external: (id) => {
+        // Mark Capacitor plugins as external - they're only available in native builds
+        if (id.startsWith('@capacitor/')) {
+          return true
+        }
+        return false
+      },
       output: {
         manualChunks: (id) => {
           // React and core - include recharts with React to avoid multiple React instances

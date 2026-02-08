@@ -5,6 +5,11 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT NOT NULL,
+  display_name TEXT,
+  bio TEXT,
+  avatar_url TEXT,
+  birthday DATE,
+  location TEXT,
   is_premium BOOLEAN DEFAULT FALSE,
   aiya_messages_used INTEGER DEFAULT 0,
   aiya_messages_limit INTEGER DEFAULT 30,
@@ -20,11 +25,11 @@ CREATE TABLE IF NOT EXISTS memories (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   text TEXT NOT NULL,
-  category TEXT NOT NULL CHECK (category IN ('success', 'peace', 'fun', 'love', 'gratitude', 'inspiration', 'growth', 'adventure')),
+  category TEXT NOT NULL DEFAULT 'uncategorized' CHECK (category IN ('uncategorized', 'success', 'peace', 'fun', 'love', 'gratitude', 'inspiration', 'growth', 'adventure')),
   intensity INTEGER NOT NULL CHECK (intensity >= 1 AND intensity <= 10),
   date DATE NOT NULL,
   connections TEXT[] DEFAULT '{}',
-  life_area TEXT NOT NULL CHECK (life_area IN ('personal', 'work', 'relationship', 'family', 'friends', 'hobby', 'travel', 'health')),
+  life_area TEXT NOT NULL DEFAULT 'uncategorized' CHECK (life_area IN ('uncategorized', 'personal', 'work', 'relationship', 'family', 'friends', 'hobby', 'travel', 'health')),
   is_core BOOLEAN DEFAULT FALSE,
   photos TEXT[] DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -142,6 +147,8 @@ CREATE INDEX IF NOT EXISTS memories_date_idx ON memories(date);
 CREATE INDEX IF NOT EXISTS memories_category_idx ON memories(category);
 CREATE INDEX IF NOT EXISTS memories_life_area_idx ON memories(life_area);
 CREATE INDEX IF NOT EXISTS connections_user_id_idx ON connections(user_id);
+
+
 
 
 

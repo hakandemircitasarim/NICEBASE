@@ -91,14 +91,13 @@ export async function ensureUserExists(
 
   while (retries > 0 && !userCreated) {
     // Use upsert to avoid 409 conflicts when the row exists but isn't readable yet
-    // (e.g. session not fully ready / RLS timing). This makes the flow idempotent.
     const { error: dbError } = await supabase.from('users').upsert(
       {
         id: userId,
         email: email,
         is_premium: false,
         aiya_messages_used: 0,
-        aiya_messages_limit: 30,
+        aiya_messages_limit: 50,
         weekly_summary_day: null,
         daily_reminder_time: null,
         language: 'tr',
@@ -118,8 +117,7 @@ export async function ensureUserExists(
         return userData
       }
     } else {
-      // If upsert still fails for transient reasons, retry a few times.
-      // (Conflict should not happen here, but keep the old safeguard.)
+      // If upsert still fails for transient reasons, retry
       if (
         (dbError as any)?.code === '23505' ||
         String((dbError as any)?.message || '').toLowerCase().includes('duplicate') ||
@@ -145,14 +143,3 @@ export async function ensureUserExists(
   // If we still can't get the user after all retries, return null
   return null
 }
-
-
-
-
-
-
-
-
-
-
-

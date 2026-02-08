@@ -1,51 +1,34 @@
-import { StrictMode } from 'react'
+import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
-import './index.css'
-import './i18n'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { errorLoggingService } from './services/errorLoggingService'
+import { registerServiceWorker } from './utils/registerSW'
+import './i18n'
+import './index.css'
 
-const rootElement = document.getElementById('app')
-
-if (!rootElement) {
-  if (import.meta.env.DEV) {
-    console.error('[NICEBASE] ERROR: Root element not found!')
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  const { protocol, hostname, host, pathname, search, hash } = window.location
+  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1'
+  if (protocol === 'https:' && isLocalHost) {
+    window.location.replace(`http://${host}${pathname}${search}${hash}`)
   }
-  errorLoggingService.logError(
-    new Error('Root element not found'),
-    'error'
-  )
-  throw new Error('Root element not found')
 }
 
-try {
-  const root = createRoot(rootElement)
+const container = document.getElementById('app')
 
-  root.render(
-    <StrictMode>
-      <ErrorBoundary>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-      </ErrorBoundary>
-    </StrictMode>
-  )
-} catch (error) {
-  errorLoggingService.logError(
-    error instanceof Error ? error : new Error('Fatal error during render'),
-    'error'
-  )
-  // Show error on screen
-  if (rootElement) {
-    rootElement.innerHTML = `
-      <div style="padding: 20px; font-family: sans-serif;">
-        <h1 style="color: red;">Fatal Error</h1>
-        <p>${error instanceof Error ? error.message : 'Unknown error'}</p>
-        <pre style="background: #f0f0f0; padding: 10px; overflow: auto;">${error instanceof Error ? error.stack : String(error)}</pre>
-      </div>
-    `
-  }
-  throw error
+if (!container) {
+  throw new Error('App container not found')
 }
+
+createRoot(container).render(
+  <React.StrictMode>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </ErrorBoundary>
+  </React.StrictMode>
+)
+
+registerServiceWorker()

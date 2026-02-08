@@ -2,6 +2,18 @@
  * Validates email format
  */
 import { dedupeConnections, normalizeConnectionKey, parseConnectionTokens } from './connections'
+import i18n from '../i18n'
+
+/** Safe i18n.t wrapper — returns fallback if i18n is not ready */
+function t(key: string, opts?: Record<string, unknown>): string {
+  try {
+    if (i18n && typeof i18n.t === 'function') {
+      const val = String(i18n.t(key, opts as any))
+      if (val && val !== key) return val
+    }
+  } catch { /* i18n not ready */ }
+  return ''
+}
 
 export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
@@ -27,8 +39,15 @@ export function calculatePasswordStrength(password: string): number {
  * Gets password strength label
  */
 export function getPasswordStrengthLabel(strength: number): string {
-  const labels = ['Çok Zayıf', 'Zayıf', 'Orta', 'Güçlü', 'Çok Güçlü']
-  return labels[strength] || labels[0]
+  const keys = [
+    'passwordStrength.veryWeak',
+    'passwordStrength.weak',
+    'passwordStrength.fair',
+    'passwordStrength.good',
+    'passwordStrength.strong',
+  ]
+  const fallbacks = ['Çok Zayıf', 'Zayıf', 'Orta', 'Güçlü', 'Çok Güçlü']
+  return t(keys[strength]) || fallbacks[strength] || fallbacks[0]
 }
 
 /**
@@ -39,12 +58,12 @@ export function validateMemoryText(text: string, minLength: number = 10): {
   error?: string
 } {
   if (!text.trim()) {
-    return { isValid: false, error: 'Lütfen bir metin girin' }
+    return { isValid: false, error: t('pleaseEnterText') || 'Lütfen bir metin girin' }
   }
   if (text.trim().length < minLength) {
     return {
       isValid: false,
-      error: `Metin en az ${minLength} karakter olmalıdır`,
+      error: t('textMinLength', { count: minLength }) || `Metin en az ${minLength} karakter olmalıdır`,
     }
   }
   return { isValid: true }
@@ -62,7 +81,7 @@ export function validateDate(date: string | Date): {
   today.setHours(23, 59, 59, 999)
 
   if (dateObj > today) {
-    return { isValid: false, error: 'Tarih gelecekte olamaz' }
+    return { isValid: false, error: t('dateCannotBeFuture') || 'Tarih gelecekte olamaz' }
   }
 
   return { isValid: true }
@@ -76,7 +95,7 @@ export function validateIntensity(intensity: number): {
   error?: string
 } {
   if (intensity < 1 || intensity > 10) {
-    return { isValid: false, error: 'Yoğunluk 1-10 arasında olmalıdır' }
+    return { isValid: false, error: t('intensityRange') || 'Yoğunluk 1-10 arasında olmalıdır' }
   }
   return { isValid: true }
 }
@@ -111,7 +130,7 @@ export function validateConnections(connections: string): {
   if (hasDuplicate) {
     return {
       isValid: false,
-      error: 'Aynı bağlantı birden fazla kez eklenemez',
+      error: t('duplicateConnection') || 'Aynı bağlantı birden fazla kez eklenemez',
       parsed,
     }
   }
@@ -132,11 +151,13 @@ export function validatePhotoCount(
   if (currentCount > maxCount) {
     return {
       isValid: false,
-      error: `En fazla ${maxCount} fotoğraf eklenebilir`,
+      error: t('maxPhotos', { max: maxCount }) || `En fazla ${maxCount} fotoğraf eklenebilir`,
     }
   }
   return { isValid: true }
 }
+
+
 
 
 

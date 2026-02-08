@@ -105,9 +105,12 @@ export default function RangeSlider({
     const rawValue = min + percentage * (max - min)
     const steppedValue = Math.round(rawValue / step) * step
     const clampedValue = Math.max(min, Math.min(max, steppedValue))
+    
+    // Special handling for max value to ensure thumb reaches the end
+    const finalValue = clampedValue === max ? max : clampedValue
 
-    setLocalValue(clampedValue)
-    onChange(clampedValue)
+    setLocalValue(finalValue)
+    onChange(finalValue)
 
     // Haptic feedback when value changes significantly
     if (Math.abs(clampedValue - lastHapticValue.current) >= step) {
@@ -118,7 +121,14 @@ export default function RangeSlider({
 
   const percentage = (localValue - min) / (max - min)
   const usableTrack = Math.max(0, trackWidth - THUMB_PX)
-  const thumbLeftPx = THUMB_R + percentage * usableTrack
+  // Ensure thumb center is positioned correctly, especially at max value
+  // At max value, thumb should be at rect.width - THUMB_R (fully to the right)
+  const thumbLeftPx = localValue === max && trackWidth > 0
+    ? trackWidth - THUMB_R
+    : Math.min(
+        THUMB_R + percentage * usableTrack,
+        trackWidth > 0 ? trackWidth - THUMB_R : THUMB_R
+      )
   const fillWidthPx = thumbLeftPx
 
   return (

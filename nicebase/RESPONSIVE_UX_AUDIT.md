@@ -166,3 +166,5 @@ Uygulama **mobil-first** yaklaşımı kullanıyor:
 
 
 
+
+

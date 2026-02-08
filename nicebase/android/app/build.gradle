@@ -3,6 +3,12 @@ apply plugin: 'com.android.application'
 android {
     namespace = "com.nicebase.app"
     compileSdk = rootProject.ext.compileSdkVersion
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    
     defaultConfig {
         applicationId "com.nicebase.app"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -18,17 +24,19 @@ android {
     }
     
     // Release signing configuration
-    // IMPORTANT: Before creating release build, generate keystore:
-    // keytool -genkey -v -keystore release.keystore -alias nicebase -keyalg RSA -keysize 2048 -validity 10000
-    // Then uncomment and update the signingConfigs section below
+    // Generate keystore (one-time):
+    //   keytool -genkey -v -keystore release.keystore -alias nicebase -keyalg RSA -keysize 2048 -validity 10000
+    // Set environment variables KEYSTORE_PASSWORD and KEY_PASSWORD before building.
     signingConfigs {
-        // Uncomment and configure after creating keystore:
-        // release {
-        //     storeFile file('release.keystore')
-        //     storePassword System.getenv("KEYSTORE_PASSWORD") ?: "your-keystore-password"
-        //     keyAlias "nicebase"
-        //     keyPassword System.getenv("KEY_PASSWORD") ?: "your-key-password"
-        // }
+        release {
+            def keystoreFile = file('release.keystore')
+            if (keystoreFile.exists()) {
+                storeFile keystoreFile
+                storePassword System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias "nicebase"
+                keyPassword System.getenv("KEY_PASSWORD") ?: ""
+            }
+        }
     }
     
     buildTypes {
@@ -37,8 +45,11 @@ android {
             minifyEnabled true
             // Use optimize version for better compression
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Uncomment after setting up signing config:
-            // signingConfig signingConfigs.release
+            // Use release signing if keystore exists
+            def keystoreFile = file('release.keystore')
+            if (keystoreFile.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
@@ -46,6 +57,14 @@ android {
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+configurations.all {
+    resolutionStrategy {
+        force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
     }
 }
 
@@ -59,6 +78,11 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+    
+    // Force Kotlin stdlib versions to avoid duplicate class errors
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
 }
 
 apply from: 'capacitor.build.gradle'

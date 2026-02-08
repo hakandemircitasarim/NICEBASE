@@ -62,8 +62,6 @@ export default function VaultMemoryList({
             onEdit={() => onEdit(memory)}
             onDelete={() => onDelete(memory.id)}
             onImageClick={(images, idx) => onImageClick(images, idx)}
-            onSwipeLeft={() => onEdit(memory)}
-            onSwipeRight={() => onDelete(memory.id)}
           />
         ))}
       </AnimatePresence>
@@ -91,6 +89,8 @@ export default function VaultMemoryList({
     </div>
   )
 }
+
+
 
 
 

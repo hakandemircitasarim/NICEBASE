@@ -148,7 +148,7 @@ export default function Connections() {
     <div className="max-w-4xl mx-auto px-4 py-6 sm:py-8">
       <div className="flex items-center gap-3 mb-6">
         <button
-          onClick={() => navigate('/settings')}
+          onClick={() => navigate('/profile')}
           className="icon-btn bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-primary/40 touch-manipulation"
           aria-label={t('back')}
         >

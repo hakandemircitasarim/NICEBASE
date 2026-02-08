@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { hapticFeedback } from '../utils/haptic'
 
 interface SearchBarProps {
@@ -22,6 +23,7 @@ export default function SearchBar({
   className = '',
   autoFocus = false,
 }: SearchBarProps) {
+  const { t } = useTranslation()
   const [isFocused, setIsFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -122,7 +124,7 @@ export default function SearchBar({
                 transition-colors
                 touch-manipulation
               "
-              aria-label="Temizle"
+              aria-label={t('clear')}
             >
               <X size={18} />
             </motion.button>
@@ -142,6 +144,8 @@ export default function SearchBar({
     </div>
   )
 }
+
+
 
 
 

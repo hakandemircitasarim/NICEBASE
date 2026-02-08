@@ -89,7 +89,7 @@ export const notificationService = {
     return 'default'
   },
 
-  async scheduleDailyReminder(time: string, userId: string) {
+  async scheduleDailyReminder(time: string, userId: string, currentStreak?: number) {
     // Parse time (HH:mm format)
     const [hours, minutes] = time.split(':').map(Number)
     
@@ -103,10 +103,30 @@ export const notificationService = {
       reminderTime.setDate(reminderTime.getDate() + 1)
     }
 
+    // Get streak from localStorage if not provided
+    let streak = currentStreak
+    if (streak === undefined) {
+      try {
+        const streakData = localStorage.getItem(`streak_${userId}`)
+        if (streakData) {
+          const parsed = JSON.parse(streakData)
+          streak = parsed.currentStreak || 0
+        }
+      } catch {
+        streak = 0
+      }
+    }
+
+    // Choose message based on streak
+    const reminderBody = streak && streak > 0
+      ? i18n.t('dailyReminderBodyWithStreak', { count: streak })
+      : i18n.t('dailyReminderBody')
+
     // Store reminder in localStorage
     localStorage.setItem(`reminder_${userId}`, JSON.stringify({
       time,
       scheduledFor: reminderTime.toISOString(),
+      streak,
     }))
 
     // Native platform - use scheduled local notifications
@@ -116,11 +136,13 @@ export const notificationService = {
         await this.cancelReminder(userId)
 
         // Schedule daily notification (repeating)
+        // Note: For repeating notifications, we can't dynamically change the body
+        // So we'll use the default body, but the streak will be checked when notification is shown
         await LocalNotifications.schedule({
           notifications: [
             {
               title: i18n.t('dailyReminderTitle'),
-              body: i18n.t('dailyReminderBody'),
+              body: reminderBody,
               id: parseInt(`1${userId.slice(-6)}`, 10) % 2147483647, // Unique ID based on userId
               schedule: {
                 at: reminderTime,
@@ -130,7 +152,7 @@ export const notificationService = {
               sound: 'default',
               channelId: 'daily-reminder',
               actionTypeId: 'DAILY_REMINDER',
-              extra: { userId, type: 'daily-reminder' },
+              extra: { userId, type: 'daily-reminder', streak },
             },
           ],
         })
@@ -144,18 +166,55 @@ export const notificationService = {
       return
     }
 
-    // Web platform - use setTimeout
-    const timeUntilReminder = reminderTime.getTime() - now.getTime()
+    // Web platform - use setTimeout with dynamic message
+    const scheduleNext = () => {
+      const now = new Date()
+      const nextReminderTime = new Date()
+      nextReminderTime.setHours(hours, minutes, 0, 0)
+      if (nextReminderTime < now) {
+        nextReminderTime.setDate(nextReminderTime.getDate() + 1)
+      }
 
+      // Get current streak for next reminder
+      let nextStreak = 0
+      try {
+        const streakData = localStorage.getItem(`streak_${userId}`)
+        if (streakData) {
+          const parsed = JSON.parse(streakData)
+          nextStreak = parsed.currentStreak || 0
+        }
+      } catch {}
+
+      const nextBody = nextStreak > 0
+        ? i18n.t('dailyReminderBodyWithStreak', { count: nextStreak })
+        : i18n.t('dailyReminderBody')
+
+      const timeUntilNext = nextReminderTime.getTime() - now.getTime()
+
+      const timeoutId = setTimeout(() => {
+        notificationService.showNotification(i18n.t('dailyReminderTitle'), {
+          body: nextBody,
+          tag: 'daily-reminder',
+          requireInteraction: false,
+        })
+
+        // Schedule next day
+        scheduleNext()
+      }, timeUntilNext)
+
+      localStorage.setItem(`reminder_timeout_${userId}`, timeoutId.toString())
+    }
+
+    const timeUntilReminder = reminderTime.getTime() - now.getTime()
     const timeoutId = setTimeout(() => {
       notificationService.showNotification(i18n.t('dailyReminderTitle'), {
-        body: i18n.t('dailyReminderBody'),
+        body: reminderBody,
         tag: 'daily-reminder',
         requireInteraction: false,
       })
 
       // Schedule next day
-      notificationService.scheduleDailyReminder(time, userId)
+      scheduleNext()
     }, timeUntilReminder)
 
     // Store timeout ID for cancellation

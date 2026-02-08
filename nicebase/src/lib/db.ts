@@ -84,6 +84,16 @@ export class NicebaseDB extends Dexie {
           })
         }
       })
+
+    // v3: No schema changes needed; existing memories with old category/lifeArea values
+    // will naturally coexist with 'uncategorized'. This version bump just marks the migration point.
+    this.version(3)
+      .stores({
+        memories: 'id, userId, date, category, lifeArea, isCore, synced',
+        connections: 'id, userId, name, type',
+        syncQueue: 'id, type, timestamp',
+        syncQueueV2: 'id, userId, entityId, op, status, nextAttemptAt, timestamp, dedupeKey',
+      })
   }
 }
 

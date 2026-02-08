@@ -1,14 +1,22 @@
 import { supabase } from '../lib/supabase'
 import { errorLoggingService } from './errorLoggingService'
+import { generateUUID } from '../utils/uuid'
 
 const bucket = (import.meta as any).env?.VITE_SUPABASE_PHOTO_BUCKET || 'memory-photos'
 
+/**
+ * Checks whether the photo value is a local ref that needs uploading.
+ * Detects both the explicit `local:` prefix AND raw base64 data-URLs
+ * (which is what compressImage() produces).
+ */
 export function isLocalPhotoRef(value: string) {
-  return value.startsWith('local:')
+  return value.startsWith('local:') || value.startsWith('data:')
 }
 
 function stripLocalPrefix(value: string) {
-  return value.replace(/^local:/, '')
+  if (value.startsWith('local:')) return value.replace(/^local:/, '')
+  // Raw data-URL — return as-is (already a valid data URL for upload)
+  return value
 }
 
 function guessExt(mime: string) {
@@ -47,7 +55,7 @@ export const photoStorageService = {
       const dataUrl = stripLocalPrefix(p)
       const { blob, mime } = await dataUrlToBlob(dataUrl)
       const ext = guessExt(mime)
-      const fileName = `${crypto.randomUUID()}.${ext}`
+      const fileName = `${generateUUID()}.${ext}`
       const path = `${userId}/${memoryId}/${fileName}`
 
       const uploadRes = await supabase.storage.from(bucket).upload(path, blob, {
@@ -75,5 +83,7 @@ export const photoStorageService = {
     return out
   },
 }
+
+
 
 

@@ -5,18 +5,24 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:android": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "cap:sync": "npx cap sync android",
+    "cap:open:android": "npx cap open android",
+    "cap:run:android": "npx cap run android",
     "supabase:start": "npx supabase start",
     "supabase:stop": "npx supabase stop",
     "supabase:status": "npx supabase status",
     "doctor": "node scripts/env-doctor.mjs",
     "db:publish": "node scripts/supabase-migrate.mjs",
-    "db:publish:dry": "node scripts/supabase-migrate.mjs --dry-run"
+    "db:publish:dry": "node scripts/supabase-migrate.mjs --dry-run",
+    "generate:icons": "node scripts/generate-icons.mjs"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.0.0",
     "@capacitor/android": "^8.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.9.3",
     "vite": "^7.2.4",
@@ -25,6 +31,7 @@
   },
   "dependencies": {
     "@capacitor/app": "^8.0.0",
+    "@capacitor/browser": "^8.0.0",
     "@capacitor/core": "^8.0.0",
     "@capacitor/haptics": "^8.0.0",
     "@capacitor/local-notifications": "^8.0.0",

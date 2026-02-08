@@ -151,7 +151,6 @@ export default function DateRangePicker({ startDate, endDate, onChange, onClose 
     } else if (selectedStart) {
       return format(selectedStart, 'd MMM yyyy', { locale })
     }
-    const { t } = useTranslation()
     return t('selectDateRange')
   }
 
@@ -231,7 +230,7 @@ export default function DateRangePicker({ startDate, endDate, onChange, onClose 
                   <button
                     onClick={prevMonth}
                     className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors touch-manipulation"
-                    aria-label={i18n.language?.startsWith('tr') ? 'Önceki ay' : 'Previous month'}
+                    aria-label={t('previousMonth')}
                   >
                     <ChevronLeft size={20} />
                   </button>
@@ -241,7 +240,7 @@ export default function DateRangePicker({ startDate, endDate, onChange, onClose 
                   <button
                     onClick={nextMonth}
                     className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors touch-manipulation"
-                    aria-label={i18n.language?.startsWith('tr') ? 'Sonraki ay' : 'Next month'}
+                    aria-label={t('nextMonth')}
                   >
                     <ChevronRight size={20} />
                   </button>
@@ -249,7 +248,7 @@ export default function DateRangePicker({ startDate, endDate, onChange, onClose 
                 <button
                   onClick={handleClose}
                   className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors touch-manipulation"
-                  aria-label={i18n.language?.startsWith('tr') ? 'Kapat' : 'Close'}
+                  aria-label={t('close')}
                 >
                   <X size={20} />
                 </button>
@@ -306,14 +305,14 @@ export default function DateRangePicker({ startDate, endDate, onChange, onClose 
                   onClick={handleClear}
                   className="flex-1 px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors touch-manipulation"
                 >
-                  {i18n.language?.startsWith('tr') ? 'Temizle' : 'Clear'}
+                  {t('clear')}
                 </button>
                 <button
                   onClick={handleApply}
                   disabled={!selectedStart}
                   className="flex-1 px-4 py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
                 >
-                  {i18n.language?.startsWith('tr') ? 'Uygula' : 'Apply'}
+                  {t('apply')}
                 </button>
               </div>
               </motion.div>

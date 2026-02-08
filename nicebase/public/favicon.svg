@@ -1,0 +1,23 @@
+<svg width="32" height="32" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="faviconGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF6B35;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FF8C5A;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Simplified anchor for favicon -->
+  <g transform="translate(256, 256)">
+    <!-- Anchor shank -->
+    <path d="M 0 -120 L 0 80 L -20 100 L 20 100 L 0 80 Z" fill="url(#faviconGradient)"/>
+    
+    <!-- Anchor ring -->
+    <circle cx="0" cy="-120" r="18" fill="url(#faviconGradient)"/>
+    
+    <!-- Anchor arms -->
+    <path d="M -60 -40 Q -80 -60 -80 -80 Q -80 -100 -60 -100 Q -50 -100 -45 -95 Q -40 -100 -30 -100 Q -10 -100 -10 -80 Q -10 -60 -30 -40 Z" 
+          fill="url(#faviconGradient)"/>
+    <path d="M 60 -40 Q 80 -60 80 -80 Q 80 -100 60 -100 Q 50 -100 45 -95 Q 40 -100 30 -100 Q 10 -100 10 -80 Q 10 -60 30 -40 Z" 
+          fill="url(#faviconGradient)"/>
+  </g>
+</svg>

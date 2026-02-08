@@ -1,207 +1,226 @@
-import OpenAI from 'openai'
-import { Memory } from '../types'
-import { memoryService } from './memoryService'
-import { errorLoggingService } from './errorLoggingService'
-import i18n from '../i18n'
+import { supabase } from '../lib/supabase'
+import { Memory, MemoryCategory, LifeArea } from '../types'
+import { withTimeout } from '../utils/timeout'
 
-const apiKey = (import.meta as any).env.VITE_OPENAI_API_KEY || ''
+type AiyaAction = 'chat' | 'category' | 'classify' | 'analysis' | 'profile'
 
-// Only create OpenAI client if API key is available
-const openai = apiKey ? new OpenAI({
-  apiKey: apiKey,
-  dangerouslyAllowBrowser: true,
-}) : null
-
-// Check if OpenAI is available
-const isOpenAIAvailable = () => {
-  return !!apiKey && !!openai
+type AiyaMessage = {
+  role: 'user' | 'assistant'
+  content: string
 }
 
-const SUGGEST_COOLDOWN_KEY = 'nicebase_aiya_suggest_cooldown_until'
-const CHAT_COOLDOWN_KEY = 'nicebase_aiya_chat_cooldown_until'
+type AiyaUsage = {
+  used: number
+  limit: number
+}
 
-function readCooldown(key: string): number {
+type AiyaChatResponse = {
+  reply: string
+  usage?: AiyaUsage
+}
+
+type AiyaAnalysis = {
+  emotionalTrends: string
+  standoutMemories: string[]
+  patterns: string
+  recommendations: string
+}
+
+type AiyaAnalysisResponse = {
+  analysis: AiyaAnalysis
+  usage?: AiyaUsage
+}
+
+type AiyaProfileResponse = {
+  profile: string
+  usage?: AiyaUsage
+}
+
+const FUNCTION_NAME = 'aiya-chat'
+const REQUEST_TIMEOUT_MS = 30000
+const MAX_CONTEXT_MEMORIES = 60
+const MAX_CONTEXT_CHARS = 10000
+
+let lastSessionCheckAt = 0
+let lastSessionOk = false
+
+async function hasActiveSessionCached(): Promise<boolean> {
+  const now = Date.now()
+  if (now - lastSessionCheckAt < 5000) return lastSessionOk
+  lastSessionCheckAt = now
   try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem(key) : null
-    const n = raw ? Number(raw) : 0
-    return Number.isFinite(n) ? n : 0
+    const { data } = await supabase.auth.getSession()
+    lastSessionOk = Boolean(data.session)
+    return lastSessionOk
   } catch {
-    return 0
+    lastSessionOk = false
+    return false
   }
 }
 
-function writeCooldown(key: string, until: number) {
-  try {
-    if (typeof window !== 'undefined') localStorage.setItem(key, String(until))
-  } catch {
-    // ignore
+function buildMemoryContext(memories: Memory[]): string {
+  if (!memories.length) return ''
+  const sorted = [...memories].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  )
+  let totalChars = 0
+  const lines: string[] = []
+  for (const memory of sorted.slice(0, MAX_CONTEXT_MEMORIES)) {
+    const line = `- ${memory.date.split('T')[0]} | ${memory.category} | ${memory.text}`
+    totalChars += line.length
+    if (totalChars > MAX_CONTEXT_CHARS) break
+    lines.push(line)
   }
+  return lines.join('\n')
 }
 
-let suggestionCooldownUntil = readCooldown(SUGGEST_COOLDOWN_KEY)
-let chatCooldownUntil = readCooldown(CHAT_COOLDOWN_KEY)
-let suggestInFlight = false
-let chatInFlight = false
+function extractFunctionErrorMessage(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null
+  const message = 'message' in error ? String((error as { message?: unknown }).message ?? '') : ''
 
-function isRateLimitError(err: any): boolean {
-  const status = err?.status || err?.response?.status || err?.error?.status
-  if (status === 429) return true
-  const msg = String(err?.message || err?.error?.message || err || '')
-  if (msg.includes('429') || msg.toLowerCase().includes('too many requests')) return true
-  const code = String(err?.code || err?.error?.code || '')
-  if (code === 'rate_limit_exceeded') return true
-  return false
+  // Try context.body (FunctionsHttpError structure)
+  const context = (error as { context?: { body?: unknown } }).context
+  const body = context?.body
+  if (typeof body === 'string') {
+    try {
+      const parsed = JSON.parse(body) as { error?: string }
+      if (parsed?.error) return parsed.error
+    } catch {
+      // If body is a non-JSON string, use it directly if short enough
+      if (body.trim().length > 0 && body.length < 300) return body.trim()
+    }
+  } else if (body && typeof body === 'object' && 'error' in body) {
+    const bodyError = (body as { error?: unknown }).error
+    if (typeof bodyError === 'string' && bodyError.trim()) return bodyError
+  }
+
+  // Try direct error property (some Supabase versions)
+  if ('error' in error) {
+    const directError = (error as { error?: unknown }).error
+    if (typeof directError === 'string' && directError.trim()) return directError
+  }
+
+  return message || null
 }
 
-function setSuggestCooldown(ms: number) {
-  suggestionCooldownUntil = Date.now() + ms
-  writeCooldown(SUGGEST_COOLDOWN_KEY, suggestionCooldownUntil)
-}
+async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
+  // Ensure we have an active session before calling edge functions
+  const hasSession = await hasActiveSessionCached()
+  if (!hasSession) {
+    throw new Error('No active session. Please log in again.')
+  }
 
-function setChatCooldown(ms: number) {
-  chatCooldownUntil = Date.now() + ms
-  writeCooldown(CHAT_COOLDOWN_KEY, chatCooldownUntil)
+  const response = await withTimeout(
+    supabase.functions.invoke(FUNCTION_NAME, { body: payload }),
+    REQUEST_TIMEOUT_MS
+  )
+
+  if (response.error) {
+    const detail = extractFunctionErrorMessage(response.error)
+    throw new Error(detail || response.error.message || 'Aiya request failed')
+  }
+
+  // Validate that we got actual data back
+  if (response.data === null || response.data === undefined) {
+    throw new Error('Empty response from Aiya')
+  }
+
+  return response.data as T
 }
 
 export const aiyaService = {
-  canSuggestCategory(): boolean {
-    return isOpenAIAvailable() && Date.now() >= suggestionCooldownUntil
+  async canUseAiya(): Promise<boolean> {
+    return await hasActiveSessionCached()
   },
 
-  async chat(userId: string, message: string, memories: Memory[]): Promise<string> {
-    if (!isOpenAIAvailable()) {
-      return i18n.t('openAIServiceUnavailable')
-    }
-    if (Date.now() < chatCooldownUntil) {
-      return i18n.t('openAIServiceUnavailable')
-    }
-    if (chatInFlight) {
-      return i18n.t('openAIServiceUnavailable')
-    }
-
-    const memoriesText = memories.slice(0, 50).map(m => `- ${m.text} (${m.category}, ${m.intensity}/10, ${m.date})`).join('\n')
-    const systemPrompt = i18n.t('aiyaSystemPrompt', { memories: memoriesText })
-
-    try {
-      chatInFlight = true
-      const completion = await openai!.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: message },
-        ],
-        temperature: 0.7,
-        max_tokens: 500,
-      })
-
-      return completion.choices[0]?.message?.content || i18n.t('sorryErrorOccurred')
-    } catch (error) {
-      if (isRateLimitError(error)) {
-        setChatCooldown(5 * 60 * 1000)
-        return i18n.t('openAIServiceUnavailable')
-      }
-      errorLoggingService.logError(
-        error instanceof Error ? error : new Error('Aiya chat error'),
-        'error',
-        userId
-      )
-      return i18n.t('connectionIssue')
-    } finally {
-      chatInFlight = false
-    }
+  async sendMessage(params: {
+    message: string
+    history: AiyaMessage[]
+    memories: Memory[]
+    locale?: string
+    systemPrompt?: string
+  }): Promise<AiyaChatResponse> {
+    const { message, history, memories, locale, systemPrompt } = params
+    const memoryContext = buildMemoryContext(memories)
+    return await invokeAiya<AiyaChatResponse>({
+      action: 'chat' satisfies AiyaAction,
+      message,
+      history,
+      locale,
+      systemPrompt,
+      memoryContext,
+      countUsage: true,
+    })
   },
 
-  async suggestCategory(text: string): Promise<string | null> {
-    if (!text || text.length < 10) return null
-    if (!isOpenAIAvailable()) return null
-    if (Date.now() < suggestionCooldownUntil) return null
-    if (suggestInFlight) return null
-
-    const prompt = i18n.t('categorySuggestionPrompt', { text })
-    const systemPrompt = i18n.t('categorySuggestionSystemPrompt')
-
+  async suggestCategory(text: string, locale?: string): Promise<MemoryCategory | null> {
+    if (!text.trim()) return null
+    if (!(await hasActiveSessionCached())) return null
     try {
-      suggestInFlight = true
-      const completion = await openai!.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.3,
-        max_tokens: 10,
+      const response = await invokeAiya<{ category?: MemoryCategory | null }>({
+        action: 'category' satisfies AiyaAction,
+        message: text,
+        locale,
+        countUsage: false,
       })
-
-      const category = completion.choices[0]?.message?.content?.trim().toLowerCase()
-      if (['success', 'peace', 'fun', 'love', 'gratitude', 'inspiration', 'growth', 'adventure'].includes(category || '')) {
-        return category || null
-      }
+      return response?.category ?? null
+    } catch {
       return null
-    } catch (error) {
-      if (isRateLimitError(error)) {
-        setSuggestCooldown(5 * 60 * 1000)
-      }
-      return null
-    } finally {
-      suggestInFlight = false
     }
   },
 
-  async analyzeMemories(userId: string, memories: Memory[]): Promise<{
-    emotionalTrends: string
-    standoutMemories: string[]
-    patterns: string
-    recommendations: string
-  }> {
-    if (!isOpenAIAvailable()) {
-      return {
-        emotionalTrends: i18n.t('analysisUnavailable'),
-        standoutMemories: [],
-        patterns: i18n.t('analysisUnavailable'),
-        recommendations: i18n.t('addMoreMemoriesForAnalysis'),
-      }
-    }
-
-    // Format memories based on language
-    const isTurkish = i18n.language === 'tr'
-    const categoryLabel = isTurkish ? 'Kategori' : 'Category'
-    const intensityLabel = isTurkish ? 'Yoğunluk' : 'Intensity'
-    const dateLabel = isTurkish ? 'Tarih' : 'Date'
-    const lifeAreaLabel = isTurkish ? 'Yaşam Alanı' : 'Life Area'
-    
-    const memoriesText = memories.map(m => 
-      `${m.text} | ${categoryLabel}: ${m.category} | ${intensityLabel}: ${m.intensity}/10 | ${dateLabel}: ${m.date} | ${lifeAreaLabel}: ${m.lifeArea}`
-    ).join('\n\n')
-
-    const prompt = i18n.t('memoryAnalysisPrompt', { memories: memoriesText })
-    const systemPrompt = i18n.t('memoryAnalysisSystemPrompt')
-
+  /**
+   * Classify a memory text into both category AND lifeArea using AI.
+   * Returns null on failure (non-blocking, used post-save).
+   */
+  async classifyMemory(text: string, locale?: string): Promise<{ category: MemoryCategory; lifeArea: LifeArea } | null> {
+    if (!text.trim()) return null
+    if (!(await hasActiveSessionCached())) return null
     try {
-      const completion = await openai!.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.7,
-        response_format: { type: 'json_object' },
+      const response = await invokeAiya<{ category?: string; lifeArea?: string }>({
+        action: 'classify' satisfies AiyaAction,
+        message: text,
+        locale,
+        countUsage: false,
       })
-
-      const content = completion.choices[0]?.message?.content || '{}'
-      return JSON.parse(content)
-    } catch (error) {
-      errorLoggingService.logError(
-        error instanceof Error ? error : new Error('Memory analysis error'),
-        'error',
-        userId
-      )
-      return {
-        emotionalTrends: i18n.t('analysisUnavailable'),
-        standoutMemories: [],
-        patterns: i18n.t('analysisUnavailable'),
-        recommendations: i18n.t('addMoreMemoriesForAnalysis'),
-      }
+      if (!response) return null
+      const category = (response.category || 'gratitude') as MemoryCategory
+      const lifeArea = (response.lifeArea || 'personal') as LifeArea
+      return { category, lifeArea }
+    } catch {
+      return null
     }
+  },
+
+  async analyzeMemories(params: {
+    memories: Memory[]
+    locale?: string
+    systemPrompt?: string
+  }): Promise<AiyaAnalysisResponse> {
+    const { memories, locale, systemPrompt } = params
+    const memoryContext = buildMemoryContext(memories)
+    return await invokeAiya<AiyaAnalysisResponse>({
+      action: 'analysis' satisfies AiyaAction,
+      memoryContext,
+      locale,
+      systemPrompt,
+      countUsage: true,
+    })
+  },
+
+  async buildProfile(params: {
+    memories: Memory[]
+    history: AiyaMessage[]
+    locale?: string
+  }): Promise<AiyaProfileResponse> {
+    const { memories, history, locale } = params
+    const memoryContext = buildMemoryContext(memories)
+    return await invokeAiya<AiyaProfileResponse>({
+      action: 'profile' satisfies AiyaAction,
+      memoryContext,
+      history,
+      locale,
+      countUsage: false,
+    })
   },
 }
-

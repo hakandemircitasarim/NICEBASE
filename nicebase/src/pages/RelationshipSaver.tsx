@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
-import { ChevronLeft, ChevronRight, Heart } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Heart, Maximize2, Minimize2, Share2, Download, X } from 'lucide-react'
 import { Memory } from '../types'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { useSwipe } from '../hooks/useSwipe'
@@ -27,6 +27,9 @@ export default function RelationshipSaver() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [showImageModal, setShowImageModal] = useState(false)
   const [requestedConnectionKey, setRequestedConnectionKey] = useState<string>('')
+  const [isFullScreen, setIsFullScreen] = useState(false)
+  const [autoPlay, setAutoPlay] = useState(false)
+  const autoPlayIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     // Extract unique connections from memories
@@ -94,6 +97,100 @@ export default function RelationshipSaver() {
     } : undefined,
   })
 
+  // Auto-play functionality
+  useEffect(() => {
+    if (autoPlay && filteredMemories.length > 0 && currentIndex < filteredMemories.length - 1) {
+      autoPlayIntervalRef.current = setInterval(() => {
+        setCurrentIndex(prev => {
+          if (prev < filteredMemories.length - 1) {
+            return prev + 1
+          }
+          return prev
+        })
+      }, 5000) // 5 seconds per memory
+    } else {
+      if (autoPlayIntervalRef.current) {
+        clearInterval(autoPlayIntervalRef.current)
+        autoPlayIntervalRef.current = null
+      }
+    }
+    return () => {
+      if (autoPlayIntervalRef.current) {
+        clearInterval(autoPlayIntervalRef.current)
+      }
+    }
+  }, [autoPlay, filteredMemories.length, currentIndex])
+
+  // Full-screen mode
+  useEffect(() => {
+    if (isFullScreen) {
+      document.documentElement.style.overflow = 'hidden'
+    } else {
+      document.documentElement.style.overflow = ''
+    }
+    return () => {
+      document.documentElement.style.overflow = ''
+    }
+  }, [isFullScreen])
+
+  // Share functionality
+  const handleShare = async () => {
+    if (!currentMemory) return
+    
+    const connectionName = connections.find(c => c.key === selectedConnectionKey)?.label || 'Connection'
+    const shareText = `${connectionName} ile ${filteredMemories.length} anı\n\n"${currentMemory.text.substring(0, 100)}${currentMemory.text.length > 100 ? '...' : ''}"\n\nNICEBASE - Kişisel Duygusal Çapa`
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${connectionName} ile Anılar`,
+          text: shareText,
+          url: window.location.href,
+        })
+        toast.success(t('shared', { defaultValue: 'Paylaşıldı!' }), { duration: 2000 })
+      } catch (error) {
+        // User cancelled or error
+      }
+    } else {
+      // Fallback: copy to clipboard
+      try {
+        await navigator.clipboard.writeText(shareText + '\n' + window.location.href)
+        toast.success(t('copiedToClipboard', { defaultValue: 'Panoya kopyalandı!' }), { duration: 2000 })
+      } catch (error) {
+        toast.error(t('shareError', { defaultValue: 'Paylaşım hatası' }))
+      }
+    }
+  }
+
+  // Export as text
+  const handleExport = () => {
+    if (filteredMemories.length === 0) return
+    
+    const connectionName = connections.find(c => c.key === selectedConnectionKey)?.label || 'Connection'
+    let exportText = `${connectionName} ile Anılar\n`
+    exportText += `${'='.repeat(40)}\n\n`
+    
+    filteredMemories.forEach((memory, index) => {
+      exportText += `Anı ${index + 1}/${filteredMemories.length}\n`
+      exportText += `Tarih: ${new Date(memory.date).toLocaleDateString()}\n`
+      exportText += `Yoğunluk: ${memory.intensity}/10\n`
+      exportText += `Kategori: ${t(`categories.${memory.category}`)}\n`
+      exportText += `\n${memory.text}\n\n`
+      exportText += `${'-'.repeat(40)}\n\n`
+    })
+    
+    const blob = new Blob([exportText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${connectionName}_anilari_${new Date().toISOString().split('T')[0]}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast.success(t('exported', { defaultValue: 'Dışa aktarıldı!' }), { duration: 2000 })
+  }
+
   // currentMemory is computed here for use in render
   const currentMemory = filteredMemories[currentIndex]
 
@@ -111,19 +208,38 @@ export default function RelationshipSaver() {
     <div 
       className="max-w-4xl mx-auto px-4 py-8"
     >
-      <h1 className="text-3xl font-bold mb-6">{t('relationshipSaver')}</h1>
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-8"
+      >
+        <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-primary to-orange-500 bg-clip-text text-transparent mb-2">
+          {t('relationshipSaver')}
+        </h1>
+        <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">
+          {t('relationshipSaverDescription', { defaultValue: 'Sevdiklerinizle paylaştığınız özel anıları keşfedin' })}
+        </p>
+      </motion.div>
 
       {connections.length === 0 ? (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center py-16 px-4"
+          className="text-center py-20 px-4"
         >
-          <Heart className="mx-auto text-gray-400 dark:text-gray-500 mb-4" size={64} />
-          <h3 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-2">
+          <motion.div
+            animate={{ scale: [1, 1.1, 1] }}
+            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+            className="mb-6"
+          >
+            <div className="mx-auto w-24 h-24 rounded-full bg-gradient-to-br from-primary/20 to-orange-500/20 flex items-center justify-center">
+              <Heart className="text-primary dark:text-orange-400" size={48} />
+            </div>
+          </motion.div>
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-3">
             {t('noConnections')}
           </h3>
-          <p className="text-gray-500 dark:text-gray-400 text-base mb-6">
+          <p className="text-gray-600 dark:text-gray-400 text-base mb-8 max-w-md mx-auto leading-relaxed">
             {t('noConnectionsDescription')}
           </p>
           <motion.button
@@ -133,62 +249,213 @@ export default function RelationshipSaver() {
               hapticFeedback('light')
               window.location.href = '/vault?action=add'
             }}
-            className="px-6 py-3 gradient-primary text-white rounded-xl font-semibold hover:shadow-lg transition-all touch-manipulation"
+            className="px-8 py-4 gradient-primary text-white rounded-2xl font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all touch-manipulation"
           >
             {t('addMemory')}
           </motion.button>
         </motion.div>
       ) : (
         <>
-          <div className="mb-6">
-            <label className="block text-sm font-medium mb-2">{t('selectConnection')}</label>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6"
+          >
+            <label className="block text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">
+              {t('selectConnection')}
+            </label>
             <select
               value={selectedConnectionKey}
               onChange={(e) => setSelectedConnectionKey(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+              className="w-full px-5 py-3.5 border-2 border-gray-200 dark:border-gray-700 rounded-2xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none shadow-sm hover:shadow-md font-medium"
             >
               <option value="">{t('selectConnectionPlaceholder')}</option>
               {connections.map(conn => (
                 <option key={conn.key} value={conn.key}>{conn.label}</option>
               ))}
             </select>
-          </div>
+          </motion.div>
 
           {selectedConnectionKey && filteredMemories.length === 0 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-center py-16 px-4"
+              className="text-center py-20 px-4"
             >
-              <Heart className="mx-auto text-gray-400 dark:text-gray-500 mb-4" size={64} />
-              <h3 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-2">
+              <motion.div
+                animate={{ scale: [1, 1.1, 1] }}
+                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                className="mb-6"
+              >
+                <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-primary/20 to-orange-500/20 flex items-center justify-center">
+                  <Heart className="text-primary dark:text-orange-400" size={40} />
+                </div>
+              </motion.div>
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-3">
                 {t('noMemoriesForConnection')}
               </h3>
-              <p className="text-gray-500 dark:text-gray-400 text-base">
+              <p className="text-gray-600 dark:text-gray-400 text-base max-w-md mx-auto leading-relaxed">
                 {t('noMemoriesForConnectionDescription')}
               </p>
             </motion.div>
           )}
 
           {selectedConnectionKey && (
-            <AnimatePresence mode="wait">
-              {currentMemory && (
+            <>
+              {/* Controls */}
+              <div className="flex items-center justify-between mb-6 gap-3">
+                <div className="flex items-center gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      hapticFeedback('light')
+                      setIsFullScreen(!isFullScreen)
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 hover:border-primary/50 hover:bg-primary/5 transition-all touch-manipulation flex items-center gap-2 shadow-sm"
+                    aria-label={isFullScreen ? t('exitFullScreen', { defaultValue: 'Tam ekrandan çık' }) : t('enterFullScreen', { defaultValue: 'Tam ekran' })}
+                  >
+                    {isFullScreen ? <Minimize2 size={18} className="text-gray-600 dark:text-gray-300" /> : <Maximize2 size={18} className="text-gray-600 dark:text-gray-300" />}
+                    <span className="text-sm font-semibold hidden sm:inline text-gray-700 dark:text-gray-300">
+                      {isFullScreen ? t('exitFullScreen', { defaultValue: 'Çık' }) : t('enterFullScreen', { defaultValue: 'Tam Ekran' })}
+                    </span>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      hapticFeedback('light')
+                      setAutoPlay(!autoPlay)
+                    }}
+                    className={`px-4 py-2.5 rounded-xl transition-all touch-manipulation flex items-center gap-2 shadow-sm ${
+                      autoPlay
+                        ? 'bg-gradient-to-r from-primary to-orange-500 text-white border-2 border-transparent'
+                        : 'bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 hover:border-primary/50 hover:bg-primary/5 text-gray-700 dark:text-gray-300'
+                    }`}
+                    aria-label={autoPlay ? t('stopAutoPlay', { defaultValue: 'Otomatik oynatmayı durdur' }) : t('startAutoPlay', { defaultValue: 'Otomatik oynat' })}
+                  >
+                    <span className="text-base font-bold">{autoPlay ? '⏸' : '▶'}</span>
+                    <span className="text-sm font-semibold hidden sm:inline">
+                      {autoPlay ? t('pause', { defaultValue: 'Duraklat' }) : t('play', { defaultValue: 'Oynat' })}
+                    </span>
+                  </motion.button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleShare}
+                    className="px-4 py-2.5 rounded-xl bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 hover:border-primary/50 hover:bg-primary/5 transition-all touch-manipulation flex items-center gap-2 shadow-sm"
+                    aria-label={t('share')}
+                  >
+                    <Share2 size={18} className="text-gray-600 dark:text-gray-300" />
+                    <span className="text-sm font-semibold hidden sm:inline text-gray-700 dark:text-gray-300">{t('share')}</span>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleExport}
+                    className="px-4 py-2.5 rounded-xl bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 hover:border-primary/50 hover:bg-primary/5 transition-all touch-manipulation flex items-center gap-2 shadow-sm"
+                    aria-label={t('export')}
+                  >
+                    <Download size={18} className="text-gray-600 dark:text-gray-300" />
+                    <span className="text-sm font-semibold hidden sm:inline text-gray-700 dark:text-gray-300">{t('export')}</span>
+                  </motion.button>
+                </div>
+              </div>
+
+              {/* Full-screen overlay */}
+              {isFullScreen && (
+                <div
+                  className="fixed inset-0 bg-black z-50 flex items-center justify-center p-4"
+                  onClick={() => setIsFullScreen(false)}
+                >
+                  <button
+                    onClick={() => setIsFullScreen(false)}
+                    className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm text-white hover:bg-white/20 transition-colors flex items-center justify-center z-10"
+                    aria-label={t('close')}
+                  >
+                    <X size={20} />
+                  </button>
+                  <div className="w-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
+                    {currentMemory && (
+                      <motion.div
+                        key={currentIndex}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className="bg-white dark:bg-gray-800 rounded-3xl p-8 min-h-[60vh] flex flex-col"
+                        {...swipeHandlers}
+                      >
+                        {currentMemory.photos.length > 0 && (
+                          <div className="mb-6">
+                            <img
+                              src={currentMemory.photos[0]}
+                              alt={t('memory')}
+                              className="w-full h-96 object-cover rounded-2xl"
+                              loading="lazy"
+                            />
+                          </div>
+                        )}
+                        <p className="text-2xl text-gray-800 dark:text-gray-200 mb-6 flex-1">
+                          {currentMemory.text}
+                        </p>
+                        <div className="flex justify-between items-center pt-6 border-t border-gray-200 dark:border-gray-700">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              hapticFeedback('light')
+                              prevMemory()
+                            }}
+                            disabled={currentIndex === 0}
+                            className="px-6 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl disabled:opacity-50 touch-manipulation"
+                          >
+                            <ChevronLeft size={24} />
+                          </button>
+                          <span className="text-lg text-white/80">
+                            {currentIndex + 1} / {filteredMemories.length}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              hapticFeedback('light')
+                              nextMemory()
+                            }}
+                            disabled={currentIndex === filteredMemories.length - 1}
+                            className="px-6 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl disabled:opacity-50 touch-manipulation"
+                          >
+                            <ChevronRight size={24} />
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Regular view */}
+              <AnimatePresence mode="wait">
+                {currentMemory && !isFullScreen && (
             <motion.div 
               key={currentIndex}
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 sm:p-8 min-h-[400px] flex flex-col touch-manipulation"
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              className="relative bg-gradient-to-br from-white via-white to-primary/5 dark:from-gray-800 dark:via-gray-800 dark:to-primary/10 border-2 border-gray-200 dark:border-gray-700 rounded-3xl p-6 sm:p-8 min-h-[400px] flex flex-col touch-manipulation shadow-xl hover:shadow-2xl transition-all overflow-hidden"
               {...swipeHandlers}
             >
-              <div className="flex-1">
+              {/* Decorative gradient overlay */}
+              <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-primary/10 to-transparent rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute bottom-0 left-0 w-48 h-48 bg-gradient-to-tr from-orange-500/10 to-transparent rounded-full blur-2xl pointer-events-none" />
+              <div className="flex-1 relative z-10">
                 {currentMemory.photos.length > 0 && (
                   <div className="mb-6">
                     <motion.img
                       src={currentMemory.photos[0]}
                       alt={t('memory')}
                       loading="lazy"
-                      className="w-full h-64 object-cover rounded-xl cursor-pointer touch-manipulation bg-gray-100 dark:bg-gray-700"
+                      className="w-full h-64 object-cover rounded-2xl cursor-pointer touch-manipulation bg-gray-100 dark:bg-gray-700 shadow-lg"
                       whileTap={{ scale: 0.98 }}
                       onError={(e) => {
                         const target = e.currentTarget
@@ -203,24 +470,24 @@ export default function RelationshipSaver() {
                   </div>
                 )}
                 
-                <p className="text-lg text-gray-700 dark:text-gray-300 mb-6">
+                <p className="text-lg sm:text-xl text-gray-800 dark:text-gray-100 mb-6 leading-relaxed font-medium">
                   {currentMemory.text}
                 </p>
 
                 <div className="flex flex-wrap gap-2 mb-4">
-                  <span className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                  <span className="text-xs font-semibold bg-gradient-to-r from-primary/10 to-primary/5 dark:from-primary/20 dark:to-primary/10 text-primary dark:text-primary-light px-3 py-1.5 rounded-full border border-primary/20">
                     {t(`categories.${currentMemory.category}`)}
                   </span>
-                  <span className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                  <span className="text-xs font-semibold bg-gradient-to-r from-orange-500/10 to-orange-500/5 dark:from-orange-500/20 dark:to-orange-500/10 text-orange-600 dark:text-orange-400 px-3 py-1.5 rounded-full border border-orange-500/20">
                     {currentMemory.intensity}/10
                   </span>
-                  <span className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                  <span className="text-xs font-semibold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-full">
                     {new Date(currentMemory.date).toLocaleDateString()}
                   </span>
                 </div>
               </div>
 
-              <div className="flex justify-between items-center mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex justify-between items-center mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 relative z-10">
                 <motion.button
                   onClick={() => {
                     hapticFeedback('light')
@@ -229,14 +496,14 @@ export default function RelationshipSaver() {
                   disabled={currentIndex === 0}
                   whileHover={currentIndex > 0 ? { scale: 1.05 } : {}}
                   whileTap={currentIndex > 0 ? { scale: 0.95 } : {}}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg disabled:opacity-50 touch-manipulation"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 rounded-xl disabled:opacity-50 touch-manipulation font-medium text-gray-700 dark:text-gray-300 hover:border-primary/50 hover:bg-primary/5 transition-all shadow-sm"
                   aria-label={t('previous')}
                 >
                   <ChevronLeft size={20} />
                   <span className="hidden sm:inline">{t('previous')}</span>
                 </motion.button>
 
-                <span className="text-sm text-gray-500" aria-label={`${currentIndex + 1} / ${filteredMemories.length}`}>
+                <span className="text-sm font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-4 py-2 rounded-full" aria-label={`${currentIndex + 1} / ${filteredMemories.length}`}>
                   {currentIndex + 1} / {filteredMemories.length}
                 </span>
 
@@ -248,7 +515,7 @@ export default function RelationshipSaver() {
                   disabled={currentIndex === filteredMemories.length - 1}
                   whileHover={currentIndex < filteredMemories.length - 1 ? { scale: 1.05 } : {}}
                   whileTap={currentIndex < filteredMemories.length - 1 ? { scale: 0.95 } : {}}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg disabled:opacity-50 touch-manipulation"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 rounded-xl disabled:opacity-50 touch-manipulation font-medium text-gray-700 dark:text-gray-300 hover:border-primary/50 hover:bg-primary/5 transition-all shadow-sm"
                   aria-label={t('next')}
                 >
                   <span className="hidden sm:inline">{t('next')}</span>
@@ -258,6 +525,7 @@ export default function RelationshipSaver() {
             </motion.div>
             )}
             </AnimatePresence>
+            </>
           )}
         </>
       )}
