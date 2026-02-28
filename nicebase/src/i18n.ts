@@ -77,6 +77,7 @@ const resources = {
       textMinLength: 'Metin en az {{count}} karakter olmalıdır',
       intensityRange: 'Yoğunluk 1-10 arasında olmalıdır',
       duplicateConnection: 'Aynı bağlantı birden fazla kez eklenemez',
+      invalidDate: 'Geçersiz tarih',
       dateCannotBeFuture: 'Tarih gelecekte olamaz',
       pleaseCheckForm: 'Lütfen formu kontrol edin',
       memoryUpdatedSuccess: 'Anı başarıyla güncellendi',
@@ -625,6 +626,37 @@ const resources = {
       onboardingAiya: 'AI asistanınız Aiya ile anılarınızı analiz edin ve duygusal destek alın',
       onboardingStatistics: 'Anılarınızın detaylı analizini görüntüleyin ve trendleri keşfedin',
       onboardingAchievements: 'Başarımlarınızı ve rozetlerinizi keşfedin, yeni hedefler belirleyin',
+
+      // Missing keys used in code
+      connectionTimeout: 'Bağlantı zaman aşımına uğradı. Lütfen tekrar deneyin.',
+      failedToLoadUserData: 'Kullanıcı verileri yüklenemedi',
+      passwordResetSuccess: 'Şifreniz başarıyla güncellendi! Yönlendiriliyorsunuz...',
+      syncPartial: 'Senkron tamamlandı. {{pending}} bekleyen, {{failed}} başarısız.',
+      emailRequired: 'E-posta adresi gereklidir',
+      relationshipSaverDescription: 'Sevdiklerinizle paylaştığınız özel anıları keşfedin',
+
+      // Export service keys
+      exportReportTitle: 'NICEBASE Anı Raporu',
+      exportCreatedDate: 'Oluşturma Tarihi',
+      exportTotalMemories: 'Toplam Anı',
+      exportDate: 'Tarih',
+      exportText: 'Metin',
+      exportCategory: 'Kategori',
+      exportIntensity: 'Yoğunluk',
+      exportLifeArea: 'Yaşam Alanı',
+      exportCore: 'Çekirdek',
+      exportConnections: 'Bağlantılar',
+      exportPhotoCount: 'Fotoğraf Sayısı',
+
+      // Share & export text
+      shareMemoryCount: '{{connection}} ile {{count}} anı',
+      shareTagline: 'NICEBASE - Kişisel Duygusal Çapa',
+      shareTitle: '{{connection}} ile Anılar',
+      exportMemoryLabel: 'Anı',
+      exportDateLabel: 'Tarih',
+      exportIntensityLabel: 'Yoğunluk',
+      exportCategoryLabel: 'Kategori',
+      imageLoadError: 'Görsel yüklenemedi',
     },
   },
   en: {
@@ -691,6 +723,7 @@ const resources = {
       textMinLength: 'Text must be at least {{count}} characters',
       intensityRange: 'Intensity must be between 1-10',
       duplicateConnection: 'The same connection cannot be added multiple times',
+      invalidDate: 'Invalid date',
       dateCannotBeFuture: 'Date cannot be in the future',
       pleaseCheckForm: 'Please check the form',
       memoryUpdatedSuccess: 'Memory updated successfully',
@@ -1218,6 +1251,37 @@ const resources = {
       addMoreMemoriesForAnalysis: 'Add more memories for better analysis.',
       memoryAnalysisPrompt: 'Analyze the user\'s memories and return JSON in this format:\n{\n  "emotionalTrends": "Description of emotional trends",\n  "standoutMemories": ["Standout memory 1", "Standout memory 2"],\n  "patterns": "Observed patterns",\n  "recommendations": "Recommendations"\n}\n\nMemories:\n{{memories}}',
       memoryAnalysisSystemPrompt: 'You are an emotional analysis expert. Analyze the user\'s memories to identify emotional trends, standout memories, patterns, and recommendations. Use positive and constructive language.',
+
+      // Missing keys used in code
+      connectionTimeout: 'Connection timed out. Please try again.',
+      failedToLoadUserData: 'Failed to load user data',
+      passwordResetSuccess: 'Password updated successfully! Redirecting...',
+      syncPartial: 'Sync complete. {{pending}} pending, {{failed}} failed.',
+      emailRequired: 'Email address is required',
+      relationshipSaverDescription: 'Discover special moments shared with your loved ones',
+
+      // Export service keys
+      exportReportTitle: 'NICEBASE Memory Report',
+      exportCreatedDate: 'Created Date',
+      exportTotalMemories: 'Total Memories',
+      exportDate: 'Date',
+      exportText: 'Text',
+      exportCategory: 'Category',
+      exportIntensity: 'Intensity',
+      exportLifeArea: 'Life Area',
+      exportCore: 'Core',
+      exportConnections: 'Connections',
+      exportPhotoCount: 'Photo Count',
+
+      // Share & export text
+      shareMemoryCount: '{{count}} memories with {{connection}}',
+      shareTagline: 'NICEBASE - Personal Emotional Anchor',
+      shareTitle: 'Memories with {{connection}}',
+      exportMemoryLabel: 'Memory',
+      exportDateLabel: 'Date',
+      exportIntensityLabel: 'Intensity',
+      exportCategoryLabel: 'Category',
+      imageLoadError: 'Image failed to load',
     },
   },
 }

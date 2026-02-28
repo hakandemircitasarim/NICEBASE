@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 
 interface ProgressiveImageProps {
@@ -24,6 +25,7 @@ export default function ProgressiveImage({
   loading = 'lazy',
   placeholder,
 }: ProgressiveImageProps) {
+  const { t } = useTranslation()
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
   const [hasError, setHasError] = useState(false)
@@ -84,7 +86,7 @@ export default function ProgressiveImage({
       >
         <div className="text-center">
           <div className="text-gray-400 text-xs mb-1">📷</div>
-          <span className="text-gray-400 text-xs">Görsel yüklenemedi</span>
+          <span className="text-gray-400 text-xs">{t('imageLoadError')}</span>
         </div>
       </div>
     )

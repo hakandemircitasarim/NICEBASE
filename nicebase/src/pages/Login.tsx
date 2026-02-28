@@ -309,7 +309,7 @@ export default function Login() {
           if (userData) {
             setUser(userData)
             hapticFeedback('success')
-            toast.success(t('loginSuccess') || 'Giriş başarılı!', { duration: 2000 })
+            toast.success(t('loginSuccess'), { duration: 2000 })
             navigate('/', { replace: true })
           } else {
             toast.error(t('failedToLoadUserData'))
@@ -322,7 +322,7 @@ export default function Login() {
       hapticFeedback('error')
       const msg = error instanceof Error ? error.message : String(error || '')
       if (msg.includes('timeout') || msg.includes('Timeout')) {
-        toast.error(t('connectionTimeout') || 'Bağlantı zaman aşımına uğradı. Lütfen tekrar deneyin.')
+        toast.error(t('connectionTimeout'))
       } else {
         errorLoggingService.logError(
           error instanceof Error ? error : new Error('Authentication error'),
@@ -370,7 +370,7 @@ export default function Login() {
               onChange={(e) => setEmail(e.target.value)}
               required
               className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none"
-              placeholder="ornek@email.com"
+              placeholder={t('emailPlaceholder')}
             />
           </motion.div>
 
