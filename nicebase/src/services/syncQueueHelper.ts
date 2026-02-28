@@ -59,8 +59,8 @@ export async function addToSyncQueue(
 
   const userId =
     userIdOverride ||
-    (type === 'create' ? (data as Memory).userId : '') ||
-    ''
+    (type === 'create' ? (data as Memory).userId : undefined) ||
+    undefined
 
   if (!entityId || !userId) {
     // Fallback to legacy queue if we can't deduce identifiers.
@@ -80,7 +80,8 @@ export async function addToSyncQueue(
   // - If a create is pending and we get a delete, drop the create (never reaches cloud) and skip delete.
   const createKey = buildDedupeKey(userId, entityId, 'create')
   const pendingCreate = await db.syncQueueV2.where('dedupeKey').equals(createKey).first()
-  if (pendingCreate && pendingCreate.status !== 'done') {
+  if (pendingCreate && pendingCreate.status === 'pending') {
+    // Only coalesce with pending items, not in_progress (already being synced)
     if (type === 'update') {
       const updatePayload = data as { id: string; updates: Partial<Memory> }
       const createPayload = pendingCreate.payload as Memory
@@ -119,7 +120,7 @@ export async function addToSyncQueue(
   }
 
   await db.syncQueueV2.add({
-    id: crypto.randomUUID(),
+    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : generateUUID(),
     userId,
     entityId,
     op: type,

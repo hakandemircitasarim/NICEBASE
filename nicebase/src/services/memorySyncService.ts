@@ -3,6 +3,9 @@ import { memoryService } from './memoryService'
 import type { WindowWithCapacitor } from '../types/capacitor'
 import { errorLoggingService } from './errorLoggingService'
 
+// Mutex to prevent concurrent sync operations
+let syncInProgress = false
+
 // Load Capacitor App - in native it's available via window, in web it's not
 async function loadCapacitorApp() {
   if (!isNative()) return null
@@ -38,6 +41,8 @@ const state: SyncState = {
 }
 
 async function safeSyncNow(userId: string) {
+  if (syncInProgress) return // Skip if another sync is already running
+  syncInProgress = true
   try {
     await memoryService.syncAll(userId)
   } catch (err) {
@@ -47,6 +52,8 @@ async function safeSyncNow(userId: string) {
       'warning',
       userId
     )
+  } finally {
+    syncInProgress = false
   }
 }
 
