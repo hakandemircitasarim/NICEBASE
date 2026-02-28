@@ -200,10 +200,18 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
             }
           }}
           className="relative max-w-4xl w-full max-h-[90dvh] overflow-hidden touch-none"
-          {...swipeHandlers}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
+          onTouchStart={(e) => {
+            handleTouchStart(e)
+            swipeHandlers.onTouchStart?.(e)
+          }}
+          onTouchMove={(e) => {
+            handleTouchMove(e)
+            swipeHandlers.onTouchMove?.(e)
+          }}
+          onTouchEnd={() => {
+            handleTouchEnd()
+            swipeHandlers.onTouchEnd?.()
+          }}
         >
           <button
             onClick={onClose}

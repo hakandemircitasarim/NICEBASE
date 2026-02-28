@@ -10,7 +10,7 @@ import ImageModal from '../components/ImageModal'
 import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import { useNotifications } from '../hooks/useNotifications'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { buildConnectionDisplayMap, normalizeConnectionKey } from '../utils/connections'
 
 type ConnectionOption = { key: string; label: string }
@@ -19,6 +19,7 @@ export default function RelationshipSaver() {
   const { t } = useTranslation()
   const userId = useUserId()
   const location = useLocation()
+  const navigate = useNavigate()
   const { memories, loading } = useMemories(userId)
   const { hapticFeedback } = useNotifications()
   const [connections, setConnections] = useState<ConnectionOption[]>([])
@@ -67,15 +68,11 @@ export default function RelationshipSaver() {
 
   // Helper functions - must be defined before useSwipe
   const nextMemory = () => {
-    if (currentIndex < filteredMemories.length - 1) {
-      setCurrentIndex(currentIndex + 1)
-    }
+    setCurrentIndex(prev => prev < filteredMemories.length - 1 ? prev + 1 : prev)
   }
 
   const prevMemory = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1)
-    }
+    setCurrentIndex(prev => prev > 0 ? prev - 1 : prev)
   }
 
   // Always call useSwipe at component level to maintain hooks order
@@ -105,6 +102,8 @@ export default function RelationshipSaver() {
           if (prev < filteredMemories.length - 1) {
             return prev + 1
           }
+          // Reached the end, stop autoplay
+          setAutoPlay(false)
           return prev
         })
       }, 5000) // 5 seconds per memory
@@ -247,7 +246,7 @@ export default function RelationshipSaver() {
             whileTap={{ scale: 0.95 }}
             onClick={() => {
               hapticFeedback('light')
-              window.location.href = '/vault?action=add'
+              navigate('/vault?action=add')
             }}
             className="px-8 py-4 gradient-primary text-white rounded-2xl font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all touch-manipulation"
           >

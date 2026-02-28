@@ -93,7 +93,7 @@ export default function Achievements() {
           <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${(unlockedBadges / totalBadges) * 100}%` }}
+              animate={{ width: `${totalBadges > 0 ? (unlockedBadges / totalBadges) * 100 : 0}%` }}
               transition={{ duration: 0.5 }}
               className="bg-gradient-to-r from-primary to-primary-dark h-2 rounded-full"
             />
@@ -111,7 +111,7 @@ export default function Achievements() {
           <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${(unlockedAchievements / totalAchievements) * 100}%` }}
+              animate={{ width: `${totalAchievements > 0 ? (unlockedAchievements / totalAchievements) * 100 : 0}%` }}
               transition={{ duration: 0.5 }}
               className="bg-gradient-to-r from-primary to-primary-dark h-2 rounded-full"
             />
@@ -246,7 +246,7 @@ export default function Achievements() {
                       <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
                         <motion.div
                           initial={{ width: 0 }}
-                          animate={{ width: `${Math.min((achievement.progress / achievement.target) * 100, 100)}%` }}
+                          animate={{ width: `${achievement.target > 0 ? Math.min((achievement.progress / achievement.target) * 100, 100) : 0}%` }}
                           transition={{ duration: 0.5, delay: index * 0.1 }}
                           className={`h-full rounded-full ${
                             achievement.unlocked
