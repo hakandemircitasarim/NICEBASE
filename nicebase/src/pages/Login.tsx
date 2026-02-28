@@ -14,6 +14,7 @@ import OAuthButtons from '../components/OAuthButtons'
 import { useOAuth } from '../hooks/useOAuth'
 import { hapticFeedback } from '../utils/haptic'
 import { withTimeout } from '../utils/timeout'
+import { isValidEmail as validateEmail, validateEmail as validateEmailDetailed } from '../utils/formValidation'
 
 const AUTH_TIMEOUT_MS = 15000
 
@@ -71,10 +72,8 @@ export default function Login() {
     }
   }, [user, navigate])
 
-  // Email validation
-  const isValidEmail = (email: string) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-  }
+  // Email validation - use utility function
+  const isValidEmail = validateEmail
 
   // Password strength calculation
   const calculatePasswordStrength = (pwd: string): number => {
@@ -125,12 +124,13 @@ export default function Login() {
       if (error) throw error
 
       toast.success(t('verificationEmailSent'), { duration: 5000 })
-    } catch (error: any) {
+    } catch (error: unknown) {
       errorLoggingService.logError(
         error instanceof Error ? error : new Error('Resend verification error'),
         'error'
       )
-      toast.error(error.message || t('failedToSendEmail'))
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      toast.error(errorMessage || t('failedToSendEmail'))
     }
   }
 
@@ -156,13 +156,14 @@ export default function Login() {
       toast.success(t('passwordResetEmailSent'), { duration: 5000 })
       setShowForgotPassword(false)
       setForgotPasswordEmail('')
-    } catch (error: any) {
+    } catch (error: unknown) {
       hapticFeedback('error')
       errorLoggingService.logError(
         error instanceof Error ? error : new Error('Password reset error'),
         'error'
       )
-      toast.error(error.message || t('errorOccurred'))
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      toast.error(errorMessage || t('errorOccurred'))
     } finally {
       setForgotPasswordLoading(false)
     }
@@ -317,9 +318,9 @@ export default function Login() {
           toast.error(t('loginFailed'))
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       hapticFeedback('error')
-      const msg = error?.message || ''
+      const msg = error instanceof Error ? error.message : String(error || '')
       if (msg.includes('timeout') || msg.includes('Timeout')) {
         toast.error(t('connectionTimeout') || 'Bağlantı zaman aşımına uğradı. Lütfen tekrar deneyin.')
       } else {

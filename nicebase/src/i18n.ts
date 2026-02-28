@@ -314,6 +314,8 @@ const resources = {
       
       // Categories
       'categories.uncategorized': 'Sınıflandırılmamış',
+      aiyaClassifying: 'Aiya kategorize ediyor...',
+      aiyaAnalyzing: 'Aiya analiz ediyor...',
       'categories.success': 'Başarı',
       'categories.peace': 'Huzur',
       'categories.fun': 'Eğlence',
@@ -436,6 +438,8 @@ const resources = {
       longestStreak: 'En Uzun Seri',
       record: 'Rekor',
       keepGoingToBreakRecord: '{{count}} gün daha devam et, {{longest}} günlük rekorunu kır!',
+      gettingStarted: 'Başlangıç',
+      dayStreak: 'günlük seri',
       addFirstMemoryToStartStreak: 'İlk anını ekle, seriyi başlat!',
       quickAddAriaLabel: 'Hızlı anı ekle',
       quickAdd: 'Hızlı Ekle',
@@ -924,6 +928,8 @@ const resources = {
       
       // Categories
       'categories.uncategorized': 'Uncategorized',
+      aiyaClassifying: 'Aiya is categorizing...',
+      aiyaAnalyzing: 'Aiya is analyzing...',
       'categories.success': 'Success',
       'categories.peace': 'Peace',
       'categories.fun': 'Fun',
@@ -1034,6 +1040,8 @@ const resources = {
       longestStreak: 'Longest Streak',
       record: 'Record',
       keepGoingToBreakRecord: 'Keep going for {{count}} more days to break your {{longest}}-day record!',
+      gettingStarted: 'Getting Started',
+      dayStreak: 'day streak',
       addFirstMemoryToStartStreak: 'Add your first memory to start a streak!',
       quickAddAriaLabel: 'Quick add memory',
       quickAdd: 'Quick Add',

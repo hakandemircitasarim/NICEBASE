@@ -87,7 +87,11 @@ class ErrorLoggingService {
     try {
       const stored = localStorage.getItem('errorLogs')
       return stored ? JSON.parse(stored) : []
-    } catch {
+    } catch (error) {
+      // Log parsing errors in development
+      if (import.meta.env.DEV) {
+        console.warn('Failed to parse error logs from localStorage:', error)
+      }
       return []
     }
   }

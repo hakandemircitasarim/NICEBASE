@@ -141,7 +141,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
   const handleSaveReminders = async () => {
     if (!user) return
 
-    const updates: any = {}
+    const updates: Record<string, unknown> = {}
     if (dailyReminderTime) {
       updates.daily_reminder_time = dailyReminderTime
       notificationService.cancelReminder(user.id)
@@ -203,12 +203,35 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     try {
       hapticFeedback('light')
       toast.loading(t('syncing'), { id: 'sync' })
+      
+      // Get sync status before sync
+      const statusBefore = await memoryService.getSyncStatus(user.id)
+      
       await memoryService.syncAll(user.id)
+      
+      // Get sync status after sync
+      const statusAfter = await memoryService.getSyncStatus(user.id)
+      
       hapticFeedback('success')
-      toast.success(t('syncComplete'), { id: 'sync' })
+      
+      // Show detailed feedback
+      if (statusAfter.pending > 0 || statusAfter.failed > 0) {
+        toast.success(
+          t('syncPartial', { 
+            defaultValue: `Senkron tamamlandı. ${statusAfter.pending} bekleyen, ${statusAfter.failed} başarısız.` 
+          }), 
+          { id: 'sync', duration: 4000 }
+        )
+      } else {
+        toast.success(t('syncComplete'), { id: 'sync' })
+      }
     } catch (error) {
       hapticFeedback('error')
-      toast.error(t('syncError'), { id: 'sync' })
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      toast.error(
+        t('syncError') + (errorMessage ? `: ${errorMessage}` : ''),
+        { id: 'sync', duration: 5000 }
+      )
       errorLoggingService.logError(
         error instanceof Error ? error : new Error('Sync error'),
         'error',

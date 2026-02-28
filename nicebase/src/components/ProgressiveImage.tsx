@@ -48,10 +48,29 @@ export default function ProgressiveImage({
       setImageSrc(src)
       setIsLoaded(true)
     }
-    fullImg.onerror = (e) => {
+    fullImg.onerror = () => {
       setHasError(true)
       if (onError) {
-        onError(e as any)
+        // Create a synthetic event for the error
+        const errorEvent = new Event('error')
+        const syntheticEvent = {
+          nativeEvent: errorEvent,
+          currentTarget: fullImg,
+          target: fullImg,
+          bubbles: false,
+          cancelable: false,
+          defaultPrevented: false,
+          eventPhase: 0,
+          isTrusted: false,
+          timeStamp: Date.now(),
+          type: 'error',
+          preventDefault: () => {},
+          stopPropagation: () => {},
+          isDefaultPrevented: () => false,
+          isPropagationStopped: () => false,
+          persist: () => {},
+        } as unknown as React.SyntheticEvent<HTMLImageElement, Event>
+        onError(syntheticEvent)
       }
     }
     fullImg.src = src

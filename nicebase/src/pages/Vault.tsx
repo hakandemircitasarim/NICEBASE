@@ -8,7 +8,6 @@ import MemoryForm from '../components/MemoryForm'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ImageModal from '../components/ImageModal'
 import ConfirmationDialog from '../components/ConfirmationDialog'
-import GestureHint from '../components/GestureHint'
 import SuccessAnimation from '../components/SuccessAnimation'
 import VaultHeader from '../components/VaultHeader'
 import VaultFilters from '../components/VaultFilters'
@@ -36,7 +35,6 @@ export default function Vault() {
   const [displayCount, setDisplayCount] = useState(20)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const { openConfirm, confirmDialogProps } = useConfirmDialog()
-  const [showSwipeHint, setShowSwipeHint] = useState(false)
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
 
@@ -58,11 +56,6 @@ export default function Vault() {
   } = useMemoryFilters(memories)
 
   useEffect(() => {
-    const hasSeenSwipeHint =
-      localStorage.getItem('hasSeenHint_swipe') || localStorage.getItem('hasSeenSwipeHint')
-    if (!hasSeenSwipeHint) {
-      setTimeout(() => setShowSwipeHint(true), 2000)
-    }
     const action = searchParams.get('action')
     if (action === 'add') {
       setEditingMemory(undefined)
@@ -276,17 +269,6 @@ export default function Vault() {
       )}
 
       <ConfirmationDialog {...confirmDialogProps} />
-
-      {showSwipeHint && filteredMemories.length > 0 && (
-        <GestureHint
-          type="swipe"
-          onDismiss={() => {
-            setShowSwipeHint(false)
-            localStorage.setItem('hasSeenHint_swipe', 'true')
-            localStorage.setItem('hasSeenSwipeHint', 'true')
-          }}
-        />
-      )}
 
       <AnimatePresence>
         {showSuccessAnimation && (

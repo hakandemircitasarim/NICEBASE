@@ -37,19 +37,13 @@ export interface User {
   avatarUrl: string | null // base64 or URL
   birthday: string | null // ISO date string
   location: string | null
-  is_premium?: boolean
   isPremium: boolean
-  aiya_messages_used?: number
   aiyaMessagesUsed: number
-  aiya_messages_limit?: number
   aiyaMessagesLimit: number
-  weekly_summary_day?: number | null
   weeklySummaryDay: number | null // 0-6, Sunday-Saturday
-  daily_reminder_time?: string | null
   dailyReminderTime: string | null // HH:mm format
   language: 'tr' | 'en'
   theme: 'light' | 'dark' | 'auto'
-  created_at?: string
   createdAt: string
 }
 

@@ -6,8 +6,13 @@ export function registerServiceWorker() {
   // Only register service worker in production
   if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     // Dynamic import for PWA register
-    // @ts-ignore - virtual module
-    import('virtual:pwa-register').then(({ registerSW }: any) => {
+    // @ts-expect-error - virtual:pwa-register is a virtual module provided by vite-plugin-pwa, types may not be available
+    import('virtual:pwa-register').then(({ registerSW }: { registerSW: (options: {
+      onNeedRefresh?: () => void
+      onOfflineReady?: () => void
+      onRegistered?: (registration: ServiceWorkerRegistration) => void
+      onRegisterError?: (error: unknown) => void
+    }) => (reload?: boolean) => void }) => {
       const updateSW = registerSW({
         onNeedRefresh() {
           // Show update notification
@@ -23,13 +28,13 @@ export function registerServiceWorker() {
             console.log('App ready to work offline')
           }
         },
-        onRegistered(registration: any) {
+        onRegistered(registration: ServiceWorkerRegistration) {
           // Service worker registered successfully
           if (import.meta.env.DEV) {
             console.log('Service Worker registered:', registration)
           }
         },
-        onRegisterError(error: any) {
+        onRegisterError(error: unknown) {
           errorLoggingService.logError(
             error instanceof Error ? error : new Error('Service Worker registration error'),
             'error'

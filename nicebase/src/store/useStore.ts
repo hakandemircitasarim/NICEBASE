@@ -17,16 +17,27 @@ interface AppState {
   decrementModalCount: () => void
   checkOnlineStatus: () => void
   init: () => Promise<void>
+  cleanup: () => void
 }
 
+// Track if listeners are registered per store instance
 let onlineListenersRegistered = false
+let onlineHandler: (() => void) | null = null
 
 // Safe localStorage access
 const getStoredTheme = (): 'light' | 'dark' => {
   if (typeof window === 'undefined') return 'light'
   try {
-    return (localStorage.getItem('theme') as 'light' | 'dark') || 'light'
-  } catch {
+    const theme = localStorage.getItem('theme')
+    // Type guard for theme value
+    if (theme === 'light' || theme === 'dark') {
+      return theme
+    }
+    return 'light'
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn('Failed to read theme from localStorage:', error)
+    }
     return 'light'
   }
 }
@@ -34,8 +45,16 @@ const getStoredTheme = (): 'light' | 'dark' => {
 const getStoredLanguage = (): 'tr' | 'en' => {
   if (typeof window === 'undefined') return 'tr'
   try {
-    return (localStorage.getItem('language') as 'tr' | 'en') || 'tr'
-  } catch {
+    const language = localStorage.getItem('language')
+    // Type guard for language value
+    if (language === 'tr' || language === 'en') {
+      return language
+    }
+    return 'tr'
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn('Failed to read language from localStorage:', error)
+    }
     return 'tr'
   }
 }
@@ -44,7 +63,10 @@ const getStoredOnboarding = (): boolean => {
   if (typeof window === 'undefined') return false
   try {
     return localStorage.getItem('hasCompletedOnboarding') === 'true'
-  } catch {
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn('Failed to read onboarding status from localStorage:', error)
+    }
     return false
   }
 }
@@ -140,13 +162,24 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
-    // Listen to online/offline
+    // Listen to online/offline (only register once)
     if (typeof window !== 'undefined') {
       if (!onlineListenersRegistered) {
-        window.addEventListener('online', get().checkOnlineStatus)
-        window.addEventListener('offline', get().checkOnlineStatus)
+        onlineHandler = () => get().checkOnlineStatus()
+        window.addEventListener('online', onlineHandler)
+        window.addEventListener('offline', onlineHandler)
         onlineListenersRegistered = true
       }
+    }
+  },
+
+  // Cleanup method for proper teardown
+  cleanup: () => {
+    if (typeof window !== 'undefined' && onlineListenersRegistered && onlineHandler) {
+      window.removeEventListener('online', onlineHandler)
+      window.removeEventListener('offline', onlineHandler)
+      onlineListenersRegistered = false
+      onlineHandler = null
     }
   },
 }))

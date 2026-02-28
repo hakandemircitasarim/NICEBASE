@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   X, Sparkles, AlertCircle, Calendar, ChevronDown,
-  Star, Link2, Check, Camera, Tag, Compass, Settings2, Zap,
+  Star, Link2, Check, Camera, Tag, Compass, Settings2,
 } from 'lucide-react'
 import { Memory, DailyQuestion, MemoryCategory, LifeArea } from '../types'
 import { memoryService } from '../services/memoryService'
@@ -20,6 +20,13 @@ import ModalShell from './ModalShell'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import Toggle from './Toggle'
 import ConnectionsInput from './ConnectionsInput'
+import { 
+  validateMemoryText, 
+  validateDate, 
+  validateIntensity, 
+  validateConnections,
+  validatePhotoCount 
+} from '../utils/formValidation'
 
 /* ═══════════════════════════════════════════════════
  *  CONSTANTS
@@ -242,8 +249,6 @@ export default function MemoryForm({
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [isDraggingSlider, setIsDraggingSlider] = useState(false)
-  const [quickMode, setQuickMode] = useState(!memory) // Quick mode by default for new memories
-  const [isTextareaFocused, setIsTextareaFocused] = useState(false)
   
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean
@@ -353,8 +358,8 @@ export default function MemoryForm({
         const draft = localStorage.getItem(`memory_draft_${userId}`)
         if (draft) {
           const parsed = JSON.parse(draft)
-          // Only load if draft is less than 1 hour old
-          if (parsed.savedAt && Date.now() - parsed.savedAt < 3600000) {
+          // Only load if draft is less than 1 hour old and not for a saved memory
+          if (parsed.savedAt && Date.now() - parsed.savedAt < 3600000 && !parsed.memoryId) {
             setFormData({
               text: parsed.text || '',
               intensity: parsed.intensity || 5,
@@ -367,13 +372,16 @@ export default function MemoryForm({
               lifeArea: parsed.lifeArea || 'uncategorized',
             })
             toast.success(t('draftLoaded', { defaultValue: 'Taslak yüklendi' }), { duration: 2000 })
+          } else if (parsed.memoryId) {
+            // Draft is for a saved memory, clear it
+            localStorage.removeItem(`memory_draft_${userId}`)
           }
         }
       } catch (error) {
         // Ignore draft loading errors
       }
     }
-  }, [memory, userId, initialDate, t])
+  }, [memory, userId, initialDate, t, initialCategories])
 
   // Clear draft on save
   const clearDraft = useCallback(() => {
@@ -427,17 +435,37 @@ export default function MemoryForm({
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {}
-    if (!formData.text.trim()) {
-      newErrors.text = t('pleaseEnterText')
-    } else if (formData.text.trim().length < 10) {
-      newErrors.text = t('textMinLength10')
+    
+    // Validate text using utility function
+    const textValidation = validateMemoryText(formData.text, 10)
+    if (!textValidation.isValid) {
+      newErrors.text = textValidation.error || t('pleaseEnterText')
     }
-    const selectedDate = new Date(formData.date)
-    const today = new Date()
-    today.setHours(23, 59, 59, 999)
-    if (selectedDate > today) {
-      newErrors.date = t('dateCannotBeFuture')
+    
+    // Validate date using utility function
+    const dateValidation = validateDate(formData.date)
+    if (!dateValidation.isValid) {
+      newErrors.date = dateValidation.error || t('dateCannotBeFuture')
     }
+    
+    // Validate intensity using utility function
+    const intensityValidation = validateIntensity(formData.intensity)
+    if (!intensityValidation.isValid) {
+      newErrors.intensity = intensityValidation.error || t('intensityRange')
+    }
+    
+    // Validate connections using utility function
+    const connectionsValidation = validateConnections(formData.connections)
+    if (!connectionsValidation.isValid) {
+      newErrors.connections = connectionsValidation.error || t('invalidConnections')
+    }
+    
+    // Validate photo count using utility function
+    const photoValidation = validatePhotoCount(formData.photos.length, 5)
+    if (!photoValidation.isValid) {
+      newErrors.photos = photoValidation.error || t('maxPhotos')
+    }
+    
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -471,7 +499,6 @@ export default function MemoryForm({
           category: primaryCategory, // Backward compatibility
           categories, // New multi-select
           lifeArea: formData.lifeArea,
-          userId,
         })
         hapticFeedback('success')
         savedMemory = memory
@@ -502,7 +529,28 @@ export default function MemoryForm({
       }
 
       setSaveSuccess(true)
-      clearDraft() // Clear draft on successful save
+      // Clear draft on successful save
+      clearDraft()
+      // Mark draft as saved (with memory ID) to prevent reloading
+      if (savedMemory) {
+        try {
+          const draft = localStorage.getItem(`memory_draft_${userId}`)
+          if (draft) {
+            const parsed = JSON.parse(draft)
+            parsed.memoryId = savedMemory.id
+            parsed.savedAt = Date.now()
+            localStorage.setItem(`memory_draft_${userId}`, JSON.stringify(parsed))
+          }
+        } catch (error) {
+          // Ignore
+        }
+      }
+      // Also clear sessionStorage state
+      try {
+        sessionStorage.removeItem(`memory_form_state_${userId}`)
+      } catch (error) {
+        // Ignore
+      }
       await new Promise(r => setTimeout(r, 500))
 
       if (savedMemory) {
@@ -687,10 +735,10 @@ export default function MemoryForm({
    *  FORM CONTENT
    *
    *  Structure (modal):
-   *    flex-col wrapper  (NO flex-1 — sizes to content)
+   *    flex-col wrapper  (with max-height constraint)
    *      Header          (flex-shrink-0)
-   *      Scroll body     (flex-1 min-h-0 — scrolls when card hits maxHeight)
-   *      Action bar      (flex-shrink-0 — always pinned at bottom of card)
+   *      Scroll body     (flex-1 min-h-0 — scrolls when content exceeds)
+   *      Action bar      (flex-shrink-0 — fixed at bottom)
    *
    *  The ModalShell uses autoHeight so the panel only has maxHeight,
    *  not a forced height. This means:
@@ -698,7 +746,7 @@ export default function MemoryForm({
    *    - Expanded:  card grows until it hits maxHeight, then scrolls.
    * ═══════════════════════════════════════════════════ */
   const formContent = (
-    <div className="flex flex-col min-h-0">
+    <div className="flex flex-col min-h-0" style={{ maxHeight: '90dvh' }}>
 
       {/* ── HEADER ── */}
       <div className="flex-shrink-0 bg-white dark:bg-gray-800 z-10">
@@ -722,7 +770,10 @@ export default function MemoryForm({
       {/* ── SCROLLABLE BODY ── */}
       <div
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain overscroll-y-contain"
-        style={{ WebkitOverflowScrolling: 'touch' as any }}
+        style={{ 
+          WebkitOverflowScrolling: 'touch',
+          paddingBottom: '5rem', // Space for action bar
+        }}
       >
         <div className="px-5 space-y-5 pt-2 pb-4">
 
@@ -759,9 +810,7 @@ export default function MemoryForm({
                 if (errors.text) setErrors({ ...errors, text: '' })
                 autoResize()
               }}
-              onFocus={() => setIsTextareaFocused(true)}
-              onBlur={() => setIsTextareaFocused(false)}
-              rows={quickMode ? 3 : 4}
+              rows={4}
               className={`w-full px-4 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-700/40 focus:outline-none resize-none touch-manipulation leading-relaxed text-[15px] text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 transition-all ${
                 errors.text 
                   ? 'ring-2 ring-red-400/50 bg-red-50/50 dark:bg-red-900/10'
@@ -783,21 +832,6 @@ export default function MemoryForm({
             )}
             </AnimatePresence>
           </div>
-
-          {/* ═══ QUICK SAVE BUTTON (Quick Mode) ═══ */}
-          {quickMode && !memory && formData.text.trim().length >= 10 && !isTextareaFocused && (
-            <motion.button
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              onClick={handleSave}
-              disabled={saving}
-              whileTap={{ scale: 0.98 }}
-              className="w-full py-3 rounded-xl gradient-primary text-white font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all touch-manipulation flex items-center justify-center gap-2"
-            >
-              <Zap size={16} />
-              <span>{t('quickSave', { defaultValue: 'Hızlı Kaydet' })}</span>
-            </motion.button>
-          )}
 
           {/* ═══ INTENSITY SLIDER ═══ */}
           <div className="space-y-2.5">
@@ -948,7 +982,6 @@ export default function MemoryForm({
                   type="file"
                   accept="image/*"
                   multiple
-                  capture="environment"
                   onChange={handlePhotoUpload}
                   className="hidden"
                   disabled={uploading}
@@ -957,47 +990,29 @@ export default function MemoryForm({
             )}
           </div>
 
-          {/* ═══ DETAIL TOGGLE / QUICK MODE TOGGLE ═══ */}
-          {quickMode && !memory ? (
-            <button
-              type="button"
-              onClick={() => {
-                hapticFeedback('light')
-                setQuickMode(false)
-                setExpanded(true)
-              }}
-              className="w-full flex items-center justify-between gap-2 px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/60 active:bg-gray-100 dark:active:bg-gray-700 transition-colors touch-manipulation"
-            >
-              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
-                <Settings2 size={15} className="text-gray-400" />
-                <span>{t('addMoreDetails', { defaultValue: 'Daha fazla detay ekle' })}</span>
-              </div>
-              <ChevronDown size={16} className="text-gray-400" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                hapticFeedback('light')
-                setExpanded(!expanded)
-              }}
-              className="w-full flex items-center justify-between gap-2 px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/60 active:bg-gray-100 dark:active:bg-gray-700 transition-colors touch-manipulation"
-            >
-              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
-                <Settings2 size={15} className="text-gray-400" />
-                <span>{expanded ? t('lessDetail', { defaultValue: 'Daha Az' }) : t('moreDetail', { defaultValue: 'Daha Detaylı' })}</span>
-                {!expanded && detailBadgeCount > 0 && (
-                  <span className="w-5 h-5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center">
-                    {detailBadgeCount}
-                  </span>
-                )}
-              </div>
-              <ChevronDown
-                size={16}
-                className={`text-gray-400 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-              />
-            </button>
-          )}
+          {/* ═══ DETAIL TOGGLE ═══ */}
+          <button
+            type="button"
+            onClick={() => {
+              hapticFeedback('light')
+              setExpanded(!expanded)
+            }}
+            className="w-full flex items-center justify-between gap-2 px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/60 active:bg-gray-100 dark:active:bg-gray-700 transition-colors touch-manipulation"
+          >
+            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
+              <Settings2 size={15} className="text-gray-400" />
+              <span>{expanded ? t('lessDetail', { defaultValue: 'Daha Az' }) : t('moreDetail', { defaultValue: 'Daha Detaylı' })}</span>
+              {!expanded && detailBadgeCount > 0 && (
+                <span className="w-5 h-5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center">
+                  {detailBadgeCount}
+                </span>
+              )}
+            </div>
+            <ChevronDown
+              size={16}
+              className={`text-gray-400 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+            />
+          </button>
 
           {/* ═══ DETAIL SECTION ═══ */}
           <AnimatePresence initial={false}>
@@ -1149,8 +1164,8 @@ export default function MemoryForm({
         </div>
       </div>
 
-      {/* ── ACTION BAR — pinned at bottom of card (outside scroll) ── */}
-      <div className="flex-shrink-0 sticky bottom-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 safe-area-inset-bottom z-10">
+      {/* ── ACTION BAR — fixed at bottom of card (outside scroll) ── */}
+      <div className="flex-shrink-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 safe-area-inset-bottom z-10">
         <div className="flex items-center gap-3">
             <button
             onClick={requestClose}

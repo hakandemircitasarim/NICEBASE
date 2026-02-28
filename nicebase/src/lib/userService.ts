@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 import { mapUserFromSupabase } from './userMapper'
 import { User } from '../types'
 import { errorLoggingService } from '../services/errorLoggingService'
+import { SupabaseError } from '../types/supabase'
 
 /**
  * Fetches user data from Supabase by user ID
@@ -118,10 +119,11 @@ export async function ensureUserExists(
       }
     } else {
       // If upsert still fails for transient reasons, retry
+      const error = dbError as SupabaseError
       if (
-        (dbError as any)?.code === '23505' ||
-        String((dbError as any)?.message || '').toLowerCase().includes('duplicate') ||
-        (dbError as any)?.status === 409
+        error?.code === '23505' ||
+        String(error?.message || '').toLowerCase().includes('duplicate') ||
+        error?.status === 409
       ) {
         await new Promise(resolve => setTimeout(resolve, 300))
         userData = await fetchUserData(userId)

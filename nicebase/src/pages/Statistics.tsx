@@ -25,6 +25,13 @@ import {
   Line,
 } from 'recharts'
 
+// Type for Pie chart label entry
+type PieLabelEntry = {
+  name?: string
+  value?: number
+  percent?: number
+}
+
 const COLORS = ['#FF6B35', '#F7931E', '#FFD23F', '#06FFA5', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7']
 
 export default function Statistics() {
@@ -339,7 +346,7 @@ export default function Statistics() {
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={(entry: any) => {
+                  label={(entry: PieLabelEntry) => {
                     if (!entry) return ''
                     const name = entry.name || ''
                     const percent = typeof entry.percent === 'number' ? entry.percent : 0
@@ -400,7 +407,7 @@ export default function Statistics() {
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={(entry: any) => {
+                  label={(entry: PieLabelEntry) => {
                     if (!entry) return ''
                     const name = entry.name || ''
                     const percent = typeof entry.percent === 'number' ? entry.percent : 0

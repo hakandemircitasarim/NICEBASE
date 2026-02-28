@@ -8,15 +8,50 @@ import i18n from '../i18n'
 function t(key: string, opts?: Record<string, unknown>): string {
   try {
     if (i18n && typeof i18n.t === 'function') {
-      const val = String(i18n.t(key, opts as any))
+      const val = String(i18n.t(key, opts))
       if (val && val !== key) return val
     }
   } catch { /* i18n not ready */ }
   return ''
 }
 
+/**
+ * Validates email format
+ * @param email - Email string to validate
+ * @returns true if email is valid, false otherwise
+ */
 export function isValidEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  if (!email || typeof email !== 'string') return false
+  const trimmed = email.trim()
+  if (trimmed.length === 0) return false
+  // RFC 5322 compliant email regex (simplified)
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  return emailRegex.test(trimmed)
+}
+
+/**
+ * Validates email with detailed error message
+ * @param email - Email string to validate
+ * @returns Validation result with error message if invalid
+ */
+export function validateEmail(email: string): {
+  isValid: boolean
+  error?: string
+} {
+  if (!email || typeof email !== 'string') {
+    return { isValid: false, error: t('emailRequired') || 'E-posta adresi gereklidir' }
+  }
+  
+  const trimmed = email.trim()
+  if (trimmed.length === 0) {
+    return { isValid: false, error: t('emailRequired') || 'E-posta adresi gereklidir' }
+  }
+  
+  if (!isValidEmail(trimmed)) {
+    return { isValid: false, error: t('invalidEmail') || 'Geçerli bir e-posta adresi girin' }
+  }
+  
+  return { isValid: true }
 }
 
 /**

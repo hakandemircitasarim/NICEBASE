@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   location TEXT,
   is_premium BOOLEAN DEFAULT FALSE,
   aiya_messages_used INTEGER DEFAULT 0,
-  aiya_messages_limit INTEGER DEFAULT 30,
+  aiya_messages_limit INTEGER DEFAULT 50,
   weekly_summary_day INTEGER,
   daily_reminder_time TEXT,
   language TEXT DEFAULT 'tr' CHECK (language IN ('tr', 'en')),

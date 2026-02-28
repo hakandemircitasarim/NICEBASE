@@ -4,12 +4,21 @@ import { Memory, Connection } from '../types'
 export type SyncQueueOp = 'create' | 'update' | 'delete' | 'photoUpload'
 export type SyncQueueStatus = 'pending' | 'in_progress' | 'failed' | 'done'
 
+/**
+ * Sync queue item data types
+ */
+export type SyncQueueData =
+  | Memory // for 'create'
+  | { id: string; updates: Partial<Memory> } // for 'update'
+  | { id: string } // for 'delete'
+  | { memoryId: string; photos: string[] } // for 'photoUpload'
+
 export type SyncQueueItemV2 = {
   id: string
   userId: string
   entityId: string
   op: SyncQueueOp
-  payload: any
+  payload: SyncQueueData
   status: SyncQueueStatus
   attemptCount: number
   nextAttemptAt: number
@@ -23,7 +32,7 @@ export class NicebaseDB extends Dexie {
   memories!: Table<Memory, string>
   connections!: Table<Connection, string>
   // v1 queue (legacy) - kept for migration
-  syncQueue!: Table<{ id: string; type: 'create' | 'update' | 'delete'; data: any; timestamp: number }, string>
+  syncQueue!: Table<{ id: string; type: 'create' | 'update' | 'delete'; data: SyncQueueData; timestamp: number }, string>
   // v2 queue (premium, retry/backoff/dedupe)
   syncQueueV2!: Table<SyncQueueItemV2, string>
 
@@ -47,22 +56,29 @@ export class NicebaseDB extends Dexie {
         const legacy = await tx.table('syncQueue').toArray() as Array<{
           id: string
           type: 'create' | 'update' | 'delete'
-          data: any
+          data: SyncQueueData
           timestamp: number
         }>
 
         const v2Table = tx.table('syncQueueV2')
         for (const item of legacy) {
-          const entityId =
-            item.type === 'create' ? item.data?.id :
-            item.type === 'update' ? item.data?.id :
-            item.type === 'delete' ? item.data?.id :
-            item.id
+          let entityId: string | undefined
+          if (item.type === 'create' && 'id' in item.data) {
+            entityId = item.data.id
+          } else if (item.type === 'update' && 'id' in item.data) {
+            entityId = item.data.id
+          } else if (item.type === 'delete' && 'id' in item.data) {
+            entityId = item.data.id
+          } else {
+            entityId = item.id
+          }
 
-          const userId =
-            item.type === 'create' ? item.data?.userId :
-            item.type === 'update' ? item.data?.updates?.userId :
-            undefined
+          let userId: string | undefined
+          if (item.type === 'create' && 'userId' in item.data) {
+            userId = item.data.userId
+          } else if (item.type === 'update' && 'updates' in item.data && item.data.updates && 'userId' in item.data.updates) {
+            userId = item.data.updates.userId
+          }
 
           // Skip if we cannot determine userId/entityId; user can still manually sync later.
           if (!entityId || !userId) continue

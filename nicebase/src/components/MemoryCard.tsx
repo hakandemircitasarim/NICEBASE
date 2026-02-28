@@ -20,21 +20,30 @@ const CATEGORY_META: Record<string, { icon: typeof Sparkles; color: string }> = 
   inspiration: { icon: Lightbulb, color: 'text-amber-600 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300' },
   growth: { icon: TrendingUp, color: 'text-teal-600 bg-teal-100 dark:bg-teal-900/30 dark:text-teal-300' },
   adventure: { icon: Mountain, color: 'text-indigo-600 bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300' },
-  uncategorized: { icon: HelpCircle, color: 'text-gray-400 bg-gray-100 dark:bg-gray-700 dark:text-gray-400' },
+  uncategorized: { icon: Sparkles, color: 'text-violet-600 bg-violet-100 dark:bg-violet-900/30 dark:text-violet-300' },
 }
 
-function getRelativeTime(dateStr: string, locale: string, t: (key: string, opts?: any) => string): string {
+function getRelativeTime(dateStr: string, locale: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  // Extract just the date part (YYYY-MM-DD) to avoid timezone issues
+  const dateOnly = dateStr.split('T')[0]
   const now = new Date()
-  const date = new Date(dateStr)
-  now.setHours(0, 0, 0, 0)
-  date.setHours(0, 0, 0, 0)
-  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
+  const todayStr = now.toISOString().split('T')[0]
+  
+  // Parse dates as local dates (not UTC) to avoid timezone issues
+  const [year, month, day] = dateOnly.split('-').map(Number)
+  const [todayYear, todayMonth, todayDay] = todayStr.split('-').map(Number)
+  
+  const date = new Date(year, month - 1, day)
+  const today = new Date(todayYear, todayMonth - 1, todayDay)
+  
+  const diffTime = today.getTime() - date.getTime()
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
 
   if (diffDays === 0) return t('today', { defaultValue: 'Bugün' })
   if (diffDays === 1) return t('yesterday', { defaultValue: 'Dün' })
   if (diffDays < 7) return t('daysAgo', { count: diffDays, defaultValue: `${diffDays} gün önce` })
 
-  return new Date(dateStr).toLocaleDateString(locale, {
+  return new Date(year, month - 1, day).toLocaleDateString(locale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -214,9 +223,11 @@ function MemoryCard({
             memory.category === 'uncategorized' ? 'animate-pulse' : ''
           }`}>
             <CatIcon size={12} />
-            {memory.category === 'uncategorized'
-              ? t('categories.uncategorized', { defaultValue: 'AI sınıflandırıyor...' })
-              : t(`categories.${memory.category}`)}
+            {memory.category === 'uncategorized' && !memory.synced
+              ? t('aiyaClassifying', { defaultValue: 'Aiya kategorize ediyor...' })
+              : memory.category === 'uncategorized'
+                ? t('categories.uncategorized')
+                : t(`categories.${memory.category}`)}
           </span>
 
           {/* Life area (only show if not uncategorized) */}

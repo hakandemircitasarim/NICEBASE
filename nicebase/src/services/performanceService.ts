@@ -32,7 +32,7 @@ class PerformanceService {
         'dom-content-loaded': perfData.domContentLoadedEventEnd - perfData.domContentLoadedEventStart,
         'load-complete': perfData.loadEventEnd - perfData.loadEventStart,
         'first-byte': perfData.responseStart - perfData.requestStart,
-        'dom-interactive': perfData.domInteractive - (perfData as any).navigationStart,
+        'dom-interactive': perfData.domInteractive - perfData.fetchStart,
       }
 
       Object.entries(metrics).forEach(([name, value]) => {

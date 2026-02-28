@@ -1,17 +1,56 @@
 // Web Push Notification Service with Native Android Support
 import i18n from '../i18n'
-import { PushNotifications, PushNotificationSchema, ActionPerformed } from '@capacitor/push-notifications'
-import { LocalNotifications, LocalNotificationSchema } from '@capacitor/local-notifications'
 import { isNativePlatform } from '../utils/platform'
 import { errorLoggingService } from './errorLoggingService'
+import type { WindowWithCapacitor } from '../types/capacitor'
+
+// Load Capacitor notification plugins - in native they're available via window, in web they're not
+async function loadPushNotifications() {
+  if (!isNativePlatform()) return null
+  
+  try {
+    if (typeof window !== 'undefined') {
+      const plugins = (window as WindowWithCapacitor).CapacitorPlugins
+      if (plugins?.PushNotifications) {
+        return plugins.PushNotifications
+      }
+    }
+    // Try dynamic import as fallback
+    const module = await import('@capacitor/push-notifications')
+    return module.PushNotifications
+  } catch {
+    return null
+  }
+}
+
+async function loadLocalNotifications() {
+  if (!isNativePlatform()) return null
+  
+  try {
+    if (typeof window !== 'undefined') {
+      const plugins = (window as WindowWithCapacitor).CapacitorPlugins
+      if (plugins?.LocalNotifications) {
+        return plugins.LocalNotifications
+      }
+    }
+    // Try dynamic import as fallback
+    const module = await import('@capacitor/local-notifications')
+    return module.LocalNotifications
+  } catch {
+    return null
+  }
+}
 
 export const notificationService = {
   async requestPermission(): Promise<boolean> {
     // Native platform (Android/iOS)
     if (isNativePlatform()) {
       try {
-        const { receive } = await PushNotifications.requestPermissions()
-        return receive === 'granted'
+        const PushNotifications = await loadPushNotifications()
+        if (!PushNotifications) return false
+        // Use requestPermission method which exists in Capacitor PushNotifications
+        const result = await (PushNotifications as { requestPermission: () => Promise<{ granted: boolean }> }).requestPermission()
+        return result.granted === true
       } catch (error) {
         errorLoggingService.logError(
           error instanceof Error ? error : new Error('Failed to request push notification permissions'),
@@ -42,6 +81,18 @@ export const notificationService = {
     // Native platform (Android/iOS)
     if (isNativePlatform()) {
       try {
+        const LocalNotifications = await loadLocalNotifications()
+        if (!LocalNotifications) {
+          // Fallback to web notifications
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(title, {
+              icon: '/vite.svg',
+              badge: '/vite.svg',
+              ...options,
+            })
+          }
+          return
+        }
         await LocalNotifications.schedule({
           notifications: [
             {
@@ -132,6 +183,22 @@ export const notificationService = {
     // Native platform - use scheduled local notifications
     if (isNativePlatform()) {
       try {
+        const LocalNotifications = await loadLocalNotifications()
+        if (!LocalNotifications) {
+          // Fallback to web scheduling
+          const timeUntilReminder = reminderTime.getTime() - now.getTime()
+          const timeoutId = setTimeout(() => {
+            notificationService.showNotification(i18n.t('dailyReminderTitle'), {
+              body: reminderBody,
+              tag: 'daily-reminder',
+              requireInteraction: false,
+            })
+            scheduleNext()
+          }, timeUntilReminder)
+          localStorage.setItem(`reminder_timeout_${userId}`, timeoutId.toString())
+          return
+        }
+
         // Cancel existing daily reminders for this user
         await this.cancelReminder(userId)
 
@@ -149,7 +216,6 @@ export const notificationService = {
                 repeats: true,
                 every: 'day',
               },
-              sound: 'default',
               channelId: 'daily-reminder',
               actionTypeId: 'DAILY_REMINDER',
               extra: { userId, type: 'daily-reminder', streak },
@@ -225,12 +291,40 @@ export const notificationService = {
     // Native platform - use scheduled local notifications
     if (isNativePlatform()) {
       try {
+        const LocalNotifications = await loadLocalNotifications()
+        if (!LocalNotifications) {
+          // Fallback to web scheduling
+          const interval = 6 * 60 * 60 * 1000 // 6 hours in milliseconds
+          const intervalId = setInterval(async () => {
+            notificationService.showNotification(i18n.t('randomMemoryReminderTitle'), {
+              body: i18n.t('randomMemoryReminderBody'),
+              tag: 'random-memory',
+              requireInteraction: false,
+            })
+          }, interval)
+          localStorage.setItem(`random_memory_interval_${userId}`, intervalId.toString())
+          return
+        }
+
         // Schedule 4 notifications per day (every 6 hours: 00:00, 06:00, 12:00, 18:00)
         const now = new Date()
         const today = new Date(now)
         today.setHours(0, 0, 0, 0)
 
-        const notifications: LocalNotificationSchema[] = []
+        interface ScheduledNotification {
+          title: string
+          body: string
+          id: number
+          schedule: {
+            at: Date
+            repeats: boolean
+            every: 'day'
+          }
+          channelId?: string
+          actionTypeId?: string
+          extra?: unknown
+        }
+        const notifications: ScheduledNotification[] = []
         const times = [0, 6, 12, 18] // Hours: 00:00, 06:00, 12:00, 18:00
 
         times.forEach((hour, index) => {
@@ -251,14 +345,13 @@ export const notificationService = {
               repeats: true,
               every: 'day',
             },
-            sound: 'default',
             channelId: 'random-memory',
             actionTypeId: 'RANDOM_MEMORY',
             extra: { userId, type: 'random-memory' },
           })
         })
 
-        await LocalNotifications.schedule({ notifications })
+        await LocalNotifications.schedule({ notifications: notifications as never })
       } catch (error) {
         errorLoggingService.logError(
           error instanceof Error ? error : new Error('Failed to schedule random memory reminder'),
@@ -290,6 +383,16 @@ export const notificationService = {
     // Native platform - cancel scheduled notifications
     if (isNativePlatform()) {
       try {
+        const LocalNotifications = await loadLocalNotifications()
+        if (!LocalNotifications) {
+          // Fallback to web cancellation
+          const timeoutId = localStorage.getItem(`reminder_timeout_${userId}`)
+          if (timeoutId) {
+            clearTimeout(parseInt(timeoutId, 10))
+            localStorage.removeItem(`reminder_timeout_${userId}`)
+          }
+          return
+        }
         const notificationId = parseInt(`1${userId.slice(-6)}`, 10) % 2147483647
         await LocalNotifications.cancel({
           notifications: [{ id: notificationId }],
@@ -353,6 +456,21 @@ export const notificationService = {
       // Native platform - use scheduled local notifications
       if (isNativePlatform()) {
         try {
+          const LocalNotifications = await loadLocalNotifications()
+          if (!LocalNotifications) {
+            // Fallback to web scheduling
+            const timeUntilReminder = reminderTime.getTime() - now.getTime()
+            const timeoutId = setTimeout(() => {
+              notificationService.showNotification('NICEBASE', {
+                body: message,
+                tag: 'streak-protection',
+                requireInteraction: false,
+              })
+            }, timeUntilReminder)
+            localStorage.setItem(`streak_protection_${userId}`, timeoutId.toString())
+            return
+          }
+
           // Cancel existing streak protection for this user
           await this.cancelStreakProtection(userId)
 
@@ -405,6 +523,16 @@ export const notificationService = {
     // Native platform - cancel scheduled notifications
     if (isNativePlatform()) {
       try {
+        const LocalNotifications = await loadLocalNotifications()
+        if (!LocalNotifications) {
+          // Fallback to web cancellation
+          const timeoutId = localStorage.getItem(`streak_protection_${userId}`)
+          if (timeoutId) {
+            clearTimeout(parseInt(timeoutId, 10))
+            localStorage.removeItem(`streak_protection_${userId}`)
+          }
+          return
+        }
         const notificationId = parseInt(`3${userId.slice(-6)}`, 10) % 2147483647
         await LocalNotifications.cancel({
           notifications: [{ id: notificationId }],

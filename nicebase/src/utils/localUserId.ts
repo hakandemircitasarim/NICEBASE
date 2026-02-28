@@ -30,6 +30,9 @@ export function getLocalUserId(): string {
     return localUserId
   } catch (error) {
     // Fallback if localStorage is not available
+    if (import.meta.env.DEV) {
+      console.warn('Failed to access localStorage for local user ID:', error)
+    }
     return 'local-user-' + Date.now()
   }
 }

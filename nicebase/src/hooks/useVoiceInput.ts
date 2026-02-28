@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import type { WindowWithCapacitor } from '../types/capacitor'
 
 interface UseVoiceInputOptions {
   onResult?: (text: string) => void
@@ -18,7 +19,7 @@ export function useVoiceInput({ onResult, onError, language = 'tr-TR' }: UseVoic
       return false
     }
     
-    const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition
+    const SpeechRecognition = window.SpeechRecognition || (window as WindowWithCapacitor).webkitSpeechRecognition
     if (!SpeechRecognition) {
       setIsSupported(false)
       return false
@@ -32,7 +33,7 @@ export function useVoiceInput({ onResult, onError, language = 'tr-TR' }: UseVoic
   const initRecognition = useCallback(() => {
     if (typeof window === 'undefined') return null
     
-    const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition
+    const SpeechRecognition = window.SpeechRecognition || (window as WindowWithCapacitor).webkitSpeechRecognition
     if (!SpeechRecognition) return null
 
     const recognition = new SpeechRecognition()
@@ -136,10 +137,10 @@ interface SpeechRecognition extends EventTarget {
   start(): void
   stop(): void
   abort(): void
-  onstart: ((this: SpeechRecognition, ev: Event) => any) | null
-  onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => any) | null
-  onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => any) | null
-  onend: ((this: SpeechRecognition, ev: Event) => any) | null
+  onstart: ((this: SpeechRecognition, ev: Event) => void) | null
+  onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => void) | null
+  onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => void) | null
+  onend: ((this: SpeechRecognition, ev: Event) => void) | null
 }
 
 interface SpeechRecognitionEvent extends Event {

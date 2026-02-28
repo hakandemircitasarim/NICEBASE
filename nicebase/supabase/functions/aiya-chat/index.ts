@@ -13,7 +13,7 @@ const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || SUPABASE_SERVICE_RO
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || ''
 
 const MODEL = 'gpt-4o'
-const DEFAULT_LIMIT = 30
+const DEFAULT_LIMIT = 50
 const ALLOWED_CATEGORIES = [
   'success',
   'peace',
@@ -211,52 +211,176 @@ serve(async (req) => {
   const system = normalizeSystemPrompt(systemPrompt, memoryContext)
   const langHint = locale?.startsWith('tr') ? 'Turkish' : 'English'
 
+  console.log('Edge function called with action:', action, 'type:', typeof action, 'message:', message?.substring(0, 50))
+  console.log('Full payload:', JSON.stringify({ action, hasMessage: !!message, messageLength: message?.length }))
+  
+  // Normalize action to string for comparison
+  const normalizedAction = String(action || '').toLowerCase().trim()
+  console.log('Normalized action:', normalizedAction)
+
   try {
-    if (action === 'category') {
+    // New unified classify action: returns both category AND lifeArea
+    // Check this FIRST before other actions - use normalized comparison
+    if (normalizedAction === 'classify') {
+      console.log('✅ CLASSIFY ACTION MATCHED!')
+      console.log('Classify action called with message:', message?.substring(0, 100))
       if (!message) return jsonResponse({ error: 'Message required' }, 400)
-      const prompt = `Classify the following memory into one of these categories: ${ALLOWED_CATEGORIES.join(
-        ', '
-      )}. Reply with only the category name.\n\nMemory: ${message}`
+      
+      // Build category descriptions
+      const categoryDescriptions = {
+        success: 'Achievements, accomplishments, goals reached, victories, milestones, winning, completing something meaningful',
+        peace: 'Calm moments, tranquility, serenity, relaxation, inner peace, quiet contentment, stress relief, mindfulness',
+        fun: 'Joyful moments, laughter, entertainment, playfulness, humor, having a good time, lighthearted experiences',
+        love: 'Romantic moments, deep affection, caring for someone, emotional connections, expressions of love, heartwarming experiences',
+        gratitude: 'Thankfulness, appreciation, recognizing blessings, being grateful for something or someone, feeling blessed',
+        inspiration: 'Motivational moments, being inspired, creative sparks, uplifting experiences, finding motivation, feeling energized',
+        growth: 'Learning experiences, personal development, overcoming challenges, self-improvement, gaining wisdom, maturing',
+        adventure: 'Exciting experiences, trying new things, exploration, travel, taking risks, novel experiences, stepping out of comfort zone'
+      }
+      
+      // Build life area descriptions
+      const lifeAreaDescriptions = {
+        personal: 'Individual experiences, self-reflection, personal thoughts, solo activities, self-care, personal development',
+        work: 'Job-related, career, professional achievements, workplace, business, professional relationships, work projects',
+        relationship: 'Romantic partner, dating, significant other, intimate relationships, couple activities',
+        family: 'Family members, parents, siblings, children, family gatherings, family traditions, family relationships',
+        friends: 'Friendships, social activities with friends, friend groups, peer relationships, social connections',
+        hobby: 'Hobbies, creative pursuits, leisure activities, interests, pastimes, recreational activities',
+        travel: 'Trips, vacations, visiting places, exploring locations, travel experiences, tourism, journeys',
+        health: 'Physical health, mental health, fitness, wellness, medical, exercise, self-care related to health'
+      }
+      
+      const categoryList = ALLOWED_CATEGORIES.map(cat => `- ${cat}: ${categoryDescriptions[cat as keyof typeof categoryDescriptions]}`).join('\n')
+      const lifeAreaList = ALLOWED_LIFE_AREAS.map(area => `- ${area}: ${lifeAreaDescriptions[area as keyof typeof lifeAreaDescriptions]}`).join('\n')
+      
+      // Extract keywords from message for better classification
+      const lowerMessage = message.toLowerCase()
+      const hasFunKeywords = /eğlence|eğlendim|eğlenceli|keyifli|zevk|fun|eğlen|güldüm|kahkaha|neşe/.test(lowerMessage)
+      const hasWorkKeywords = /iş|work|arkadaş|colleague|ofis|office|proje|project|meslek|job|çalış|workplace/.test(lowerMessage)
+      const hasSuccessKeywords = /başarı|success|kazandım|tamamladım|başardım|won|achieved|completed/.test(lowerMessage)
+      const hasGratitudeKeywords = /şükür|gratitude|minnettar|teşekkür|thankful|blessed|şükret/.test(lowerMessage)
+      
+      const prompt = `Classify this memory into ONE category and ONE life area. Be precise and match the ACTUAL content.
+
+CRITICAL: If the text contains words like "eğlence", "eğlendim", "eğlenceli", "keyifli", "zevk" → you MUST use category "fun"
+CRITICAL: If the text mentions "iş", "arkadaş", "work", "colleague", "ofis" → you MUST use lifeArea "work" (not "personal")
+CRITICAL: Do NOT use "gratitude" unless the text explicitly mentions being thankful or grateful
+CRITICAL: Do NOT use "personal" for work-related memories - use "work" instead
+
+CATEGORIES:
+${categoryList}
+
+LIFE AREAS:
+${lifeAreaList}
+
+EXAMPLES (follow these EXACTLY):
+- "bugün iş arkadaşlarımla çok eğlendim" → {"category":"fun","lifeArea":"work"}
+- "bu eğlendiğim bir anı örneğidir ve iş ile ilgilidir" → {"category":"fun","lifeArea":"work"}
+- "Bu bir eğlence anısıdır" → {"category":"fun","lifeArea":"personal"}
+- "anı eğlence zart zurt" → {"category":"fun","lifeArea":"personal"}
+- "bugün çok sıkıntılı bir gündü ama yapay zeka ile yaptıklarım beni mutlu etti" → {"category":"fun","lifeArea":"personal"}
+- "İş yerinde büyük bir projeyi tamamladım" → {"category":"success","lifeArea":"work"}
+- "Ailemle güzel bir akşam geçirdik" → {"category":"fun","lifeArea":"family"}
+- "Bugün neye şükrettim" → {"category":"gratitude","lifeArea":"personal"}
+
+Memory to classify: "${message}"
+
+Reply with ONLY valid JSON, no other text: {"category":"<value>","lifeArea":"<value>"}`
+      
       const content = await callOpenAI({
         messages: [
-          { role: 'system', content: `You are a classifier. Respond in ${langHint} if needed.` },
+          { role: 'system', content: `You are a strict JSON classifier. You MUST analyze the memory text and return ONLY valid JSON with category and lifeArea. Follow the examples exactly. Never default to gratitude/personal unless the text explicitly matches them.` },
+          { role: 'user', content: prompt },
+        ],
+        maxTokens: 100,
+        temperature: 0.05,
+      })
+      
+      // Log for debugging (remove in production if needed)
+      console.log('AI Response:', content)
+      
+      const parsed = safeJsonParse(content)
+      
+      // Better fallback logic - try to extract from response even if JSON is malformed
+      let category: AllowedCategory = 'gratitude'
+      let lifeArea: AllowedLifeArea = 'personal'
+      
+      if (parsed?.category && ALLOWED_CATEGORIES.includes(parsed.category as AllowedCategory)) {
+        category = parsed.category as AllowedCategory
+      } else {
+        // Try to find category in response text
+        const responseLower = content.toLowerCase()
+        for (const cat of ALLOWED_CATEGORIES) {
+          if (responseLower.includes(`"category":"${cat}"`) || responseLower.includes(`category: "${cat}"`) || responseLower.includes(`'category': '${cat}'`)) {
+            category = cat as AllowedCategory
+            break
+          }
+        }
+        // Keyword-based fallback
+        if (hasFunKeywords && category === 'gratitude') category = 'fun'
+        if (hasSuccessKeywords && category === 'gratitude') category = 'success'
+      }
+      
+      if (parsed?.lifeArea && ALLOWED_LIFE_AREAS.includes(parsed.lifeArea as AllowedLifeArea)) {
+        lifeArea = parsed.lifeArea as AllowedLifeArea
+      } else {
+        // Try to find lifeArea in response text
+        const responseLower = content.toLowerCase()
+        for (const area of ALLOWED_LIFE_AREAS) {
+          if (responseLower.includes(`"lifearea":"${area}"`) || responseLower.includes(`lifeArea": "${area}"`) || responseLower.includes(`'lifeArea': '${area}'`)) {
+            lifeArea = area as AllowedLifeArea
+            break
+          }
+        }
+        // Keyword-based fallback
+        if (hasWorkKeywords && lifeArea === 'personal') lifeArea = 'work'
+      }
+      
+      console.log('Final classification:', { category, lifeArea, original: content })
+      
+      return jsonResponse({ category, lifeArea })
+    }
+
+    if (action === 'category') {
+      if (!message) return jsonResponse({ error: 'Message required' }, 400)
+      
+      const categoryDescriptions = {
+        success: 'Achievements, accomplishments, goals reached, victories, milestones',
+        peace: 'Calm moments, tranquility, serenity, relaxation, inner peace',
+        fun: 'Joyful moments, laughter, entertainment, playfulness, having a good time',
+        love: 'Romantic moments, deep affection, caring for someone, emotional connections',
+        gratitude: 'Thankfulness, appreciation, recognizing blessings, being grateful',
+        inspiration: 'Motivational moments, being inspired, creative sparks, uplifting experiences',
+        growth: 'Learning experiences, personal development, overcoming challenges, self-improvement',
+        adventure: 'Exciting experiences, trying new things, exploration, travel, novel experiences'
+      }
+      
+      const categoryList = ALLOWED_CATEGORIES.map(cat => `- ${cat}: ${categoryDescriptions[cat as keyof typeof categoryDescriptions]}`).join('\n')
+      
+      const prompt = `Analyze the following memory and classify it into the most appropriate category.
+
+CATEGORIES:
+${categoryList}
+
+Carefully read the memory content and select the category that BEST matches the memory's actual emotional theme. Do not default to "gratitude" unless it truly fits.
+
+Reply with ONLY the category name (one word, lowercase).
+
+Memory: ${message}`
+      
+      const content = await callOpenAI({
+        messages: [
+          { role: 'system', content: `You are a precise memory classifier. Analyze the memory content carefully and select the most appropriate category. Reply with only the category name, no explanation.` },
           { role: 'user', content: prompt },
         ],
         maxTokens: 20,
-        temperature: 0.2,
+        temperature: 0.1,
       })
       const normalized = content.trim().toLowerCase()
       const category = (ALLOWED_CATEGORIES.includes(normalized as AllowedCategory)
         ? normalized
         : 'gratitude') as AllowedCategory
       return jsonResponse({ category })
-    }
-
-    // New unified classify action: returns both category AND lifeArea
-    if (action === 'classify') {
-      if (!message) return jsonResponse({ error: 'Message required' }, 400)
-      const prompt = `Classify the following memory text.
-Pick exactly one category from: ${ALLOWED_CATEGORIES.join(', ')}
-Pick exactly one life area from: ${ALLOWED_LIFE_AREAS.join(', ')}
-Reply ONLY with valid JSON: {"category":"<value>","lifeArea":"<value>"}
-
-Memory: ${message}`
-      const content = await callOpenAI({
-        messages: [
-          { role: 'system', content: `You are a strict JSON classifier. Always reply with valid JSON only. No extra text.` },
-          { role: 'user', content: prompt },
-        ],
-        maxTokens: 60,
-        temperature: 0.15,
-      })
-      const parsed = safeJsonParse(content)
-      const category = (parsed?.category && ALLOWED_CATEGORIES.includes(parsed.category as AllowedCategory))
-        ? parsed.category as AllowedCategory
-        : 'gratitude'
-      const lifeArea = (parsed?.lifeArea && ALLOWED_LIFE_AREAS.includes(parsed.lifeArea as AllowedLifeArea))
-        ? parsed.lifeArea as AllowedLifeArea
-        : 'personal'
-      return jsonResponse({ category, lifeArea })
     }
 
     if (action === 'analysis') {

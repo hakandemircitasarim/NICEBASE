@@ -51,7 +51,7 @@ export default function MemoryFormFields({
       { value: 'inspiration', label: t('categories.inspiration'), icon: <Lightbulb size={18} /> },
       { value: 'growth', label: t('categories.growth'), icon: <TrendingUp size={18} /> },
       { value: 'adventure', label: t('categories.adventure'), icon: <Mountain size={18} /> },
-    ] as const
+    ]
   }, [t])
 
   const autoResize = () => {
@@ -136,7 +136,7 @@ export default function MemoryFormFields({
             ) : categorySuggestion ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-xs font-semibold">
                 <Sparkles size={14} />
-                {t('aiSuggestion', { defaultValue: 'AI' })}: {t(`categories.${categorySuggestion}` as any)}
+                {t('aiSuggestion', { defaultValue: 'AI' })}: {t(`categories.${categorySuggestion}` as string)}
               </span>
             ) : null}
           </div>
@@ -170,7 +170,7 @@ export default function MemoryFormFields({
               value={category}
               onChange={(val) => onCategoryChange(val as MemoryCategory)}
               placeholder={t('category')}
-              options={categoryOptions as any}
+              options={categoryOptions}
             />
           </div>
         </div>

@@ -1,7 +1,8 @@
 import { User } from '../types'
+import { SupabaseUserRow } from '../types/supabase'
 
 // Map Supabase snake_case to camelCase
-export function mapUserFromSupabase(data: any): User {
+export function mapUserFromSupabase(data: SupabaseUserRow): User {
   return {
     id: data.id,
     email: data.email,

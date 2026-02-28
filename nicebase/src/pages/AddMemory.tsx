@@ -1,6 +1,11 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useUserId } from '../hooks/useUserId'
 import MemoryForm from '../components/MemoryForm'
+import type { DailyQuestion } from '../types'
+
+interface LocationState {
+  dailyQuestion?: DailyQuestion | null
+}
 
 export default function AddMemory() {
   const navigate = useNavigate()
@@ -8,7 +13,7 @@ export default function AddMemory() {
   const userId = useUserId()
 
   // Daily question can be passed via navigation state from Home page
-  const dailyQuestion = (location.state as any)?.dailyQuestion ?? null
+  const dailyQuestion = (location.state as LocationState | null)?.dailyQuestion ?? null
 
   return (
     <MemoryForm

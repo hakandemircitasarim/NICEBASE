@@ -10,8 +10,11 @@ import type { CapacitorConfig } from '@capacitor/cli';
 // 4. Android Studio'da uygulamayı çalıştırın
 // 5. Değişiklikler otomatik olarak uygulamada görünecek!
 
-const USE_LIVE_RELOAD = false; // false yaparsanız production moduna geçer
-const DEV_SERVER_URL = 'http://192.168.0.230:5173'; // IP adresinizi buraya yazın
+// Live reload ayarları - environment variable'dan oku, yoksa default değerleri kullan
+const USE_LIVE_RELOAD = process.env.CAPACITOR_USE_LIVE_RELOAD === 'true' || false;
+// IP adresini environment variable'dan oku, yoksa default değer kullan
+// Örnek kullanım: CAPACITOR_DEV_SERVER_URL=http://192.168.0.230:5173 npm run dev:android
+const DEV_SERVER_URL = process.env.CAPACITOR_DEV_SERVER_URL || 'http://192.168.0.230:5173';
 
 const config: CapacitorConfig = {
   appId: 'com.nicebase.app',
@@ -22,7 +25,7 @@ const config: CapacitorConfig = {
     cleartext: true, // HTTP için gerekli
   } : {
     androidScheme: 'https',
-    iosScheme: 'https',
+    iosScheme: 'com.nicebase.app',
   },
   plugins: {
     SplashScreen: {

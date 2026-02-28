@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useNavigate } from 'react-router-dom'
+import { Memory } from '../types'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Send, Sparkles, ChevronLeft, Plus, Trash2, ChevronDown,
@@ -14,6 +16,7 @@ import ConfirmationDialog from '../components/ConfirmationDialog'
 import { aiyaService } from '../services/aiyaService'
 import { hapticFeedback } from '../utils/haptic'
 import { generateUUID } from '../utils/uuid'
+import { useDebounce } from '../hooks/useDebounce'
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -45,14 +48,20 @@ const HISTORY_LIMIT = 40
 const PROFILE_MIN_MESSAGE_COUNT = 4
 const PROFILE_UPDATE_MESSAGE_INTERVAL = 6
 const PROFILE_UPDATE_COOLDOWN_MS = 6 * 60 * 60 * 1000
+const NAVBAR_HEIGHT = 80 // Height of bottom navbar in pixels
 
 // ─── Helpers ─────────────────────────────────────────────
 
 function loadJson<T>(key: string): T | null {
   try {
     const raw = localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as T) : null
-  } catch {
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return parsed as T
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn(`Failed to load JSON from localStorage key "${key}":`, error)
+    }
     return null
   }
 }
@@ -66,7 +75,6 @@ function saveJson(key: string, value: unknown) {
     localStorage.setItem(key, serialized)
     return true
   } catch (error) {
-    // Quota exceeded or private mode
     if (import.meta.env.DEV) {
       console.warn(`Failed to save to localStorage key "${key}":`, error)
     }
@@ -78,7 +86,7 @@ function trimMessages(msgs: AiyaMessage[]) {
   return msgs.slice(-HISTORY_LIMIT)
 }
 
-function generateTitle(msg: string, t: (k: string, o?: any) => string): string {
+function generateTitle(msg: string, t: TFunction): string {
   const cleaned = msg.trim().replace(/\n/g, ' ')
   if (cleaned.length >= 10) return cleaned.slice(0, 40) + (cleaned.length > 40 ? '…' : '')
   return t('aiyaNewChat', { defaultValue: 'Yeni Sohbet' }) + ' — ' + new Date().toLocaleDateString()
@@ -90,14 +98,35 @@ function formatTime(ts?: number): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+function formatDate(ts: number, locale: string): string {
+  const now = Date.now()
+  const diff = now - ts
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+  
+  if (days === 0) {
+    return new Date(ts).toLocaleTimeString(locale === 'tr' ? 'tr-TR' : 'en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    })
+  } else if (days === 1) {
+    return locale === 'tr' ? 'Dün' : 'Yesterday'
+  } else if (days < 7) {
+    return new Date(ts).toLocaleDateString(locale === 'tr' ? 'tr-TR' : 'en-US', { weekday: 'short' })
+  } else {
+    return new Date(ts).toLocaleDateString(locale === 'tr' ? 'tr-TR' : 'en-US', { 
+      day: 'numeric', 
+      month: 'short' 
+    })
+  }
+}
+
 function cleanMarkdown(text: string): string {
-  // Remove markdown formatting like *text* (bold/italic), **text** (bold), _text_ (italic)
   return text
-    .replace(/\*\*([^*]+)\*\*/g, '$1') // **bold**
-    .replace(/\*([^*]+)\*/g, '$1') // *italic* or *bold*
-    .replace(/_([^_]+)_/g, '$1') // _italic_
-    .replace(/`([^`]+)`/g, '$1') // `code`
-    .replace(/~~([^~]+)~~/g, '$1') // ~~strikethrough~~
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/~~([^~]+)~~/g, '$1')
 }
 
 // ─── Aiya Avatar Component ──────────────────────────────
@@ -117,15 +146,15 @@ function AiyaAvatar({ size = 28 }: { size?: number }) {
 
 function TypingDots() {
   return (
-    <div className="flex items-end gap-2 mb-3">
-      <AiyaAvatar size={28} />
-      <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-1">
+    <div className="flex items-end gap-2.5 mb-4">
+      <AiyaAvatar size={32} />
+      <div className="bg-gray-100 dark:bg-gray-700 rounded-3xl rounded-bl-md px-5 py-3.5 flex items-center gap-1.5 shadow-sm">
         {[0, 1, 2].map((i) => (
           <motion.span
             key={i}
-            className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500"
-            animate={{ y: [0, -6, 0] }}
-            transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
+            className="w-2.5 h-2.5 rounded-full bg-gray-400 dark:bg-gray-500"
+            animate={{ y: [0, -8, 0] }}
+            transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
           />
         ))}
       </div>
@@ -140,12 +169,11 @@ function SuggestionChips({
   memories 
 }: { 
   onSelect: (text: string) => void
-  memories: any[]
+  memories: Memory[]
 }) {
   const { t } = useTranslation()
   
-  // Generate personalized suggestions based on memories
-  const getPersonalizedSuggestions = useMemo(() => {
+  const chips = useMemo(() => {
     const baseChips = [
       { key: 'analyze', label: t('aiyaChipAnalyze', { defaultValue: 'Anılarımı analiz et' }) },
       { key: 'mood', label: t('aiyaChipMood', { defaultValue: 'Bugün nasılım?' }) },
@@ -155,14 +183,12 @@ function SuggestionChips({
     
     if (memories.length === 0) return baseChips
     
-    // Analyze memories to generate personalized suggestions
     const recentMemories = memories.slice(0, 10)
     const categories = new Set(recentMemories.map(m => m.category))
     const connections = new Set(recentMemories.flatMap(m => m.connections))
     
     const personalized: Array<{ key: string; label: string }> = []
     
-    // Add category-based suggestions
     if (categories.has('gratitude')) {
       personalized.push({ 
         key: 'gratitude', 
@@ -176,7 +202,6 @@ function SuggestionChips({
       })
     }
     
-    // Add connection-based suggestions
     if (connections.size > 0) {
       const topConnection = Array.from(connections)[0]
       personalized.push({ 
@@ -185,27 +210,69 @@ function SuggestionChips({
       })
     }
     
-    // Combine base and personalized, limit to 6 total
     return [...baseChips, ...personalized].slice(0, 6)
   }, [memories, t])
-  
-  const chips = getPersonalizedSuggestions
 
   return (
-    <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-1 px-1">
+    <div className="flex gap-2.5 overflow-x-auto scrollbar-hide pb-1.5 -mx-1 px-1 snap-x snap-mandatory">
       {chips.map((c) => (
         <motion.button
           key={c.key}
-          whileTap={{ scale: 0.95 }}
+          whileTap={{ scale: 0.96 }}
           onClick={() => {
             hapticFeedback('light')
             onSelect(c.label)
           }}
-          className="flex-shrink-0 px-3.5 py-2 rounded-full border border-primary/25 bg-primary/5 text-primary text-xs font-semibold hover:bg-primary/10 transition-colors touch-manipulation whitespace-nowrap"
+          className="flex-shrink-0 px-4 py-2.5 rounded-full border border-primary/20 bg-white dark:bg-gray-800 text-primary text-sm font-medium hover:bg-primary/5 dark:hover:bg-primary/10 active:bg-primary/10 dark:active:bg-primary/15 transition-all touch-manipulation whitespace-nowrap snap-start shadow-sm"
         >
           {c.label}
         </motion.button>
       ))}
+    </div>
+  )
+}
+
+// ─── Message Bubble Component ─────────────────────────────
+
+function MessageBubble({ 
+  message, 
+  isUser, 
+  showAvatar, 
+  showTime 
+}: { 
+  message: AiyaMessage
+  isUser: boolean
+  showAvatar: boolean
+  showTime: boolean
+}) {
+  return (
+    <div className={`flex items-end gap-2.5 sm:gap-3 ${isUser ? 'justify-end' : 'justify-start'} ${!showAvatar && !isUser ? 'ml-11 sm:ml-12' : ''}`}>
+      {!isUser && showAvatar && (
+        <div className="flex-shrink-0">
+          <AiyaAvatar size={32} />
+        </div>
+      )}
+      <div className="flex flex-col gap-1.5 max-w-[85%] sm:max-w-[75%] md:max-w-[65%] lg:max-w-[55%]">
+        <motion.div
+          initial={{ opacity: 0, y: 8, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+          className={`px-4 py-3 sm:px-5 sm:py-3.5 rounded-3xl shadow-sm ${
+            isUser
+              ? 'bg-gradient-to-br from-primary to-orange-500 text-white rounded-br-md shadow-md'
+              : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-md border border-gray-100 dark:border-gray-700/50'
+          }`}
+        >
+          <p className="text-[15px] sm:text-base leading-relaxed whitespace-pre-wrap break-words">
+            {message.content}
+          </p>
+        </motion.div>
+        {showTime && (
+          <p className={`text-[11px] sm:text-xs px-1.5 ${isUser ? 'text-right text-gray-400 dark:text-gray-500' : 'text-left text-gray-400 dark:text-gray-500'}`}>
+            {formatTime(message.ts)}
+          </p>
+        )}
+      </div>
     </div>
   )
 }
@@ -244,57 +311,148 @@ export default function Aiya() {
 
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const activeChat = useMemo(() => chats.find((c) => c.id === activeChatId) ?? null, [chats, activeChatId])
   const messages = activeChat?.messages ?? []
+
+  // Usage info - always use 50 as limit, use API used count if available
+  const usageInfo = useMemo(() => {
+    if (!user) return null
+    
+    // Always use 50 as limit (override any API or user value that might be 30)
+    const limit = 50
+    const userUsed = user.aiyaMessagesUsed || 0
+    
+    // If API provided usage, use its used count but always use 50 as limit
+    if (usage) {
+      return {
+        used: usage.used,
+        limit: limit // Always 50, never use API's limit
+      }
+    }
+    
+    // Fallback to user data
+    return {
+      used: userUsed,
+      limit: limit // Always 50
+    }
+  }, [usage, user])
 
   // System prompt
   const systemPrompt = useMemo(() => {
     return t('aiyaSystemPrompt', { memories: '{{memories}}', profile: profileSummary || '' })
   }, [t, profileSummary])
 
-  // ─── Save/restore input state ──────────────────────────
-  useEffect(() => {
-    if (view === 'chat' && activeChatId) {
-      try {
-        sessionStorage.setItem(`aiya_input_${userId}_${activeChatId}`, input)
-      } catch (error) {
-        // Ignore sessionStorage errors
-      }
-    }
-  }, [input, view, activeChatId, userId])
+  // ─── Auto-scroll ───────────────────────────────────────
+  const scrollToBottom = useCallback((smooth = true) => {
+    chatEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' })
+  }, [])
 
+  // ─── Auto-resize textarea ──────────────────────────────
   useEffect(() => {
-    if (view === 'chat' && activeChatId) {
-      try {
-        const saved = sessionStorage.getItem(`aiya_input_${userId}_${activeChatId}`)
-        if (saved && !input) {
-          setInput(saved)
+    const textarea = textareaRef.current
+    if (!textarea) return
+    
+    textarea.style.height = 'auto'
+    const newHeight = Math.min(textarea.scrollHeight, 120) // Max 120px
+    textarea.style.height = `${newHeight}px`
+  }, [input])
+
+  // ─── Keyboard handling ────────────────────────────────────
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea || view !== 'chat') return
+
+    const handleFocus = () => {
+      // Scroll input into view when keyboard opens
+      setTimeout(() => {
+        textarea.scrollIntoView({ behavior: 'smooth', block: 'end' })
+      }, 300) // Delay to allow keyboard animation
+    }
+
+    const handleBlur = () => {
+      // Scroll to bottom of messages when keyboard closes
+      setTimeout(() => {
+        scrollToBottom(false)
+      }, 100)
+    }
+
+    // Visual Viewport API for better keyboard handling
+    let viewport: VisualViewport | null = null
+    if (window.visualViewport) {
+      viewport = window.visualViewport
+      const handleResize = () => {
+        // Ensure input stays visible when keyboard opens/closes
+        if (document.activeElement === textarea) {
+          setTimeout(() => {
+            textarea.scrollIntoView({ behavior: 'smooth', block: 'end' })
+          }, 100)
         }
-      } catch (error) {
-        // Ignore sessionStorage errors
+      }
+      viewport.addEventListener('resize', handleResize)
+      
+      textarea.addEventListener('focus', handleFocus)
+      textarea.addEventListener('blur', handleBlur)
+
+      return () => {
+        if (viewport) {
+          viewport.removeEventListener('resize', handleResize)
+        }
+        textarea.removeEventListener('focus', handleFocus)
+        textarea.removeEventListener('blur', handleBlur)
+      }
+    } else {
+      // Fallback for browsers without Visual Viewport API
+      textarea.addEventListener('focus', handleFocus)
+      textarea.addEventListener('blur', handleBlur)
+
+      return () => {
+        textarea.removeEventListener('focus', handleFocus)
+        textarea.removeEventListener('blur', handleBlur)
       }
     }
-  }, [view, activeChatId, userId]) // Only run when chat opens
+  }, [view, scrollToBottom])
 
-  // ─── Load from storage ─────────────────────────────────
   useEffect(() => {
-    // Ensure localStorage is available (important for mobile)
+    if (view === 'chat') scrollToBottom()
+  }, [messages.length, sending, view, scrollToBottom])
+
+  useEffect(() => {
+    if (view === 'chat' && activeChatId) {
+      setTimeout(() => {
+        scrollToBottom(false)
+      }, 100)
+    }
+  }, [activeChatId, view, scrollToBottom])
+
+  // ─── Scroll-down button logic ──────────────────────────
+  useEffect(() => {
+    const container = chatContainerRef.current
+    if (!container) return
+    const onScroll = () => {
+      const threshold = 150
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold
+      setShowScrollDown(!isNearBottom && messages.length > 4)
+    }
+    container.addEventListener('scroll', onScroll, { passive: true })
+    return () => container.removeEventListener('scroll', onScroll)
+  }, [messages.length, view])
+
+  // ─── Load from storage and sync ────────────────────────
+  useEffect(() => {
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
       setLoaded(true)
       return
     }
 
-    // Aggressive loading strategy for mobile
-    const loadData = () => {
+    const loadData = async () => {
       try {
-        // Try current key first
+        // Step 1: Load from localStorage
         let stored = loadJson<AiyaChat[]>(chatsKey)
         
-        // If no data found, try to find any aiya_chats key (migration support)
+        // Migration: Try to find chats from any key
         if (!stored || !Array.isArray(stored) || stored.length === 0) {
-          // Search all localStorage keys for aiya chats
           const allKeys: string[] = []
           try {
             for (let i = 0; i < localStorage.length; i++) {
@@ -304,19 +462,17 @@ export default function Aiya() {
               }
             }
           } catch (e) {
-            // Ignore errors during key enumeration
+            // Ignore errors
           }
           
-          // Try to load from any found key
           for (const key of allKeys) {
             const candidate = loadJson<AiyaChat[]>(key)
             if (candidate && Array.isArray(candidate) && candidate.length > 0) {
               stored = candidate
-              // Migrate to current key
               if (key !== chatsKey) {
                 try {
                   localStorage.setItem(chatsKey, JSON.stringify(candidate))
-                  localStorage.removeItem(key) // Clean up old key
+                  localStorage.removeItem(key)
                 } catch (e) {
                   // Ignore migration errors
                 }
@@ -326,23 +482,73 @@ export default function Aiya() {
           }
         }
         
-        // Set chats if we found any
-        if (stored && Array.isArray(stored) && stored.length > 0) {
-          const sorted = [...stored].sort((a, b) => b.updatedAt - a.updatedAt)
-          setChats(sorted)
-          if (import.meta.env.DEV) {
-            console.log(`[Aiya] Loaded ${sorted.length} chats from storage`)
+        // Step 2: Load from Supabase if user is logged in
+        let cloudChats: AiyaChat[] | null = null
+        if (userId && user) {
+          try {
+            cloudChats = await aiyaService.loadChats(userId)
+          } catch (err) {
+            if (import.meta.env.DEV) {
+              console.warn('[Aiya] Failed to load chats from cloud:', err)
+            }
           }
-        } else {
+        }
+        
+        // Step 3: Merge local and cloud chats
+        let mergedChats: AiyaChat[] = []
+        
+        if (cloudChats && Array.isArray(cloudChats) && cloudChats.length > 0) {
+          const cloudMap = new Map(cloudChats.map(c => [c.id, c]))
+          const localMap = new Map((stored || []).map(c => [c.id, c]))
+          
+          // Merge strategy: latest updatedAt wins
+          const allIds = new Set([...cloudMap.keys(), ...localMap.keys()])
+          
+          for (const id of allIds) {
+            const cloud = cloudMap.get(id)
+            const local = localMap.get(id)
+            
+            if (cloud && local) {
+              // Use the one with latest updatedAt
+              mergedChats.push(cloud.updatedAt > local.updatedAt ? cloud : local)
+            } else if (cloud) {
+              mergedChats.push(cloud)
+            } else if (local) {
+              mergedChats.push(local)
+            }
+          }
+        } else if (stored && Array.isArray(stored) && stored.length > 0) {
+          mergedChats = stored
+        }
+        
+        // Sort by updatedAt descending
+        mergedChats.sort((a, b) => b.updatedAt - a.updatedAt)
+        
+        if (mergedChats.length > 0) {
+          setChats(mergedChats)
+          saveJson(chatsKey, mergedChats)
+          
+          // Sync to cloud if user is logged in
+          if (userId && user && cloudChats) {
+            // Only sync if there were changes
+            const needsSync = JSON.stringify(mergedChats) !== JSON.stringify(cloudChats)
+            if (needsSync) {
+              aiyaService.syncChats(userId, mergedChats).catch((err: unknown) => {
+                if (import.meta.env.DEV) {
+                  console.warn('[Aiya] Failed to sync chats to cloud:', err)
+                }
+              })
+            }
+          }
+          
           if (import.meta.env.DEV) {
-            console.log('[Aiya] No chats found in storage')
+            console.log(`[Aiya] Loaded ${mergedChats.length} chats`)
           }
         }
         
         // Load profile
         let storedProfile = loadJson<AiyaProfileMeta>(profileKey)
         
-        // Try to find profile in any key
         if (!storedProfile?.summary) {
           try {
             for (let i = 0; i < localStorage.length; i++) {
@@ -351,7 +557,6 @@ export default function Aiya() {
                 const candidate = loadJson<AiyaProfileMeta>(key)
                 if (candidate?.summary) {
                   storedProfile = candidate
-                  // Migrate to current key
                   if (key !== profileKey) {
                     try {
                       localStorage.setItem(profileKey, JSON.stringify(candidate))
@@ -382,69 +587,57 @@ export default function Aiya() {
       }
     }
 
-    // On mobile, wait longer for platform to be ready
+    // Delay for Capacitor
     if (typeof window !== 'undefined' && 'Capacitor' in window) {
-      // Try multiple times with increasing delays
       setTimeout(loadData, 100)
       setTimeout(loadData, 500)
       setTimeout(loadData, 1000)
     } else {
       loadData()
     }
-  }, [chatsKey, profileKey])
+  }, [chatsKey, profileKey, userId, user])
 
-  // ─── Persist chats ─────────────────────────────────────
+  // Debounce chats for Supabase sync
+  const debouncedChats = useDebounce(chats, 2000)
+
+  // ─── Persist chats to localStorage ─────────────────────
   useEffect(() => {
     if (!loaded) return
-    if (chats.length === 0) return // Don't save empty array on initial load
+    if (chats.length === 0) return
     
     try {
       saveJson(chatsKey, chats)
       if (import.meta.env.DEV) {
-        console.log(`[Aiya] Saved ${chats.length} chats to storage`)
+        console.log(`[Aiya] Saved ${chats.length} chats to localStorage`)
       }
     } catch (error) {
       if (import.meta.env.DEV) {
-        console.error('Error saving Aiya chats:', error)
+        console.error('Error saving Aiya chats to localStorage:', error)
       }
     }
   }, [loaded, chatsKey, chats])
+
+  // ─── Sync chats to Supabase (debounced) ────────────────
+  useEffect(() => {
+    if (!loaded) return
+    if (debouncedChats.length === 0) return
+    if (!userId || !user) return
+    
+    aiyaService.syncChats(userId, debouncedChats).then(() => {
+      if (import.meta.env.DEV) {
+        console.log(`[Aiya] Synced ${debouncedChats.length} chats to Supabase`)
+      }
+    }).catch((err: unknown) => {
+      if (import.meta.env.DEV) {
+        console.warn('[Aiya] Failed to sync chats to Supabase:', err)
+      }
+    })
+  }, [loaded, userId, user, debouncedChats])
 
   useEffect(() => {
     if (!loaded || !profileMeta?.summary) return
     saveJson(profileKey, profileMeta)
   }, [loaded, profileMeta, profileKey])
-
-  // ─── Auto-scroll ───────────────────────────────────────
-  const scrollToBottom = useCallback((smooth = true) => {
-    chatEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' })
-  }, [])
-
-  useEffect(() => {
-    if (view === 'chat') scrollToBottom()
-  }, [messages.length, sending, view, scrollToBottom])
-
-  // Scroll to bottom when opening a chat
-  useEffect(() => {
-    if (view === 'chat' && activeChatId) {
-      setTimeout(() => {
-        scrollToBottom(false)
-      }, 100)
-    }
-  }, [activeChatId, view, scrollToBottom])
-
-  // ─── Scroll-down button logic ──────────────────────────
-  useEffect(() => {
-    const container = chatContainerRef.current
-    if (!container) return
-    const onScroll = () => {
-      const threshold = 120
-      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold
-      setShowScrollDown(!isNearBottom && messages.length > 4)
-    }
-    container.addEventListener('scroll', onScroll, { passive: true })
-    return () => container.removeEventListener('scroll', onScroll)
-  }, [messages.length, view])
 
   // ─── Chat CRUD ─────────────────────────────────────────
   const createNewChat = useCallback(() => {
@@ -456,7 +649,7 @@ export default function Aiya() {
     setInput('')
     setErrorMessage(null)
     hapticFeedback('light')
-    setTimeout(() => inputRef.current?.focus(), 200)
+    setTimeout(() => textareaRef.current?.focus(), 200)
   }, [])
 
   const openChat = useCallback((id: string) => {
@@ -512,7 +705,6 @@ export default function Aiya() {
 
     const userMsg: AiyaMessage = { role: 'user', content: text, ts: Date.now() }
 
-    // Update active chat
     setChats((prev) => prev.map((c) => {
       if (c.id !== activeChatId) return c
       const updated = trimMessages([...c.messages, userMsg])
@@ -535,7 +727,6 @@ export default function Aiya() {
 
       if (res.usage) setUsage(res.usage)
 
-      // Background profile update
       const allMsgs = [...(currentChat?.messages ?? []), userMsg, aiyaMsg]
       void maybeUpdateProfile(allMsgs)
     } catch (err) {
@@ -548,13 +739,11 @@ export default function Aiya() {
   // ─── Chip action ───────────────────────────────────────
   const handleChip = useCallback((text: string) => {
     if (!activeChatId) {
-      // Create chat first then send
       const id = generateUUID()
       const chat: AiyaChat = { id, title: '', messages: [], createdAt: Date.now(), updatedAt: Date.now() }
       setChats((prev) => [chat, ...prev])
       setActiveChatId(id)
       setView('chat')
-      // Need to wait a tick for state to settle
       setTimeout(() => handleSend(text), 50)
     } else {
       handleSend(text)
@@ -564,7 +753,7 @@ export default function Aiya() {
   // ─── Not logged in ─────────────────────────────────────
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-[80vh] px-5">
+      <div className="flex items-center justify-center min-h-[80vh] container-padding">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -591,69 +780,76 @@ export default function Aiya() {
   // ═════════════════════════════════════════════════════════
 
   const listView = (
-    <div className="flex flex-col w-full" style={{ height: 'calc(100dvh - 5rem - env(safe-area-inset-bottom, 0px))' }}>
+    <div 
+      className="flex flex-col w-full h-full bg-gray-50 dark:bg-gray-900"
+      style={{ 
+        height: 'calc(100svh - env(safe-area-inset-bottom, 0px))',
+        paddingTop: 'env(safe-area-inset-top, 0px)',
+      }}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg flex-shrink-0 safe-area-top" style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}>
-        <div className="flex items-center gap-3">
-          <AiyaAvatar size={36} />
-          <div>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 leading-tight">Aiya</h1>
-            {usage && (
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <div className="w-14 h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-primary to-orange-400 rounded-full transition-all"
-                    style={{ width: `${Math.min((usage.used / usage.limit) * 100, 100)}%` }}
+      <div className="flex items-center justify-between container-padding py-4 sm:py-5 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 shadow-sm">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+          <AiyaAvatar size={40} />
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 leading-tight">Aiya</h1>
+            {usageInfo && (
+              <div className="flex items-center gap-2 mt-1.5">
+                <div className="w-20 sm:w-24 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden flex-shrink-0">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min((usageInfo.used / usageInfo.limit) * 100, 100)}%` }}
+                    transition={{ duration: 0.5, ease: 'easeOut' }}
+                    className="h-full bg-gradient-to-r from-primary to-orange-400 rounded-full"
                   />
                 </div>
-                <span className="text-[10px] text-gray-400">{usage.used}/{usage.limit}</span>
+                <span className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">{usageInfo.used}/{usageInfo.limit}</span>
               </div>
             )}
           </div>
         </div>
         <motion.button
-          whileTap={{ scale: 0.9 }}
+          whileTap={{ scale: 0.95 }}
           onClick={createNewChat}
-          className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary hover:bg-primary/20 transition-colors touch-manipulation"
+          className="w-11 h-11 rounded-2xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary hover:bg-primary/20 dark:hover:bg-primary/30 transition-colors touch-manipulation shadow-sm"
           aria-label={t('aiyaNewChat', { defaultValue: 'Yeni Sohbet' })}
         >
-          <Plus size={20} strokeWidth={2.5} />
+          <Plus size={22} strokeWidth={2.5} />
         </motion.button>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto overscroll-contain w-full" style={{ WebkitOverflowScrolling: 'touch' as any }}>
-
-        {/* ── Hero / Start Chat section ── */}
-        <div className={`flex flex-col items-center px-8 text-center ${chats.length === 0 ? 'justify-center h-full' : 'pt-8 pb-4'}`}>
+      <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+        {/* Hero / Start Chat section */}
+        <div className={`flex flex-col items-center container-padding text-center ${chats.length === 0 ? 'justify-center h-full min-h-[400px]' : 'pt-8 sm:pt-10 pb-6'}`}>
           <motion.div
             animate={{ scale: [1, 1.05, 1] }}
             transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-            className="mb-5"
+            className="mb-4 sm:mb-6"
           >
-            <AiyaAvatar size={chats.length === 0 ? 72 : 56} />
+            <AiyaAvatar size={chats.length === 0 ? 80 : 64} />
           </motion.div>
-          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
             {t('aiyaEmptyTitle', { defaultValue: 'Merhaba! Ben Aiya' })}
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-5 max-w-xs leading-relaxed">
+          <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mb-6 max-w-xs sm:max-w-sm leading-relaxed">
             {t('aiyaEmptyDesc', { defaultValue: 'Anılarını bilen, seni tanıyan özel asistanın. Hemen bir sohbet başlat!' })}
           </p>
           <motion.button
-            whileTap={{ scale: 0.95 }}
+            whileTap={{ scale: 0.96 }}
             onClick={createNewChat}
-            className="px-6 py-3 rounded-2xl gradient-primary text-white font-semibold shadow-lg hover:shadow-xl transition-all touch-manipulation flex items-center gap-2"
+            className="px-6 py-3.5 rounded-2xl gradient-primary text-white font-semibold shadow-lg hover:shadow-xl transition-all touch-manipulation flex items-center gap-2 touch-target"
           >
-            <MessageCircle size={18} />
+            <MessageCircle size={20} />
             {t('aiyaStartChat', { defaultValue: 'Sohbet Başlat' })}
           </motion.button>
         </div>
 
-        {/* ── Previous conversations list ── */}
+        {/* Previous conversations list */}
         {chats.length > 0 && (
-          <div className="mt-2">
+          <div className="container-padding pb-6 max-w-4xl mx-auto w-full">
             {/* Section header */}
-            <div className="flex items-center gap-3 px-5 pb-2 pt-3">
+            <div className="flex items-center gap-3 mb-4">
               <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
               <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider flex-shrink-0">
                 {t('aiyaPreviousChats', { defaultValue: 'Önceki Konuşmalar' })}
@@ -661,48 +857,50 @@ export default function Aiya() {
               <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
             </div>
 
-            <div className="py-1">
+            <div className="space-y-2.5 sm:space-y-3">
               {chats.map((chat) => {
                 const lastMsg = chat.messages[chat.messages.length - 1]
                 const snippet = lastMsg
-                  ? (lastMsg.role === 'assistant' ? 'Aiya: ' : '') + lastMsg.content.slice(0, 60) + (lastMsg.content.length > 60 ? '…' : '')
+                  ? (lastMsg.role === 'assistant' ? 'Aiya: ' : '') + lastMsg.content.slice(0, 70) + (lastMsg.content.length > 70 ? '…' : '')
                   : t('aiyaEmptyChat', { defaultValue: 'Henüz mesaj yok' })
-                const dateStr = new Date(chat.updatedAt).toLocaleDateString(locale === 'tr' ? 'tr-TR' : 'en-US', { day: 'numeric', month: 'short' })
+                const dateStr = formatDate(chat.updatedAt, locale)
 
                 return (
                   <motion.button
                     key={chat.id}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => openChat(chat.id)}
-                    className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors touch-manipulation text-left group"
+                    className="w-full flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-4 sm:py-4.5 bg-white dark:bg-gray-800 rounded-2xl hover:bg-gray-50 dark:hover:bg-gray-700/50 active:bg-gray-100 dark:active:bg-gray-700 transition-all duration-200 touch-manipulation text-left group shadow-sm hover:shadow-md border border-gray-100 dark:border-gray-700/50 touch-target"
                   >
-                    <AiyaAvatar size={40} />
+                    <AiyaAvatar size={44} />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <p className="text-[15px] sm:text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
                           {chat.title || t('aiyaNewChat', { defaultValue: 'Yeni Sohbet' })}
                         </p>
-                        <span className="text-[10px] text-gray-400 flex-shrink-0">{dateStr}</span>
+                        <span className="text-[11px] sm:text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 font-medium">{dateStr}</span>
                       </div>
-                      <div className="flex items-center justify-between gap-2 mt-0.5">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{snippet}</p>
-                        <span className="text-[10px] text-gray-400 flex-shrink-0 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded-full">
-                          {chat.messages.length}
-                        </span>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[13px] sm:text-sm text-gray-500 dark:text-gray-400 truncate leading-snug">{snippet}</p>
+                        {chat.messages.length > 0 && (
+                          <span className="text-[11px] text-gray-400 dark:text-gray-500 flex-shrink-0 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full font-medium">
+                            {chat.messages.length}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    {/* Delete on hover (desktop) */}
-                    <motion.div
+                    {/* Delete button */}
+                    <motion.button
                       whileTap={{ scale: 0.9 }}
                       onClick={(e) => {
                         e.stopPropagation()
                         hapticFeedback('warning')
                         setDeleteConfirm({ isOpen: true, chatId: chat.id })
                       }}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 touch-manipulation"
+                      className="w-10 h-10 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 md:opacity-100 transition-all flex-shrink-0 touch-manipulation touch-target"
                     >
-                      <Trash2 size={15} />
-                    </motion.div>
+                      <Trash2 size={16} />
+                    </motion.button>
                   </motion.button>
                 )
               })}
@@ -720,35 +918,43 @@ export default function Aiya() {
   const showChips = (messages.length === 0 || (messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && !sending)) && input.length === 0
 
   const chatView = (
-    <div className="flex flex-col overflow-hidden" style={{ height: 'calc(100dvh - 5rem - env(safe-area-inset-bottom, 0px))' }}>
-      {/* Chat header */}
-      <div className="flex items-center justify-between gap-2 px-3 py-3 border-b border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 backdrop-blur-lg flex-shrink-0 safe-area-top z-10" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
+    <div 
+      className="flex flex-col overflow-hidden absolute inset-0 bg-gray-50 dark:bg-gray-900" 
+      style={{ 
+        height: '100svh',
+        paddingTop: 'env(safe-area-inset-top, 0px)',
+      }}
+    >
+      {/* Chat header - Fixed top */}
+      <div 
+        className="flex items-center justify-between gap-2 container-padding py-3.5 sm:py-4 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 z-30 shadow-sm"
+      >
         <button
           onClick={goToList}
-          className="w-9 h-9 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors touch-manipulation"
+          className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors touch-manipulation touch-target"
           aria-label={t('back', { defaultValue: 'Geri' })}
         >
-          <ChevronLeft size={22} />
+          <ChevronLeft size={24} />
         </button>
         <div className="flex-1 min-w-0 text-center">
-          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+          <p className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 truncate">
             {activeChat?.title || t('aiyaNewChat', { defaultValue: 'Yeni Sohbet' })}
           </p>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={() => { hapticFeedback('light'); createNewChat() }}
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-primary hover:bg-primary/10 transition-colors touch-manipulation"
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-primary hover:bg-primary/10 transition-colors touch-manipulation touch-target"
             aria-label={t('aiyaNewChat', { defaultValue: 'Yeni Sohbet' })}
           >
-            <Plus size={20} strokeWidth={2.5} />
+            <Plus size={22} strokeWidth={2.5} />
           </button>
           <div className="relative">
             <button
               onClick={() => { hapticFeedback('light'); setShowMenu(!showMenu) }}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors touch-manipulation"
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors touch-manipulation touch-target"
             >
-              <MoreVertical size={18} />
+              <MoreVertical size={20} />
             </button>
             <AnimatePresence>
               {showMenu && (
@@ -761,10 +967,10 @@ export default function Aiya() {
                     onClick={() => setShowMenu(false)}
                   />
                   <motion.div
-                    initial={{ opacity: 0, scale: 0.9, y: -5 }}
+                    initial={{ opacity: 0, scale: 0.95, y: -5 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.9, y: -5 }}
-                    className="absolute right-0 top-11 z-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl py-1.5 min-w-[180px] overflow-hidden"
+                    exit={{ opacity: 0, scale: 0.95, y: -5 }}
+                    className="absolute right-0 top-12 z-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl py-1.5 min-w-[180px] overflow-hidden"
                   >
                     {activeChatId && (
                       <button
@@ -773,17 +979,17 @@ export default function Aiya() {
                           hapticFeedback('warning')
                           setDeleteConfirm({ isOpen: true, chatId: activeChatId })
                         }}
-                        className="w-full px-4 py-2.5 text-left hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-3 text-sm font-medium text-red-500 transition-colors"
+                        className="w-full px-4 py-2.5 text-left hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-3 text-sm font-medium text-red-500 transition-colors touch-manipulation"
                       >
-                        <Trash2 size={15} />
+                        <Trash2 size={16} />
                         {t('aiyaDeleteChat', { defaultValue: 'Sohbeti Sil' })}
                       </button>
                     )}
                     <button
                       onClick={() => setShowMenu(false)}
-                      className="w-full px-4 py-2.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm transition-colors"
+                      className="w-full px-4 py-2.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm transition-colors touch-manipulation"
                     >
-                      <X size={15} className="text-gray-400" />
+                      <X size={16} className="text-gray-400" />
                       {t('close')}
                     </button>
                   </motion.div>
@@ -794,81 +1000,73 @@ export default function Aiya() {
         </div>
       </div>
 
-      {/* Messages area */}
+      {/* Messages area - Scrollable, flex-1 */}
       <div
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto overscroll-contain overscroll-y-contain px-4 py-4 space-y-1 min-h-0"
-        style={{ WebkitOverflowScrolling: 'touch' as any }}
+        className="flex-1 overflow-y-auto overscroll-contain container-padding py-6 space-y-4 min-h-0"
+        style={{ 
+          WebkitOverflowScrolling: 'touch',
+          touchAction: 'pan-y',
+        } as React.CSSProperties}
       >
-        {/* Empty state for new chat */}
-        {messages.length === 0 && !sending && (
-          <div className="flex flex-col items-center justify-center h-full text-center px-4">
-            <motion.div
-              animate={{ scale: [1, 1.06, 1] }}
-              transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-              className="mb-5"
-            >
-              <AiyaAvatar size={64} />
-            </motion.div>
-            <p className="text-base font-bold text-gray-900 dark:text-gray-100 mb-1">
-              {t('aiyaEmptyTitle', { defaultValue: 'Merhaba! Ben Aiya' })}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-5 max-w-[260px] leading-relaxed">
-              {t('aiyaEmptyState', { defaultValue: 'Anılarını bilen, seni tanıyan özel asistanın. Sorularını sorabilirsin!' })}
-            </p>
-          </div>
-        )}
-
-        {/* Chat bubbles */}
-        {messages.map((msg, idx) => {
-          const isUser = msg.role === 'user'
-          const prevMsg = idx > 0 ? messages[idx - 1] : null
-          const showAvatar = !isUser && prevMsg?.role !== 'assistant'
-
-          return (
-            <motion.div
-              key={`${msg.role}-${idx}-${msg.ts}`}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-              className={`flex items-end gap-2 ${isUser ? 'justify-end' : 'justify-start'} ${
-                !showAvatar && !isUser ? 'ml-9' : ''
-              }`}
-            >
-              {!isUser && showAvatar && <AiyaAvatar size={28} />}
-              <div
-                className={`max-w-[80%] px-3.5 py-2.5 text-[14px] leading-relaxed ${
-                  isUser
-                    ? 'bg-gradient-to-br from-primary to-orange-500 text-white rounded-2xl rounded-br-md'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-2xl rounded-bl-md'
-                }`}
+        {/* Container for centering on desktop */}
+        <div className="max-w-4xl mx-auto w-full">
+          {/* Empty state for new chat */}
+          {messages.length === 0 && !sending && (
+            <div className="flex flex-col items-center justify-center h-full text-center px-4 min-h-[400px]">
+              <motion.div
+                animate={{ scale: [1, 1.06, 1] }}
+                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                className="mb-6"
               >
-                <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                <p className={`text-[9px] mt-1 ${isUser ? 'text-white/60 text-right' : 'text-gray-400'}`}>
-                  {formatTime(msg.ts)}
-                </p>
-              </div>
+                <AiyaAvatar size={72} />
+              </motion.div>
+              <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+                {t('aiyaEmptyTitle', { defaultValue: 'Merhaba! Ben Aiya' })}
+              </p>
+              <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mb-6 max-w-[280px] sm:max-w-sm leading-relaxed">
+                {t('aiyaEmptyState', { defaultValue: 'Anılarını bilen, seni tanıyan özel asistanın. Sorularını sorabilirsin!' })}
+              </p>
+            </div>
+          )}
+
+          {/* Chat bubbles */}
+          {messages.map((msg, idx) => {
+            const isUser = msg.role === 'user'
+            const prevMsg = idx > 0 ? messages[idx - 1] : null
+            const nextMsg = idx < messages.length - 1 ? messages[idx + 1] : null
+            const showAvatar = !isUser && (prevMsg?.role !== 'assistant' || !prevMsg)
+            const showTime = !nextMsg || nextMsg.role !== msg.role || (nextMsg.ts && msg.ts && nextMsg.ts - msg.ts > 300000) // 5 minutes
+
+            return (
+              <MessageBubble
+                key={`${msg.role}-${idx}-${msg.ts}`}
+                message={msg}
+                isUser={isUser}
+                showAvatar={showAvatar}
+                showTime={Boolean(showTime)}
+              />
+            )
+          })}
+
+          {/* Typing indicator */}
+          {sending && <TypingDots />}
+
+          {/* Error */}
+          {errorMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-center"
+            >
+              <p className="inline-block text-xs sm:text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-full">
+                {errorMessage}
+              </p>
             </motion.div>
-          )
-        })}
+          )}
 
-        {/* Typing indicator */}
-        {sending && <TypingDots />}
-
-        {/* Error */}
-        {errorMessage && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-center"
-          >
-            <p className="inline-block text-xs text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-1.5 rounded-full">
-              {errorMessage}
-            </p>
-          </motion.div>
-        )}
-
-        <div ref={chatEndRef} />
+          <div ref={chatEndRef} />
+        </div>
       </div>
 
       {/* Scroll-down FAB */}
@@ -879,15 +1077,22 @@ export default function Aiya() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => scrollToBottom()}
-            className="absolute bottom-24 right-4 w-9 h-9 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 shadow-lg flex items-center justify-center z-20 touch-manipulation"
+            className="absolute right-4 sm:right-6 w-11 h-11 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 shadow-lg flex items-center justify-center z-20 touch-manipulation touch-target"
+            style={{ bottom: `calc(${NAVBAR_HEIGHT}px + env(safe-area-inset-bottom, 0px) + 140px)` }}
           >
-            <ChevronDown size={18} className="text-gray-600 dark:text-gray-300" />
+            <ChevronDown size={20} className="text-gray-600 dark:text-gray-300" />
           </motion.button>
         )}
       </AnimatePresence>
 
-      {/* Bottom: chips + input */}
-      <div className="flex-shrink-0 sticky bottom-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 z-10" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + env(keyboard-inset-height, 0px))' }}>
+      {/* Bottom: Input container - Fixed above navbar, z-50 */}
+      <div 
+        className="flex-shrink-0 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-50 shadow-lg"
+        style={{ 
+          paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + 0.75rem)`,
+          marginBottom: `${NAVBAR_HEIGHT}px`, // Space for navbar
+        }}
+      >
         {/* Suggestion chips */}
         <AnimatePresence>
           {showChips && (
@@ -895,7 +1100,7 @@ export default function Aiya() {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="px-4 pt-2.5 pb-1 overflow-hidden"
+              className="container-padding pt-3 pb-2 overflow-hidden"
             >
               <SuggestionChips onSelect={handleChip} memories={memories} />
             </motion.div>
@@ -903,29 +1108,33 @@ export default function Aiya() {
         </AnimatePresence>
 
         {/* Input bar */}
-        <div className="flex items-end gap-2 px-3 py-2.5">
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={t('aiyaPlaceholder')}
-            className="flex-1 px-4 py-2.5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm focus:border-primary focus:ring-2 focus:ring-primary/15 outline-none touch-manipulation"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                handleSend()
-              }
-            }}
-            disabled={sending}
-          />
+        <div className="flex items-end gap-2.5 container-padding py-3 max-w-4xl mx-auto w-full">
+          <div className="flex-1 relative">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={t('aiyaPlaceholder', { defaultValue: 'Mesaj yaz...' })}
+              className="w-full px-4 sm:px-5 py-3 sm:py-3.5 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[15px] sm:text-base leading-relaxed focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none touch-manipulation resize-none overflow-hidden transition-all duration-200 shadow-sm"
+              style={{ minHeight: '48px', maxHeight: '120px' }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend()
+                }
+              }}
+              disabled={sending}
+              rows={1}
+            />
+          </div>
           <motion.button
-            whileTap={{ scale: 0.9 }}
+            whileTap={{ scale: 0.95 }}
             onClick={() => handleSend()}
             disabled={sending || !input.trim()}
-            className="w-10 h-10 rounded-2xl gradient-primary text-white flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-all touch-manipulation flex-shrink-0"
-            aria-label={t('aiyaSend')}
+            className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl gradient-primary text-white flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-all touch-manipulation flex-shrink-0 shadow-lg touch-target"
+            aria-label={t('aiyaSend', { defaultValue: 'Gönder' })}
           >
-            {sending ? <LoadingSpinner size="sm" /> : <Send size={17} />}
+            {sending ? <LoadingSpinner size="sm" /> : <Send size={20} />}
           </motion.button>
         </div>
       </div>
@@ -937,25 +1146,33 @@ export default function Aiya() {
   // ═════════════════════════════════════════════════════════
 
   return (
-    <div className="bg-white dark:bg-gray-900 relative">
+    <div 
+      className="bg-white dark:bg-gray-900 relative h-full" 
+      style={{ 
+        height: '100svh', 
+        overflow: 'hidden',
+      }}
+    >
       <AnimatePresence mode="wait" initial={false}>
         {view === 'list' ? (
           <motion.div
             key="list"
-            initial={{ x: -30, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -30, opacity: 0 }}
-            transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+            className="absolute inset-0"
           >
             {listView}
           </motion.div>
         ) : (
           <motion.div
             key="chat"
-            initial={{ x: 30, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 30, opacity: 0 }}
-            transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+            className="absolute inset-0"
           >
             {chatView}
           </motion.div>

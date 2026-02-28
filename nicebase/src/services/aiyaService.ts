@@ -1,8 +1,8 @@
 import { supabase } from '../lib/supabase'
-import { Memory, MemoryCategory, LifeArea } from '../types'
+import { Memory, MemoryCategory } from '../types'
 import { withTimeout } from '../utils/timeout'
 
-type AiyaAction = 'chat' | 'category' | 'classify' | 'analysis' | 'profile'
+type AiyaAction = 'chat' | 'category' | 'analysis'
 
 type AiyaMessage = {
   role: 'user' | 'assistant'
@@ -31,15 +31,23 @@ type AiyaAnalysisResponse = {
   usage?: AiyaUsage
 }
 
+type AiyaChat = {
+  id: string
+  title: string
+  messages: AiyaMessage[]
+  createdAt: number
+  updatedAt: number
+}
+
 type AiyaProfileResponse = {
-  profile: string
+  profile?: string
   usage?: AiyaUsage
 }
 
 const FUNCTION_NAME = 'aiya-chat'
-const REQUEST_TIMEOUT_MS = 30000
-const MAX_CONTEXT_MEMORIES = 60
-const MAX_CONTEXT_CHARS = 10000
+const REQUEST_TIMEOUT_MS = 20000
+const MAX_CONTEXT_MEMORIES = 40
+const MAX_CONTEXT_CHARS = 6000
 
 let lastSessionCheckAt = 0
 let lastSessionOk = false
@@ -74,55 +82,14 @@ function buildMemoryContext(memories: Memory[]): string {
   return lines.join('\n')
 }
 
-function extractFunctionErrorMessage(error: unknown): string | null {
-  if (!error || typeof error !== 'object') return null
-  const message = 'message' in error ? String((error as { message?: unknown }).message ?? '') : ''
-
-  // Try context.body (FunctionsHttpError structure)
-  const context = (error as { context?: { body?: unknown } }).context
-  const body = context?.body
-  if (typeof body === 'string') {
-    try {
-      const parsed = JSON.parse(body) as { error?: string }
-      if (parsed?.error) return parsed.error
-    } catch {
-      // If body is a non-JSON string, use it directly if short enough
-      if (body.trim().length > 0 && body.length < 300) return body.trim()
-    }
-  } else if (body && typeof body === 'object' && 'error' in body) {
-    const bodyError = (body as { error?: unknown }).error
-    if (typeof bodyError === 'string' && bodyError.trim()) return bodyError
-  }
-
-  // Try direct error property (some Supabase versions)
-  if ('error' in error) {
-    const directError = (error as { error?: unknown }).error
-    if (typeof directError === 'string' && directError.trim()) return directError
-  }
-
-  return message || null
-}
-
 async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
-  // Ensure we have an active session before calling edge functions
-  const hasSession = await hasActiveSessionCached()
-  if (!hasSession) {
-    throw new Error('No active session. Please log in again.')
-  }
-
   const response = await withTimeout(
     supabase.functions.invoke(FUNCTION_NAME, { body: payload }),
     REQUEST_TIMEOUT_MS
   )
 
   if (response.error) {
-    const detail = extractFunctionErrorMessage(response.error)
-    throw new Error(detail || response.error.message || 'Aiya request failed')
-  }
-
-  // Validate that we got actual data back
-  if (response.data === null || response.data === undefined) {
-    throw new Error('Empty response from Aiya')
+    throw response.error
   }
 
   return response.data as T
@@ -169,29 +136,6 @@ export const aiyaService = {
     }
   },
 
-  /**
-   * Classify a memory text into both category AND lifeArea using AI.
-   * Returns null on failure (non-blocking, used post-save).
-   */
-  async classifyMemory(text: string, locale?: string): Promise<{ category: MemoryCategory; lifeArea: LifeArea } | null> {
-    if (!text.trim()) return null
-    if (!(await hasActiveSessionCached())) return null
-    try {
-      const response = await invokeAiya<{ category?: string; lifeArea?: string }>({
-        action: 'classify' satisfies AiyaAction,
-        message: text,
-        locale,
-        countUsage: false,
-      })
-      if (!response) return null
-      const category = (response.category || 'gratitude') as MemoryCategory
-      const lifeArea = (response.lifeArea || 'personal') as LifeArea
-      return { category, lifeArea }
-    } catch {
-      return null
-    }
-  },
-
   async analyzeMemories(params: {
     memories: Memory[]
     locale?: string
@@ -208,6 +152,68 @@ export const aiyaService = {
     })
   },
 
+  async loadChats(userId: string): Promise<AiyaChat[] | null> {
+    if (!(await hasActiveSessionCached())) return null
+    try {
+      const { data, error } = await supabase
+        .from('aiya_chats')
+        .select('*')
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false })
+
+      if (error) throw error
+      if (!data) return null
+
+      return data.map((row: {
+        id: string
+        user_id: string
+        title: string
+        messages: AiyaMessage[]
+        created_at: string
+        updated_at: string
+      }) => ({
+        id: row.id,
+        title: row.title,
+        messages: row.messages,
+        createdAt: new Date(row.created_at).getTime(),
+        updatedAt: new Date(row.updated_at).getTime(),
+      }))
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[aiyaService] Failed to load chats:', error)
+      }
+      return null
+    }
+  },
+
+  async syncChats(userId: string, chats: AiyaChat[]): Promise<void> {
+    if (!(await hasActiveSessionCached())) return
+    if (!chats || chats.length === 0) return
+
+    try {
+      // Upsert all chats
+      const chatsToSync = chats.map((chat) => ({
+        id: chat.id,
+        user_id: userId,
+        title: chat.title,
+        messages: chat.messages,
+        created_at: new Date(chat.createdAt).toISOString(),
+        updated_at: new Date(chat.updatedAt).toISOString(),
+      }))
+
+      const { error } = await supabase
+        .from('aiya_chats')
+        .upsert(chatsToSync, { onConflict: 'id' })
+
+      if (error) throw error
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[aiyaService] Failed to sync chats:', error)
+      }
+      throw error
+    }
+  },
+
   async buildProfile(params: {
     memories: Memory[]
     history: AiyaMessage[]
@@ -216,11 +222,13 @@ export const aiyaService = {
     const { memories, history, locale } = params
     const memoryContext = buildMemoryContext(memories)
     return await invokeAiya<AiyaProfileResponse>({
-      action: 'profile' satisfies AiyaAction,
-      memoryContext,
+      action: 'chat' satisfies AiyaAction,
+      message: 'Build a user profile based on the memories and conversation history.',
       history,
       locale,
-      countUsage: false,
+      memoryContext,
+      systemPrompt: 'You are a profile builder. Analyze the user\'s memories and conversation history to create a concise profile summary.',
+      countUsage: true,
     })
   },
 }

@@ -20,7 +20,7 @@ export default function FullScreenSheet({
   return (
     <div className={['min-h-[100dvh] flex flex-col safe-area-inset', className].join(' ')}>
       {header}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' as any }}>
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
         {children}
       </div>
       {footer}

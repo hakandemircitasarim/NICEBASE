@@ -28,9 +28,10 @@ const AddMemory = lazy(() => import('./pages/AddMemory'))
 function App() {
   const { init, setUser, theme } = useStore()
   const syncStartedForRef = useRef<string | null>(null)
+  const subscriptionRef = useRef<{ unsubscribe: () => void } | null>(null)
 
   useEffect(() => {
-    const SESSION_TIMEOUT = 5000
+    const SESSION_TIMEOUT = 10000
     const FETCH_TIMEOUT = 8000
 
     // Initialize app and restore session
@@ -51,7 +52,7 @@ function App() {
           )
           if (user) {
             setUser(user)
-            // Start background sync for restored session
+            // Start background sync for restored session (service handles duplicate calls)
             if (syncStartedForRef.current !== user.id) {
               memorySyncService.start(user.id)
               syncStartedForRef.current = user.id
@@ -82,7 +83,7 @@ function App() {
               if (event === 'SIGNED_IN') {
                 migrateLocalMemories(user.id).catch(() => {})
               }
-              // Start background sync for this user
+              // Start background sync for this user (service handles duplicate calls)
               if (syncStartedForRef.current !== user.id) {
                 memorySyncService.start(user.id)
                 syncStartedForRef.current = user.id
@@ -101,7 +102,7 @@ function App() {
           const user = await withTimeout(fetchUserData(session.user.id), FETCH_TIMEOUT)
           if (user) {
             setUser(user)
-            // Start background sync for this user
+            // Start background sync for this user (service handles duplicate calls)
             if (syncStartedForRef.current !== user.id) {
               memorySyncService.start(user.id)
               syncStartedForRef.current = user.id
@@ -118,8 +119,14 @@ function App() {
       }
     })
 
+    subscriptionRef.current = subscription
+
     return () => {
-      subscription.unsubscribe()
+      // Cleanup: unsubscribe from auth changes and stop sync
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe()
+        subscriptionRef.current = null
+      }
       memorySyncService.stop()
       syncStartedForRef.current = null
     }

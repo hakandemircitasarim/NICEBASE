@@ -1,15 +1,6 @@
-import { db, SyncQueueItemV2, SyncQueueOp } from '../lib/db'
+import { db, SyncQueueItemV2, SyncQueueOp, SyncQueueData } from '../lib/db'
 import { Memory } from '../types'
 import { generateUUID } from '../utils/uuid'
-
-/**
- * Sync queue item data types
- */
-type SyncQueueData =
-  | Memory // for 'create'
-  | { id: string; updates: Partial<Memory> } // for 'update'
-  | { id: string } // for 'delete'
-  | { id: string; localRefs: string[] } // for 'photoUpload' (future use)
 
 function now() {
   return Date.now()
@@ -19,7 +10,7 @@ function buildDedupeKey(userId: string, entityId: string, op: SyncQueueOp) {
   return `${userId}:${entityId}:${op}`
 }
 
-function mergePayload(existing: any, incoming: any, op: SyncQueueOp) {
+function mergePayload(existing: SyncQueueData, incoming: SyncQueueData, op: SyncQueueOp): SyncQueueData {
   if (op === 'update') {
     // Merge updates; latest wins per field.
     const prev = existing as { id: string; updates: Partial<Memory> }
@@ -63,6 +54,7 @@ export async function addToSyncQueue(
     type === 'create' ? (data as Memory).id :
     type === 'update' ? (data as { id: string }).id :
     type === 'delete' ? (data as { id: string }).id :
+    type === 'photoUpload' ? (data as { memoryId: string }).memoryId :
     (data as { id: string }).id
 
   const userId =
@@ -74,7 +66,7 @@ export async function addToSyncQueue(
     // Fallback to legacy queue if we can't deduce identifiers.
     await db.syncQueue.add({
       id: generateUUID(),
-      type: type as any,
+      type: type === 'photoUpload' ? 'create' : type, // photoUpload not supported in legacy queue
       data,
       timestamp: now(),
     })

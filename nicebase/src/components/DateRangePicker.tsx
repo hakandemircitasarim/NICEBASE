@@ -58,10 +58,10 @@ export default function DateRangePicker({ startDate, endDate, onChange, onClose 
 
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside)
-      document.addEventListener('touchstart', handleClickOutside as any)
+      document.addEventListener('touchstart', handleClickOutside as EventListener)
       return () => {
         document.removeEventListener('mousedown', handleClickOutside)
-        document.removeEventListener('touchstart', handleClickOutside as any)
+        document.removeEventListener('touchstart', handleClickOutside as EventListener)
       }
     }
   }, [isOpen])

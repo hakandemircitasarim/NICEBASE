@@ -3,11 +3,16 @@
  * Provides smooth page transitions using the native View Transitions API
  */
 
+interface DocumentWithViewTransition {
+  startViewTransition?: (callback: () => void | Promise<void>) => { finished: Promise<void> }
+}
+
 /**
  * Check if View Transitions API is supported
  */
 export const supportsViewTransitions = (): boolean => {
-  return 'startViewTransition' in document && typeof (document as any).startViewTransition === 'function'
+  const doc = document as unknown as DocumentWithViewTransition
+  return 'startViewTransition' in document && typeof doc.startViewTransition === 'function'
 }
 
 /**
@@ -21,7 +26,8 @@ export const startViewTransition = (callback: () => void | Promise<void>) => {
     return Promise.resolve(result)
   }
 
-  return (document as any).startViewTransition(() => {
+  const doc = document as unknown as DocumentWithViewTransition
+  return doc.startViewTransition!(() => {
     const result = callback()
     return result instanceof Promise ? result : Promise.resolve()
   })

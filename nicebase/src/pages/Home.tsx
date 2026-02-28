@@ -15,6 +15,7 @@ import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import { useNotifications } from '../hooks/useNotifications'
 import { isNative } from '../utils/capacitor'
+import ConflictResolutionDialog from '../components/ConflictResolutionDialog'
 
 export default function Home() {
   const { t, i18n } = useTranslation()
@@ -65,11 +66,19 @@ export default function Home() {
     const streakData = await streakService.calculateStreak(userId, loadedMemories)
     setStreak(streakData)
 
-    // Check for milestone
+    // Check for milestone (only show once per milestone)
+    // Only check if streak has changed or is a new milestone
     if (streakData.currentStreak > 0) {
-      const milestone = await streakService.checkStreakMilestone(userId, streakData.currentStreak, t)
-      if (milestone) {
-        showSuccess(milestone, { duration: 5000 })
+      const milestoneKey = `milestone_${streakData.currentStreak}_${userId}`
+      const alreadyShown = localStorage.getItem(milestoneKey)
+      
+      // Only check milestone if it hasn't been shown before
+      if (!alreadyShown) {
+        const milestone = await streakService.checkStreakMilestone(userId, streakData.currentStreak, t)
+        if (milestone) {
+          localStorage.setItem(milestoneKey, 'true')
+          showSuccess(milestone, { duration: 5000 })
+        }
       }
     }
 
@@ -89,6 +98,17 @@ export default function Home() {
       await loadStreak(loadedMemories)
     }
   })
+
+  // Find memories with conflicts
+  const conflictedMemory = memories.find((m) => m.conflict && m.conflictCloud)
+  const [showConflictDialog, setShowConflictDialog] = useState(false)
+
+  // Show conflict dialog when conflicts are detected
+  useEffect(() => {
+    if (conflictedMemory && !showConflictDialog) {
+      setShowConflictDialog(true)
+    }
+  }, [conflictedMemory, showConflictDialog])
 
   const handleAddMemory = useCallback(() => {
     hapticFeedback('light')
@@ -436,20 +456,29 @@ export default function Home() {
               )}
             </div>
             {memories.length > 0 && !isBreathing && (
-              <motion.button
-                type="button"
+              <motion.div
+                role="button"
+                tabIndex={0}
                 onClick={(e) => {
                   e.stopPropagation()
                   hapticFeedback('light')
                   handleNeedSupport(true)
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    hapticFeedback('light')
+                    handleNeedSupport(true)
+                  }
+                }}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
-                className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/20 hover:bg-primary/30 dark:bg-primary/30 dark:hover:bg-primary/40 flex items-center justify-center transition-colors touch-manipulation"
+                className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/20 hover:bg-primary/30 dark:bg-primary/30 dark:hover:bg-primary/40 flex items-center justify-center transition-colors touch-manipulation cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/50"
                 aria-label={t('showMemoryNow', { defaultValue: 'Şimdi göster' })}
               >
                 <RefreshCw size={18} className="text-primary" strokeWidth={2.5} />
-              </motion.button>
+              </motion.div>
             )}
           </div>
           <AnimatePresence>
@@ -891,6 +920,18 @@ export default function Home() {
             }
           }}
           userId={userId}
+        />
+      )}
+
+      {/* Conflict Resolution Dialog */}
+      {showConflictDialog && conflictedMemory && (
+        <ConflictResolutionDialog
+          memory={conflictedMemory}
+          onResolved={async () => {
+            setShowConflictDialog(false)
+            await refreshMemories()
+          }}
+          onClose={() => setShowConflictDialog(false)}
         />
       )}
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { motion, AnimatePresence } from 'framer-motion'
 import { dedupeConnections, parseConnectionTokens, cleanConnectionName, normalizeConnectionKey } from '../utils/connections'
 
 interface ConnectionsInputProps {
@@ -144,27 +145,39 @@ export default function ConnectionsInput({
         </p>
       )}
 
-      {isFocused && filteredSuggestions.length > 0 && (
-        <div className="mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden shadow-lg">
-          {filteredSuggestions.map((s) => (
-            <button
-              key={normalizeConnectionKey(s)}
-              type="button"
-              onMouseDown={(e) => {
-                // Prevent blur before click
-                e.preventDefault()
-              }}
-              onClick={() => {
-                commitTokens(s)
-                inputRef.current?.focus()
-              }}
-              className="w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors touch-manipulation"
-            >
-              <span className="font-medium text-gray-900 dark:text-gray-100">{s}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      <AnimatePresence>
+        {isFocused && filteredSuggestions.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            className="mt-2 bg-white/95 dark:bg-gray-800/95 backdrop-blur-lg border border-primary/20 dark:border-primary/30 rounded-2xl overflow-hidden shadow-2xl"
+          >
+            {filteredSuggestions.map((s, idx) => (
+              <motion.button
+                key={normalizeConnectionKey(s)}
+                type="button"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.03 }}
+                onMouseDown={(e) => {
+                  // Prevent blur before click
+                  e.preventDefault()
+                }}
+                onClick={() => {
+                  commitTokens(s)
+                  inputRef.current?.focus()
+                }}
+                className="w-full text-left px-4 py-3 hover:bg-primary/5 dark:hover:bg-primary/10 active:bg-primary/10 dark:active:bg-primary/20 transition-all touch-manipulation flex items-center gap-2 group"
+              >
+                <div className="w-2 h-2 rounded-full bg-primary/40 group-hover:bg-primary transition-colors flex-shrink-0" />
+                <span className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-primary transition-colors">{s}</span>
+              </motion.button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

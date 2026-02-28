@@ -110,7 +110,7 @@ export default function EditProfileSheet({ onClose }: EditProfileSheetProps) {
     setSaving(true)
 
     try {
-      const updates: Record<string, any> = {
+      const updates: Record<string, unknown> = {
         display_name: displayName.trim() || null,
         bio: bio.trim() || null,
         birthday: birthday || null,

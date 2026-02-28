@@ -29,10 +29,10 @@ export const streakService = {
 
     // Get unique dates
     const memoryDates = new Set(
-      memories.map(m => m.date.split('T')[0]).sort().reverse()
+      memories.map((m: Memory) => m.date.split('T')[0]).sort().reverse()
     )
 
-    const sortedDates = Array.from(memoryDates)
+    const sortedDates = Array.from(memoryDates) as string[]
     let currentStreak = 0
     let longestStreak = 0
     let tempStreak = 0
@@ -41,7 +41,7 @@ export const streakService = {
     let currentStreakStart: string | null = null
 
     for (const dateStr of sortedDates) {
-      const date = new Date(dateStr)
+      const date = new Date(dateStr as string)
       date.setHours(0, 0, 0, 0)
 
       if (lastDate === null) {
@@ -49,8 +49,8 @@ export const streakService = {
         tempStreak = 1
         currentStreak = 1
         longestStreak = 1
-        currentStreakStart = dateStr
-        streakStartDate = dateStr
+        currentStreakStart = dateStr as string
+        streakStartDate = dateStr as string
         continue
       }
 
@@ -60,7 +60,7 @@ export const streakService = {
         // Consecutive day
         tempStreak++
         if (currentStreakStart === null) {
-          currentStreakStart = dateStr
+          currentStreakStart = dateStr as string
         }
         longestStreak = Math.max(longestStreak, tempStreak)
       } else if (diffDays === 0) {
@@ -73,7 +73,7 @@ export const streakService = {
           streakStartDate = currentStreakStart
         }
         tempStreak = 1
-        currentStreakStart = dateStr
+        currentStreakStart = dateStr as string
       }
 
       lastDate = date
@@ -82,7 +82,7 @@ export const streakService = {
     // Check if current streak is active (last memory is today or yesterday)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const lastMemoryDate = new Date(sortedDates[0])
+    const lastMemoryDate = new Date(sortedDates[0] as string)
     lastMemoryDate.setHours(0, 0, 0, 0)
     const daysSinceLastMemory = Math.floor((today.getTime() - lastMemoryDate.getTime()) / (1000 * 60 * 60 * 24))
 
@@ -100,7 +100,7 @@ export const streakService = {
     return {
       currentStreak,
       longestStreak,
-      lastMemoryDate: sortedDates[0] || null,
+      lastMemoryDate: (sortedDates[0] as string) || null,
       streakStartDate,
     }
   },
