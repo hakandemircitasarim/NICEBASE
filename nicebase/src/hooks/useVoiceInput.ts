@@ -11,6 +11,14 @@ export function useVoiceInput({ onResult, onError, language = 'tr-TR' }: UseVoic
   const [isListening, setIsListening] = useState(false)
   const [isSupported, setIsSupported] = useState(false)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const isListeningRef = useRef(isListening)
+  const onResultRef = useRef(onResult)
+  const onErrorRef = useRef(onError)
+
+  // Keep refs in sync with latest values
+  useEffect(() => { isListeningRef.current = isListening }, [isListening])
+  useEffect(() => { onResultRef.current = onResult }, [onResult])
+  useEffect(() => { onErrorRef.current = onError }, [onError])
 
   // Check if Speech Recognition is supported
   const checkSupport = useCallback(() => {
@@ -18,21 +26,21 @@ export function useVoiceInput({ onResult, onError, language = 'tr-TR' }: UseVoic
       setIsSupported(false)
       return false
     }
-    
+
     const SpeechRecognition = window.SpeechRecognition || (window as WindowWithCapacitor).webkitSpeechRecognition
     if (!SpeechRecognition) {
       setIsSupported(false)
       return false
     }
-    
+
     setIsSupported(true)
     return true
   }, [])
 
-  // Initialize recognition
+  // Initialize recognition - uses refs to avoid re-creation when callbacks change
   const initRecognition = useCallback(() => {
     if (typeof window === 'undefined') return null
-    
+
     const SpeechRecognition = window.SpeechRecognition || (window as WindowWithCapacitor).webkitSpeechRecognition
     if (!SpeechRecognition) return null
 
@@ -59,20 +67,20 @@ export function useVoiceInput({ onResult, onError, language = 'tr-TR' }: UseVoic
       }
 
       if (finalTranscript) {
-        onResult?.(finalTranscript.trim())
+        onResultRef.current?.(finalTranscript.trim())
       } else if (interimTranscript) {
-        onResult?.(interimTranscript)
+        onResultRef.current?.(interimTranscript)
       }
     }
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       setIsListening(false)
-      const error = new Error(event.error === 'no-speech' 
-        ? 'No speech detected' 
+      const error = new Error(event.error === 'no-speech'
+        ? 'No speech detected'
         : event.error === 'aborted'
         ? 'Speech recognition aborted'
         : `Speech recognition error: ${event.error}`)
-      onError?.(error)
+      onErrorRef.current?.(error)
     }
 
     recognition.onend = () => {
@@ -80,22 +88,22 @@ export function useVoiceInput({ onResult, onError, language = 'tr-TR' }: UseVoic
     }
 
     return recognition
-  }, [language, onResult, onError])
+  }, [language])
 
   const startListening = useCallback(() => {
     if (!checkSupport()) {
-      onError?.(new Error('Speech recognition is not supported in this browser'))
+      onErrorRef.current?.(new Error('Speech recognition is not supported in this browser'))
       return
     }
 
-    if (isListening) {
+    if (isListeningRef.current) {
       stopListening()
       return
     }
 
     const recognition = initRecognition()
     if (!recognition) {
-      onError?.(new Error('Failed to initialize speech recognition'))
+      onErrorRef.current?.(new Error('Failed to initialize speech recognition'))
       return
     }
 
@@ -104,9 +112,9 @@ export function useVoiceInput({ onResult, onError, language = 'tr-TR' }: UseVoic
       recognition.start()
     } catch (error) {
       setIsListening(false)
-      onError?.(error instanceof Error ? error : new Error('Failed to start speech recognition'))
+      onErrorRef.current?.(error instanceof Error ? error : new Error('Failed to start speech recognition'))
     }
-  }, [isListening, checkSupport, initRecognition, onError])
+  }, [checkSupport, initRecognition])
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {

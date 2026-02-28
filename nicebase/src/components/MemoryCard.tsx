@@ -344,6 +344,8 @@ export default memo(MemoryCard, (prevProps, nextProps) => {
       prevProps.memory.category !== nextProps.memory.category ||
       prevProps.memory.lifeArea !== nextProps.memory.lifeArea ||
       prevProps.memory.isCore !== nextProps.memory.isCore ||
+      prevProps.memory.synced !== nextProps.memory.synced ||
+      prevProps.memory.conflict !== nextProps.memory.conflict ||
       prevProps.memory.photos.length !== nextProps.memory.photos.length ||
       prevProps.memory.connections.length !== nextProps.memory.connections.length ||
       prevProps.memory.photos.some((photo, idx) => photo !== nextProps.memory.photos[idx]) ||

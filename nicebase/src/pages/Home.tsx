@@ -20,7 +20,9 @@ import ConflictResolutionDialog from '../components/ConflictResolutionDialog'
 export default function Home() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
-  const { user, hasCompletedOnboarding, setHasCompletedOnboarding } = useStore()
+  const user = useStore((s) => s.user)
+  const hasCompletedOnboarding = useStore((s) => s.hasCompletedOnboarding)
+  const setHasCompletedOnboarding = useStore((s) => s.setHasCompletedOnboarding)
   const userId = useUserId()
   const { showSuccess, showError, hapticFeedback } = useNotifications()
   const prefersReducedMotion = useReducedMotion()

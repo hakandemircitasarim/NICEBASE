@@ -1,4 +1,4 @@
-import { useState, useRef, TouchEvent } from 'react'
+import { useState, useRef, useCallback, useEffect, TouchEvent } from 'react'
 
 interface UsePullToRefreshOptions {
   onRefresh: () => Promise<void> | void
@@ -11,13 +11,21 @@ export function usePullToRefresh({ onRefresh, threshold = 80, disabled = false }
   const [pullDistance, setPullDistance] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const touchStartY = useRef<number | null>(null)
+  const pullDistanceRef = useRef(pullDistance)
+  const isRefreshingRef = useRef(isRefreshing)
+  const onRefreshRef = useRef(onRefresh)
 
-  const handleTouchStart = (e: TouchEvent) => {
+  // Keep refs in sync with latest values
+  useEffect(() => { pullDistanceRef.current = pullDistance }, [pullDistance])
+  useEffect(() => { isRefreshingRef.current = isRefreshing }, [isRefreshing])
+  useEffect(() => { onRefreshRef.current = onRefresh }, [onRefresh])
+
+  const handleTouchStart = useCallback((e: TouchEvent) => {
     if (disabled || window.scrollY !== 0) return
     touchStartY.current = e.touches[0].clientY
-  }
+  }, [disabled])
 
-  const handleTouchMove = (e: TouchEvent) => {
+  const handleTouchMove = useCallback((e: TouchEvent) => {
     if (disabled || touchStartY.current === null) return
 
     const touchY = e.touches[0].clientY
@@ -31,27 +39,27 @@ export function usePullToRefresh({ onRefresh, threshold = 80, disabled = false }
       setIsPulling(false)
       setPullDistance(0)
     }
-  }
+  }, [disabled, threshold])
 
-  const handleTouchEnd = async () => {
+  const handleTouchEnd = useCallback(async () => {
     if (disabled) return
 
-    if (pullDistance >= threshold && !isRefreshing) {
+    if (pullDistanceRef.current >= threshold && !isRefreshingRef.current) {
       setIsRefreshing(true)
       try {
-        await onRefresh()
+        await onRefreshRef.current()
       } finally {
         setIsRefreshing(false)
       }
     }
-    
+
     // Reset after a short delay for smooth animation
     setTimeout(() => {
       setIsPulling(false)
       setPullDistance(0)
       touchStartY.current = null
     }, 300)
-  }
+  }, [disabled, threshold])
 
   const progress = Math.min(pullDistance / threshold, 1)
   const canRelease = pullDistance >= threshold
