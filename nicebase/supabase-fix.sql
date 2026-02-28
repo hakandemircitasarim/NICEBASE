@@ -13,7 +13,7 @@ BEGIN
     NEW.email,
     FALSE,
     0,
-    30,
+    50,
     NULL,
     NULL,
     'tr',

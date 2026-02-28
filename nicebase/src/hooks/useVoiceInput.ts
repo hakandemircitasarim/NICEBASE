@@ -116,9 +116,15 @@ export function useVoiceInput({ onResult, onError, language = 'tr-TR' }: UseVoic
     setIsListening(false)
   }, [])
 
-  // Check support on mount
+  // Check support on mount + cleanup recognition on unmount
   useEffect(() => {
     checkSupport()
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop()
+        recognitionRef.current = null
+      }
+    }
   }, [checkSupport])
 
   return {

@@ -50,10 +50,11 @@ export function useOAuth() {
 
     let listener: { remove: () => Promise<void> } | { remove: () => void } | null = null
     let browserListener: { remove: () => Promise<void> } | null = null
+    let aborted = false
 
     const setupListener = async () => {
       const App = await getAppPlugin()
-      if (!App) return
+      if (!App || aborted) return
 
       try {
         const listenerResult = (App.addListener as (event: string, callback: (data: unknown) => void) => { remove: () => void } | Promise<{ remove: () => Promise<void> }>)('appUrlOpen', async (data: unknown) => {
@@ -115,6 +116,7 @@ export function useOAuth() {
 
     // Cleanup function - remove all listeners when component unmounts
     return () => {
+      aborted = true
       if (listener) {
         const removeResult = listener.remove()
         if (removeResult instanceof Promise) {
@@ -192,14 +194,15 @@ export function useOAuth() {
               url: data.url,
               windowName: '_self',
             })
-            
-            // Listen for browser close
-            // Note: The listener will be automatically removed when browserFinished fires
-            // If component unmounts before that, the listener will be cleaned up by the browser plugin
-            await Browser.addListener('browserFinished', async () => {
-              // Auth state change will be handled by App.tsx listener
-              // Listener is automatically removed by Capacitor when event fires
+
+            // Listen for browser close and reset loading state
+            const finishedListener = await Browser.addListener('browserFinished', async () => {
+              setLoading(false)
+              if (finishedListener && 'remove' in finishedListener) {
+                finishedListener.remove()
+              }
             })
+            setLoading(false)
           } else {
             // Fallback: open in system browser
             // Note: This will redirect back to the app via deep link if configured
