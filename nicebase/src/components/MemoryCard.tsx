@@ -80,6 +80,14 @@ function MemoryCard({
   const catMeta = CATEGORY_META[memory.category] || CATEGORY_META.uncategorized
   const CatIcon = catMeta.icon
 
+  // Only show sync badge if memory has been unsynced for more than 5 minutes
+  const isSyncStale = useMemo(() => {
+    if (memory.synced) return false
+    const createdAt = new Date(memory.createdAt).getTime()
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000
+    return createdAt < fiveMinutesAgo
+  }, [memory.synced, memory.createdAt])
+
   const relativeDate = useMemo(
     () => getRelativeTime(memory.date, locale, t),
     [memory.date, locale, t]
@@ -163,15 +171,15 @@ function MemoryCard({
           </div>
         )}
 
-        {/* Status badges row */}
-        {(!memory.synced || memory.conflict || memory.isCore) && (
+        {/* Status badges row - sync badge only shows after 5 min */}
+        {(isSyncStale || memory.conflict || memory.isCore) && (
           <div className="mb-3 flex flex-wrap gap-1.5">
             {memory.isCore && (
               <span className="inline-flex items-center gap-1 text-xs font-bold bg-gradient-to-r from-primary to-primary-dark text-white px-2.5 py-1 rounded-full shadow-sm">
                 ⭐ {t('coreMemory')}
               </span>
             )}
-            {!memory.synced && (
+            {isSyncStale && (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-200 px-2.5 py-1 rounded-full">
                 <Clock size={11} /> {t('syncPending', { defaultValue: 'Senkron bekliyor' })}
               </span>
@@ -220,14 +228,12 @@ function MemoryCard({
         <div className="flex flex-wrap gap-1.5 mb-4">
           {/* Category badge with icon */}
           <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full ${catMeta.color} ${
-            memory.category === 'uncategorized' ? 'animate-pulse' : ''
+            memory.category === 'uncategorized' && !isSyncStale ? 'animate-pulse' : ''
           }`}>
             <CatIcon size={12} />
-            {memory.category === 'uncategorized' && !memory.synced
+            {memory.category === 'uncategorized' && !isSyncStale
               ? t('aiyaClassifying', { defaultValue: 'Aiya kategorize ediyor...' })
-              : memory.category === 'uncategorized'
-                ? t('categories.uncategorized')
-                : t(`categories.${memory.category}`)}
+              : t(`categories.${memory.category}`)}
           </span>
 
           {/* Life area (only show if not uncategorized) */}

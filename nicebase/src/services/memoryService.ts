@@ -82,6 +82,11 @@ export const memoryService = {
       await addToSyncQueue('create', memory, data.userId)
     }
 
+    // Auto-categorize via Aiya if category is uncategorized
+    if (memory.category === 'uncategorized' && memory.text.trim()) {
+      memoryService._autoCategorize(memory.id, memory.text, data.userId).catch(() => {})
+    }
+
     return memory
   },
 
@@ -107,6 +112,27 @@ export const memoryService = {
     }
 
     return updated
+  },
+
+  async _autoCategorize(memoryId: string, text: string, userId: string): Promise<void> {
+    try {
+      const { aiyaService } = await import('./aiyaService')
+      const lang = typeof localStorage !== 'undefined' ? localStorage.getItem('i18nextLng') || 'tr' : 'tr'
+      const category = await aiyaService.suggestCategory(text, lang)
+      if (category && category !== 'uncategorized') {
+        await db.memories.update(memoryId, {
+          category,
+          categories: [category],
+          updatedAt: new Date().toISOString(),
+        })
+        // Update sync queue payload if pending
+        if (hasSupabaseConfig) {
+          await addToSyncQueue('update', { id: memoryId, category, categories: [category] }, userId)
+        }
+      }
+    } catch {
+      // Silently fail — memory stays uncategorized, user can manually set
+    }
   },
 
   async delete(id: string): Promise<void> {
