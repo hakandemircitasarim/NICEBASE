@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase'
-import { Memory, MemoryCategory } from '../types'
+import { Memory, MemoryCategory, LifeArea } from '../types'
 import { withTimeout } from '../utils/timeout'
 
 type AiyaAction = 'chat' | 'category' | 'analysis'
@@ -131,6 +131,26 @@ export const aiyaService = {
         countUsage: false,
       })
       return response?.category ?? null
+    } catch {
+      return null
+    }
+  },
+
+  async suggestCategoryAndLifeArea(text: string, locale?: string): Promise<{ category: MemoryCategory; lifeArea: LifeArea } | null> {
+    if (!text.trim()) return null
+    if (!(await hasActiveSessionCached())) return null
+    try {
+      const response = await invokeAiya<{ category?: MemoryCategory | null; lifeArea?: LifeArea | null }>({
+        action: 'category' satisfies AiyaAction,
+        message: text,
+        locale,
+        countUsage: false,
+      })
+      if (!response?.category) return null
+      return {
+        category: response.category,
+        lifeArea: response.lifeArea ?? 'uncategorized',
+      }
     } catch {
       return null
     }
