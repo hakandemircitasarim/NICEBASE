@@ -179,6 +179,25 @@ export const memoryService = {
   async syncAll(userId: string): Promise<void> {
     if (!hasSupabaseConfig) return
 
+    // --- Retry auto-categorization for uncategorized memories ---
+    try {
+      const uncategorized = await db.memories
+        .where('userId')
+        .equals(userId)
+        .and((m) => m.category === 'uncategorized' && !!m.text?.trim())
+        .toArray()
+
+      for (const memory of uncategorized.slice(0, 5)) {
+        // Don't retry if we already tried recently (check updatedAt within last 2 min)
+        const updatedAgo = Date.now() - new Date(memory.updatedAt).getTime()
+        if (updatedAgo < 2 * 60 * 1000) continue
+
+        memoryService._autoCategorize(memory.id, memory.text, userId).catch(() => {})
+      }
+    } catch {
+      // Non-critical, continue with sync
+    }
+
     // --- Cleanup pass: fix stuck in_progress items (crashed mid-sync) ---
     const stuckItems = await db.syncQueueV2
       .where('userId')
