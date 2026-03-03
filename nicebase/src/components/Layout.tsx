@@ -1,10 +1,11 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { Home, Archive, MessageCircle, User } from 'lucide-react'
 import { hapticFeedback } from '../utils/haptic'
 import { useStore } from '../store/useStore'
+import { setBackButtonHandler } from '../utils/capacitor'
 
 export default function Layout() {
   const { t } = useTranslation()
@@ -12,8 +13,26 @@ export default function Layout() {
   const location = useLocation()
   const openModalCount = useStore((s) => s.openModalCount)
   const isModalOpen = openModalCount > 0
+  const locationRef = useRef(location)
+  locationRef.current = location
 
-  // User is optional - app works offline without login
+  // Register Android back button handler with React Router
+  const handleBackButton = useCallback((): boolean => {
+    const currentPath = locationRef.current.pathname
+    // If on a sub-page, navigate back to the parent/home
+    if (currentPath === '/') {
+      // On home page - let native handle (exit app)
+      return false
+    }
+    // Navigate to home for all other pages
+    navigate('/', { replace: true })
+    return true
+  }, [navigate])
+
+  useEffect(() => {
+    setBackButtonHandler(handleBackButton)
+    return () => setBackButtonHandler(null)
+  }, [handleBackButton])
 
   const navItems = [
     { path: '/', icon: Home, label: t('appName') },
@@ -22,12 +41,12 @@ export default function Layout() {
     { path: '/profile', icon: User, label: t('profile') },
   ]
 
-  const hideNavForRoutes = location.pathname.startsWith('/add-memory')
+  const hideNavForRoutes = location.pathname.startsWith('/add-memory') || location.pathname.startsWith('/aiya')
   const isFullscreenChat = location.pathname.startsWith('/aiya')
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <main className={isFullscreenChat ? '' : 'pb-20'}>
+      <main className={isFullscreenChat ? '' : 'pb-16'}>
         <Outlet />
       </main>
       
@@ -36,11 +55,10 @@ export default function Layout() {
           isModalOpen || hideNavForRoutes ? 'translate-y-full' : 'translate-y-0'
         }`}
         style={{
-          paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)',
-          minHeight: 'calc(80px + env(safe-area-inset-bottom, 0px))',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }}
       >
-        <div className="flex justify-around items-center h-20 px-1 sm:px-2 overflow-x-auto scrollbar-hide snap-x snap-mandatory">
+        <div className="flex justify-around items-center h-16 px-1 sm:px-2 overflow-x-auto scrollbar-hide snap-x snap-mandatory">
           {navItems.map((item) => {
             const Icon = item.icon
             const isActive = item.path === '/' 

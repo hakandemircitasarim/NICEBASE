@@ -268,6 +268,11 @@ const resources = {
       dailyReminderBodyWithStreak: '{{count}} günlük serin var, bugün de devam et! Güzel bir anı ekle 🔥',
       randomMemoryReminderTitle: 'NICEBASE - Anı Hatırlatıcı',
       randomMemoryReminderBody: 'Zor bir anında mısın? Güzel bir anını hatırla ✨',
+      streakContinuesMessages: {
+        message1: '{{count}} günlük seri! Harika gidiyorsun! 🔥',
+        message2: 'Tebrikler! {{count}} gündür düzenli anı ekliyorsun! 💪',
+        message3: '{{count}} günlük serin devam ediyor, böyle devam et! ⚡',
+      },
       streakProtectionMessages: {
         message1: '{{count}} günlük serin var! Bugün anı eklemeyi unutma 🔥',
         message2: 'Serin korunuyor! Bugün bir anı ekle, {{count}} günlük serini sürdür 💪',
@@ -927,6 +932,11 @@ const resources = {
       dailyReminderBodyWithStreak: 'You have a {{count}}-day streak! Keep it going today 🔥',
       randomMemoryReminderTitle: 'NICEBASE - Memory Reminder',
       randomMemoryReminderBody: 'Having a tough moment? Remember a beautiful memory ✨',
+      streakContinuesMessages: {
+        message1: '{{count}}-day streak! You\'re doing great! 🔥',
+        message2: 'Congrats! {{count}} days of adding memories! 💪',
+        message3: 'Your {{count}}-day streak continues, keep it up! ⚡',
+      },
       streakProtectionMessages: {
         message1: 'You have a {{count}}-day streak! Don\'t forget to add a memory today 🔥',
         message2: 'Streak protected! Add a memory today to continue your {{count}}-day streak 💪',

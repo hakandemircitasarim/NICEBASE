@@ -34,6 +34,19 @@ type PieLabelEntry = {
 
 const COLORS = ['#FF6B35', '#F7931E', '#FFD23F', '#06FFA5', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7']
 
+// Custom tooltip that shows clean labels instead of raw dataKey
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string }>; label?: string }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 shadow-lg text-sm">
+      {label && <p className="font-medium text-gray-900 dark:text-gray-100 mb-1">{label}</p>}
+      {payload.map((entry, i) => (
+        <p key={i} className="text-gray-600 dark:text-gray-400">{entry.value}</p>
+      ))}
+    </div>
+  )
+}
+
 export default function Statistics() {
   const { t, i18n } = useTranslation()
   const userId = useUserId()
@@ -323,7 +336,7 @@ export default function Statistics() {
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
               <XAxis dataKey="month" className="text-xs sm:text-sm" />
               <YAxis className="text-xs sm:text-sm" />
-              <Tooltip />
+              <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="count" fill="#FF6B35" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -362,7 +375,7 @@ export default function Statistics() {
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip content={<CustomTooltip />} />
               </PieChart>
             </ResponsiveContainer>
           </motion.div>
@@ -384,7 +397,7 @@ export default function Statistics() {
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
               <XAxis dataKey="intensity" className="text-xs sm:text-sm" />
               <YAxis className="text-xs sm:text-sm" />
-              <Tooltip />
+              <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="count" fill="#FF6B35" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -423,7 +436,7 @@ export default function Statistics() {
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip content={<CustomTooltip />} />
               </PieChart>
             </ResponsiveContainer>
           </motion.div>

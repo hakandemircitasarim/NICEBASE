@@ -263,16 +263,36 @@ export default function RelationshipSaver() {
             <label className="block text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">
               {t('selectConnection')}
             </label>
-            <select
-              value={selectedConnectionKey}
-              onChange={(e) => setSelectedConnectionKey(e.target.value)}
-              className="w-full px-5 py-3.5 border-2 border-gray-200 dark:border-gray-700 rounded-2xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none shadow-sm hover:shadow-md font-medium"
-            >
-              <option value="">{t('selectConnectionPlaceholder')}</option>
-              {connections.map(conn => (
-                <option key={conn.key} value={conn.key}>{conn.label}</option>
-              ))}
-            </select>
+            <div className="flex flex-wrap gap-2">
+              {connections.map(conn => {
+                const isActive = conn.key === selectedConnectionKey
+                return (
+                  <motion.button
+                    key={conn.key}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      setSelectedConnectionKey(isActive ? '' : conn.key)
+                      hapticFeedback('light')
+                    }}
+                    className={`px-4 py-2.5 rounded-2xl text-sm font-semibold transition-all touch-manipulation border-2 ${
+                      isActive
+                        ? 'gradient-primary text-white border-transparent shadow-lg shadow-primary/25'
+                        : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-primary/30'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Heart size={14} className={isActive ? 'text-white' : 'text-primary'} />
+                      {conn.label}
+                    </span>
+                  </motion.button>
+                )
+              })}
+            </div>
+            {connections.length === 0 && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                {t('noConnections', { defaultValue: 'Henüz bağlantı yok' })}
+              </p>
+            )}
           </motion.div>
 
           {selectedConnectionKey && filteredMemories.length === 0 && (

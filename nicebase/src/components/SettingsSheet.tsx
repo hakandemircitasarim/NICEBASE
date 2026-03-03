@@ -200,17 +200,19 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     try {
       hapticFeedback('light')
       toast.loading(t('syncing'), { id: 'sync' })
-      
-      // Get sync status before sync
-      const statusBefore = await memoryService.getSyncStatus(user.id)
-      
-      await memoryService.syncAll(user.id)
-      
+
+      // Add timeout to prevent infinite loading
+      const syncPromise = memoryService.syncAll(user.id)
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Sync timeout')), 30000)
+      )
+      await Promise.race([syncPromise, timeoutPromise])
+
       // Get sync status after sync
       const statusAfter = await memoryService.getSyncStatus(user.id)
-      
+
       hapticFeedback('success')
-      
+
       // Show detailed feedback
       if (statusAfter.pending > 0 || statusAfter.failed > 0) {
         toast.success(
@@ -221,13 +223,14 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           { id: 'sync', duration: 4000 }
         )
       } else {
-        toast.success(t('syncComplete'), { id: 'sync' })
+        toast.success(t('syncComplete'), { id: 'sync', duration: 3000 })
       }
     } catch (error) {
       hapticFeedback('error')
       const errorMessage = error instanceof Error ? error.message : String(error)
+      const isTimeout = errorMessage === 'Sync timeout'
       toast.error(
-        t('syncError') + (errorMessage ? `: ${errorMessage}` : ''),
+        isTimeout ? t('syncTimeout', { defaultValue: 'Senkronizasyon zaman a\u015f\u0131m\u0131na u\u011frad\u0131' }) : (t('syncError') + (errorMessage ? `: ${errorMessage}` : '')),
         { id: 'sync', duration: 5000 }
       )
       errorLoggingService.logError(

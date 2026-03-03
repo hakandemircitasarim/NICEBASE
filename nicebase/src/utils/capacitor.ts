@@ -235,8 +235,13 @@ export const initializeStatusBar = async (isDarkMode: boolean = false) => {
       color: backgroundColor,
     })
 
-    // Note: setOverlaysWebView is not available in our StatusBarPlugin interface
-    // This is handled by the native plugin configuration
+    // Ensure status bar doesn't overlay the WebView content
+    try {
+      const module = await import('@capacitor/status-bar')
+      await module.StatusBar.setOverlaysWebView({ overlay: false })
+    } catch {
+      // setOverlaysWebView not available — handled by native config
+    }
   } catch (error) {
     // StatusBar initialization failed - non-critical
     if (import.meta.env.DEV) {

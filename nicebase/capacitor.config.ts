@@ -37,10 +37,11 @@ const config: CapacitorConfig = {
       showSpinner: false,
       iosSpinnerStyle: 'small',
       spinnerColor: '#FF6B35',
-      splashFullScreen: true,
-      splashImmersive: true,
+      splashFullScreen: false,
+      splashImmersive: false,
     },
     StatusBar: {
+      overlaysWebView: false,
       style: 'dark',
       backgroundColor: '#ffffff',
     },

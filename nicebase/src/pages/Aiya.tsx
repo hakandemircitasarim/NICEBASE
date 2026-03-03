@@ -48,7 +48,7 @@ const HISTORY_LIMIT = 40
 const PROFILE_MIN_MESSAGE_COUNT = 4
 const PROFILE_UPDATE_MESSAGE_INTERVAL = 6
 const PROFILE_UPDATE_COOLDOWN_MS = 6 * 60 * 60 * 1000
-const NAVBAR_HEIGHT = 80 // Height of bottom navbar in pixels
+const DRAFT_SAVE_KEY_PREFIX = 'aiya_draft_'
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -284,7 +284,7 @@ function MessageBubble({
 export default function Aiya() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
-  const { user } = useStore()
+  const { user, setUser } = useStore()
   const userId = useUserId()
   const { memories } = useMemories(userId, { autoLoad: Boolean(user) })
 
@@ -420,9 +420,11 @@ export default function Aiya() {
 
   useEffect(() => {
     if (view === 'chat' && activeChatId) {
-      setTimeout(() => {
-        scrollToBottom(false)
-      }, 100)
+      // Multiple attempts to ensure scroll works on Android WebView
+      scrollToBottom(false)
+      const t1 = setTimeout(() => scrollToBottom(false), 100)
+      const t2 = setTimeout(() => scrollToBottom(false), 300)
+      return () => { clearTimeout(t1); clearTimeout(t2) }
     }
   }, [activeChatId, view, scrollToBottom])
 
@@ -448,9 +450,9 @@ export default function Aiya() {
 
     const loadData = async () => {
       try {
-        // Step 1: Load from localStorage
+        // Step 1: Load from localStorage INSTANTLY (no async)
         let stored = loadJson<AiyaChat[]>(chatsKey)
-        
+
         // Migration: Try to find chats from any key
         if (!stored || !Array.isArray(stored) || stored.length === 0) {
           const allKeys: string[] = []
@@ -464,7 +466,7 @@ export default function Aiya() {
           } catch (e) {
             // Ignore errors
           }
-          
+
           for (const key of allKeys) {
             const candidate = loadJson<AiyaChat[]>(key)
             if (candidate && Array.isArray(candidate) && candidate.length > 0) {
@@ -481,8 +483,15 @@ export default function Aiya() {
             }
           }
         }
-        
-        // Step 2: Load from Supabase if user is logged in
+
+        // Show local data immediately
+        if (stored && Array.isArray(stored) && stored.length > 0) {
+          stored.sort((a, b) => b.updatedAt - a.updatedAt)
+          setChats(stored)
+          setLoaded(true) // Show UI immediately with local data
+        }
+
+        // Step 2: Load from Supabase in background (non-blocking)
         let cloudChats: AiyaChat[] | null = null
         if (userId && user) {
           try {
@@ -493,7 +502,7 @@ export default function Aiya() {
             }
           }
         }
-        
+
         // Step 3: Merge local and cloud chats
         let mergedChats: AiyaChat[] = []
         
@@ -587,19 +596,8 @@ export default function Aiya() {
       }
     }
 
-    // Delay for Capacitor
-    const timers: ReturnType<typeof setTimeout>[] = []
-    if (typeof window !== 'undefined' && 'Capacitor' in window) {
-      timers.push(setTimeout(loadData, 100))
-      timers.push(setTimeout(loadData, 500))
-      timers.push(setTimeout(loadData, 1000))
-    } else {
-      loadData()
-    }
-
-    return () => {
-      timers.forEach(clearTimeout)
-    }
+    // Load immediately - no need for multiple delayed calls
+    loadData()
   }, [chatsKey, profileKey, userId, user])
 
   // Debounce chats for Supabase sync
@@ -644,6 +642,28 @@ export default function Aiya() {
     saveJson(profileKey, profileMeta)
   }, [loaded, profileMeta, profileKey])
 
+  // ─── Draft helpers ───────────────────────────────────────
+  const draftKey = activeChatId ? `${DRAFT_SAVE_KEY_PREFIX}${activeChatId}` : null
+
+  const saveDraft = useCallback((chatId: string, text: string) => {
+    const key = `${DRAFT_SAVE_KEY_PREFIX}${chatId}`
+    if (text.trim()) {
+      try { localStorage.setItem(key, text) } catch { /* ignore */ }
+    } else {
+      try { localStorage.removeItem(key) } catch { /* ignore */ }
+    }
+  }, [])
+
+  const loadDraft = useCallback((chatId: string): string => {
+    try { return localStorage.getItem(`${DRAFT_SAVE_KEY_PREFIX}${chatId}`) || '' } catch { return '' }
+  }, [])
+
+  // Save draft when input changes
+  useEffect(() => {
+    if (!activeChatId) return
+    saveDraft(activeChatId, input)
+  }, [input, activeChatId, saveDraft])
+
   // ─── Chat CRUD ─────────────────────────────────────────
   const createNewChat = useCallback(() => {
     const id = generateUUID()
@@ -660,26 +680,36 @@ export default function Aiya() {
   const openChat = useCallback((id: string) => {
     setActiveChatId(id)
     setView('chat')
-    setInput('')
+    // Restore draft if available
+    setInput(loadDraft(id))
     setErrorMessage(null)
     hapticFeedback('light')
-    setTimeout(() => scrollToBottom(false), 50)
-  }, [scrollToBottom])
+    // Use requestAnimationFrame + setTimeout for reliable scroll on Android
+    requestAnimationFrame(() => {
+      setTimeout(() => scrollToBottom(false), 150)
+    })
+  }, [scrollToBottom, loadDraft])
 
   const deleteChat = useCallback((id: string) => {
+    // Clean up draft
+    saveDraft(id, '')
     setChats((prev) => prev.filter((c) => c.id !== id))
     if (activeChatId === id) {
       setActiveChatId(null)
       setView('list')
     }
     hapticFeedback('success')
-  }, [activeChatId])
+  }, [activeChatId, saveDraft])
 
   const goToList = useCallback(() => {
+    // Save current draft before going to list
+    if (activeChatId && input.trim()) {
+      saveDraft(activeChatId, input)
+    }
     setView('list')
     setShowMenu(false)
     hapticFeedback('light')
-  }, [])
+  }, [activeChatId, input, saveDraft])
 
   // ─── Profile update ────────────────────────────────────
   const maybeUpdateProfile = useCallback(async (nextMessages: AiyaMessage[]) => {
@@ -706,6 +736,8 @@ export default function Aiya() {
     const text = (overrideText ?? input).trim()
     if (!text || sending) return
     setInput('')
+    // Clear draft on send
+    if (activeChatId) saveDraft(activeChatId, '')
     setErrorMessage(null)
 
     const userMsg: AiyaMessage = { role: 'user', content: text, ts: Date.now() }
@@ -735,7 +767,13 @@ export default function Aiya() {
         return { ...c, messages: updated, updatedAt: Date.now() }
       }))
 
-      if (res.usage) setUsage(res.usage)
+      if (res.usage) {
+        setUsage(res.usage)
+        // Also update the store so counter stays in sync across sessions
+        if (user) {
+          setUser({ ...user, aiyaMessagesUsed: res.usage.used })
+        }
+      }
 
       void maybeUpdateProfile([...history, aiyaMsg])
     } catch (err) {
@@ -743,7 +781,7 @@ export default function Aiya() {
     } finally {
       setSending(false)
     }
-  }, [input, sending, activeChatId, memories, locale, systemPrompt, t, maybeUpdateProfile])
+  }, [input, sending, activeChatId, memories, locale, systemPrompt, t, maybeUpdateProfile, saveDraft, user, setUser])
 
   // ─── Chip action ───────────────────────────────────────
   const handleChip = useCallback((text: string) => {
@@ -934,7 +972,7 @@ export default function Aiya() {
       className="flex flex-col overflow-hidden absolute inset-0 bg-gray-50 dark:bg-gray-900"
       style={{
         paddingTop: 'env(safe-area-inset-top, 0px)',
-        paddingBottom: `calc(${NAVBAR_HEIGHT}px + env(safe-area-inset-bottom, 0px))`,
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}
     >
       {/* Chat header - Fixed top */}

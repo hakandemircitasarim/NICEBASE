@@ -5,33 +5,70 @@ import i18n from '../i18n'
 import { isNative } from '../utils/capacitor'
 
 /**
- * Downloads a blob — on native Android uses share sheet (since anchor-click
- * downloads don't work inside Capacitor WebView), on web uses a hidden anchor.
+ * Convert blob to base64 data URL
+ */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
+/**
+ * Downloads a blob — tries multiple strategies for compatibility:
+ * 1. Web Share API with files (native Android)
+ * 2. Anchor element download (web browsers)
+ * 3. Data URL in new window (fallback for WebViews)
  */
 async function downloadBlob(blob: Blob, filename: string): Promise<void> {
-  if (isNative()) {
-    // On native platforms, convert blob to data-URL and share via Web Share API
-    // which Android supports natively inside WebView.
+  // Strategy 1: Web Share API with files (works well on Android native)
+  if (isNative() || navigator.share) {
     try {
       const file = new File([blob], filename, { type: blob.type })
-      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      if (navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file], title: filename })
         return
       }
-    } catch {
-      // Web Share API not available or user cancelled — fall through to anchor approach
+    } catch (err) {
+      // User cancelled or API not available — try next strategy
+      if (err instanceof Error && err.name === 'AbortError') return
     }
   }
 
-  // Web fallback (also works on some Android WebViews)
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+  // Strategy 2: Anchor element download (standard web)
+  try {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.style.display = 'none'
+    document.body.appendChild(link)
+    link.click()
+    // Small delay before cleanup to ensure download starts
+    setTimeout(() => {
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    }, 1000)
+
+    // On native, anchor click may silently fail — check if we need fallback
+    if (!isNative()) return
+  } catch {
+    // Anchor approach failed — try data URL fallback
+  }
+
+  // Strategy 3: Data URL fallback (works in most WebViews)
+  try {
+    const dataUrl = await blobToDataUrl(blob)
+    const win = window.open(dataUrl, '_blank')
+    if (!win) {
+      // Popup blocked — try direct location change for data URL
+      window.location.href = dataUrl
+    }
+  } catch {
+    throw new Error('Export failed: could not download file')
+  }
 }
 
 export const exportService = {

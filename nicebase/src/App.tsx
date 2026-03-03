@@ -6,7 +6,7 @@ import Login from './pages/Login'
 import { supabase } from './lib/supabase'
 import { fetchUserData, ensureUserExists } from './lib/userService'
 import { withTimeout } from './utils/timeout'
-import { initializeNativeApp } from './utils/capacitor'
+import { initializeNativeApp, updateStatusBar } from './utils/capacitor'
 import { memorySyncService } from './services/memorySyncService'
 import { migrateLocalMemories } from './utils/localUserId'
 import Toaster from './components/Toaster'
@@ -29,6 +29,13 @@ function App() {
   const { init, setUser, theme } = useStore()
   const syncStartedForRef = useRef<string | null>(null)
   const subscriptionRef = useRef<{ unsubscribe: () => void } | null>(null)
+  const themeRef = useRef(theme)
+  themeRef.current = theme
+
+  // Update status bar when theme changes (separate from main init)
+  useEffect(() => {
+    updateStatusBar(theme === 'dark')
+  }, [theme])
 
   useEffect(() => {
     const SESSION_TIMEOUT = 10000
@@ -37,7 +44,7 @@ function App() {
     // Initialize app and restore session
     const initializeApp = async () => {
       // Initialize native platform (StatusBar, back button, listeners)
-      await initializeNativeApp(theme === 'dark')
+      await initializeNativeApp(themeRef.current === 'dark')
 
       // First, try to restore session from storage (with timeout to avoid hanging)
       try {
@@ -154,7 +161,8 @@ function App() {
       memorySyncService.stop()
       syncStartedForRef.current = null
     }
-  }, [init, setUser, theme])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [init, setUser])
 
   return (
     <>

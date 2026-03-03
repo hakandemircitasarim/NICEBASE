@@ -32,9 +32,7 @@
     font-size: 16px;
   }
 
-  * {
-    @apply transition-colors duration-200;
-  }
+  /* Theme transition only on body background — avoids mass re-paint on theme toggle */
 
   /* Typography improvements for mobile readability - Fluid Typography */
   h1 {

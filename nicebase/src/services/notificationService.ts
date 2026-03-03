@@ -57,15 +57,26 @@ export const notificationService = {
   async requestPermission(): Promise<boolean> {
     // Native platform (Android/iOS)
     if (isNativePlatform()) {
+      // Try LocalNotifications first (more reliable on Android 13+)
+      try {
+        const LocalNotifications = await loadLocalNotifications()
+        if (LocalNotifications) {
+          const result = await (LocalNotifications as { requestPermissions: () => Promise<{ display: string }> }).requestPermissions()
+          if (result.display === 'granted') return true
+        }
+      } catch {
+        // LocalNotifications permission request failed — try PushNotifications
+      }
+
+      // Fallback to PushNotifications
       try {
         const PushNotifications = await loadPushNotifications()
         if (!PushNotifications) return false
-        // Use requestPermission method which exists in Capacitor PushNotifications
-        const result = await (PushNotifications as { requestPermission: () => Promise<{ granted: boolean }> }).requestPermission()
-        return result.granted === true
+        const result = await (PushNotifications as { requestPermissions: () => Promise<{ receive: string }> }).requestPermissions()
+        return result.receive === 'granted'
       } catch (error) {
         errorLoggingService.logError(
-          error instanceof Error ? error : new Error('Failed to request push notification permissions'),
+          error instanceof Error ? error : new Error('Failed to request notification permissions'),
           'warning'
         )
         return false

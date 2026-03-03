@@ -63,10 +63,24 @@ export function getDefaultQuestion(): DailyQuestion {
 export const dailyQuestionService = {
   /**
    * Get today's daily question.
-   * Tries Supabase first, falls back to local deterministic selection.
+   * Returns cached question if available for today, otherwise fetches from
+   * Supabase and falls back to local deterministic selection.
    */
   async getTodaysQuestion(): Promise<DailyQuestion> {
     const today = getTodayString()
+
+    // Check localStorage cache first — prevents question changing on refresh
+    try {
+      const cached = localStorage.getItem('daily_question_cache')
+      if (cached) {
+        const parsed = JSON.parse(cached) as DailyQuestion
+        if (parsed.date === today && parsed.id && parsed.questionTr) {
+          return parsed
+        }
+      }
+    } catch { /* ignore cache errors */ }
+
+    let question: DailyQuestion | null = null
 
     try {
       const { data, error } = await supabase
@@ -76,7 +90,7 @@ export const dailyQuestionService = {
         .maybeSingle()
 
       if (!error && data) {
-        return {
+        question = {
           id: data.id,
           questionTr: data.question_tr,
           questionEn: data.question_en,
@@ -88,15 +102,24 @@ export const dailyQuestionService = {
       // Fall through to fallback
     }
 
-    // Fallback: generate a deterministic question from local array
-    const fallback = getFallbackQuestion()
-    return {
-      id: `fallback-${today}`,
-      questionTr: fallback.questionTr,
-      questionEn: fallback.questionEn,
-      date: today,
-      createdAt: new Date().toISOString(),
+    if (!question) {
+      // Fallback: generate a deterministic question from local array
+      const fallback = getFallbackQuestion()
+      question = {
+        id: `fallback-${today}`,
+        questionTr: fallback.questionTr,
+        questionEn: fallback.questionEn,
+        date: today,
+        createdAt: new Date().toISOString(),
+      }
     }
+
+    // Cache for the day
+    try {
+      localStorage.setItem('daily_question_cache', JSON.stringify(question))
+    } catch { /* ignore */ }
+
+    return question
   },
 
   /**
