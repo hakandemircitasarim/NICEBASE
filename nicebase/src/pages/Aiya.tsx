@@ -931,10 +931,10 @@ export default function Aiya() {
 
   const chatView = (
     <div 
-      className="flex flex-col overflow-hidden absolute inset-0 bg-gray-50 dark:bg-gray-900" 
-      style={{ 
-        height: '100svh',
+      className="flex flex-col overflow-hidden absolute inset-0 bg-gray-50 dark:bg-gray-900"
+      style={{
         paddingTop: 'env(safe-area-inset-top, 0px)',
+        paddingBottom: `calc(${NAVBAR_HEIGHT}px + env(safe-area-inset-bottom, 0px))`,
       }}
     >
       {/* Chat header - Fixed top */}
@@ -1090,7 +1090,7 @@ export default function Aiya() {
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => scrollToBottom()}
             className="absolute right-4 sm:right-6 w-11 h-11 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 shadow-lg flex items-center justify-center z-20 touch-manipulation touch-target"
-            style={{ bottom: `calc(${NAVBAR_HEIGHT}px + env(safe-area-inset-bottom, 0px) + 140px)` }}
+            style={{ bottom: '140px' }}
           >
             <ChevronDown size={20} className="text-gray-600 dark:text-gray-300" />
           </motion.button>
@@ -1100,9 +1100,8 @@ export default function Aiya() {
       {/* Bottom: Input container - Fixed above navbar, z-50 */}
       <div 
         className="flex-shrink-0 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-50 shadow-lg"
-        style={{ 
-          paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + 0.75rem)`,
-          marginBottom: `${NAVBAR_HEIGHT}px`, // Space for navbar
+        style={{
+          paddingBottom: '0.75rem',
         }}
       >
         {/* Suggestion chips */}

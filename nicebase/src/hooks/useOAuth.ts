@@ -1,22 +1,18 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import toast from 'react-hot-toast'
 import { supabase, hasSupabaseConfig } from '../lib/supabase'
 import { errorLoggingService } from '../services/errorLoggingService'
 import { hapticFeedback } from '../utils/haptic'
 import { isNative } from '../utils/capacitor'
-import type { WindowWithCapacitor } from '../types/capacitor'
+
+// Module-level Browser reference so the deep-link callback can close it
+let _browserRef: { close: () => Promise<void> } | null = null
 
 // Dynamically load App plugin at runtime if available
 async function getAppPlugin() {
   if (!isNative()) return null
   try {
-    if (typeof window !== 'undefined') {
-      const plugins = (window as WindowWithCapacitor).CapacitorPlugins
-      if (plugins?.App) {
-        return plugins.App
-      }
-    }
     const module = await import('@capacitor/app')
     return module.App
   } catch {
@@ -29,6 +25,7 @@ async function getBrowserPlugin() {
   if (!isNative()) return null
   try {
     const module = await import('@capacitor/browser')
+    _browserRef = module.Browser
     return module.Browser
   } catch {
     return null
@@ -41,6 +38,7 @@ async function getBrowserPlugin() {
 export function useOAuth() {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
+  const loadingRef = useRef(false)
 
   // Set up deep link listener for OAuth callback (native only)
   useEffect(() => {
@@ -56,22 +54,64 @@ export function useOAuth() {
       try {
         const listenerResult = (App.addListener as (event: string, callback: (data: unknown) => void) => { remove: () => void } | Promise<{ remove: () => Promise<void> }>)('appUrlOpen', async (data: unknown) => {
           const { url: urlString } = data as { url: string }
-          try {
-            if (urlString.includes('code=') || urlString.includes('error=') || urlString.includes('#access_token=') || urlString.includes('access_token=')) {
-              let params = ''
-              if (urlString.includes('#')) {
-                params = urlString.split('#')[1]
-              } else if (urlString.includes('?')) {
-                params = urlString.split('?')[1]
-              }
+          if (!urlString) return
 
-              if (params) {
-                const callbackUrl = `${window.location.origin}/#${params}`
-                window.location.href = callbackUrl
+          try {
+            // 1) Close the in-app browser (Chrome Custom Tab) immediately
+            if (_browserRef) {
+              try { await _browserRef.close() } catch { /* already closed */ }
+            }
+
+            // 2) Parse the callback URL
+            const url = new URL(urlString)
+            const searchParams = new URLSearchParams(url.search || '')
+            const hashParams = new URLSearchParams((url.hash || '').replace('#', ''))
+
+            // 3) Check for error from provider
+            const errorParam = searchParams.get('error') || hashParams.get('error')
+            if (errorParam) {
+              const desc = searchParams.get('error_description') || hashParams.get('error_description') || errorParam
+              console.error('[OAuth] Provider error:', desc)
+              toast.error(desc)
+              loadingRef.current = false
+              setLoading(false)
+              return
+            }
+
+            // 4) PKCE flow: exchange authorization code for session
+            const code = searchParams.get('code') || hashParams.get('code')
+            if (code) {
+              const { error } = await supabase.auth.exchangeCodeForSession(code)
+              if (error) {
+                console.error('[OAuth] Code exchange failed:', error.message)
+                toast.error(t('oauthError'))
               }
+              // App.tsx onAuthStateChange will handle the rest (setUser, sync)
+              loadingRef.current = false
+              setLoading(false)
+              return
+            }
+
+            // 5) Implicit flow fallback: extract tokens from hash
+            const accessToken = hashParams.get('access_token')
+            const refreshToken = hashParams.get('refresh_token')
+            if (accessToken) {
+              const { error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken || '',
+              })
+              if (error) {
+                console.error('[OAuth] setSession failed:', error.message)
+                toast.error(t('oauthError'))
+              }
+              loadingRef.current = false
+              setLoading(false)
+              return
             }
           } catch (error) {
-            console.error('OAuth callback error:', error)
+            console.error('[OAuth] Callback error:', error)
+            loadingRef.current = false
+            setLoading(false)
           }
         })
 
@@ -90,7 +130,7 @@ export function useOAuth() {
             : null
         }
       } catch (error) {
-        console.error('Failed to setup OAuth listener:', error)
+        console.error('[OAuth] Failed to setup listener:', error)
       }
     }
 
@@ -106,7 +146,7 @@ export function useOAuth() {
         listener = null
       }
     }
-  }, [])
+  }, [t])
 
   /**
    * Handles Google OAuth login
@@ -115,10 +155,12 @@ export function useOAuth() {
     try {
       hapticFeedback('light')
       setLoading(true)
+      loadingRef.current = true
 
       if (!hasSupabaseConfig) {
         toast.error(t('invalidApiKey'))
         setLoading(false)
+        loadingRef.current = false
         return
       }
 
@@ -128,7 +170,6 @@ export function useOAuth() {
       if (isNative()) {
         redirectTo = import.meta.env.VITE_OAUTH_REDIRECT_URL || 'com.nicebase.app://oauth/callback'
       } else {
-        // Web: use current origin
         const webRedirectUrl = import.meta.env.VITE_OAUTH_WEB_REDIRECT_URL
         redirectTo = webRedirectUrl || `${window.location.origin}/`
       }
@@ -137,8 +178,6 @@ export function useOAuth() {
         provider: 'google',
         options: {
           redirectTo,
-          // On web: let the browser redirect naturally (no skipBrowserRedirect)
-          // On native: get URL to open in in-app browser
           skipBrowserRedirect: isNative(),
           queryParams: {
             access_type: 'offline',
@@ -150,7 +189,7 @@ export function useOAuth() {
       if (error) throw error
 
       if (isNative() && data?.url) {
-        // Native: open in-app browser
+        // Native: open Chrome Custom Tab (in-app browser)
         const Browser = await getBrowserPlugin()
         if (Browser) {
           await Browser.open({
@@ -158,21 +197,32 @@ export function useOAuth() {
             windowName: '_self',
           })
 
-          const finishedListener = await Browser.addListener('browserFinished', async () => {
-            setLoading(false)
-            if (finishedListener && 'remove' in finishedListener) {
-              finishedListener.remove()
-            }
-          })
-          setLoading(false)
+          // If user manually closes the browser without completing OAuth
+          try {
+            const finishedListener = await Browser.addListener('browserFinished', () => {
+              if (loadingRef.current) {
+                loadingRef.current = false
+                setLoading(false)
+              }
+              if (finishedListener && 'remove' in finishedListener) {
+                finishedListener.remove()
+              }
+            })
+          } catch {
+            // Listener setup failed — non-critical
+          }
+          // Don't setLoading(false) here — wait for callback or browserFinished
         } else {
           // Fallback: system browser
-          window.open(data.url, '_system')
+          window.open(data.url, '_blank')
+          loadingRef.current = false
+          setLoading(false)
         }
       }
-      // On web, Supabase handles the redirect automatically (skipBrowserRedirect is false)
+      // On web, Supabase handles the redirect automatically
     } catch (error: unknown) {
       hapticFeedback('error')
+      loadingRef.current = false
       errorLoggingService.logError(
         error instanceof Error ? error : new Error('OAuth login error'),
         'error'

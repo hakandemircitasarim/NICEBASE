@@ -219,12 +219,17 @@ export default function MemoryForm({
     ? new Date(memory.date).toISOString().split('T')[0]
     : new Date().toISOString().split('T')[0]
 
-  // Support both old (category) and new (categories) format
-  const initialCategories = memory?.categories && memory.categories.length > 0
-    ? memory.categories
-    : memory?.category
-      ? [memory.category]
-      : ['uncategorized']
+  // Support both old (category) and new (categories) format — memoize to avoid
+  // new array reference on every render which would retrigger useEffect loops
+  const initialCategories = useMemo(() =>
+    memory?.categories && memory.categories.length > 0
+      ? memory.categories
+      : memory?.category
+        ? [memory.category]
+        : ['uncategorized'],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [memory?.id]
+  )
 
   const [formData, setFormData] = useState({
     text: memory?.text ?? '',
@@ -731,7 +736,7 @@ export default function MemoryForm({
    *    - Expanded:  card grows until it hits maxHeight, then scrolls.
    * ═══════════════════════════════════════════════════ */
   const formContent = (
-    <div className="flex flex-col min-h-0" style={{ maxHeight: '90dvh' }}>
+    <div className={`flex flex-col min-h-0 ${presentation === 'screen' ? 'flex-1' : ''}`} style={presentation !== 'screen' ? { maxHeight: '90dvh' } : undefined}>
 
       {/* ── HEADER ── */}
       <div className="flex-shrink-0 bg-white dark:bg-gray-800 z-10">
