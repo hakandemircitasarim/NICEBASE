@@ -875,11 +875,14 @@ export default function Aiya() {
                 const dateStr = formatDate(chat.updatedAt, locale)
 
                 return (
-                  <motion.button
+                  <motion.div
                     key={chat.id}
+                    role="button"
+                    tabIndex={0}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => openChat(chat.id)}
-                    className="w-full flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-4 sm:py-4.5 bg-white dark:bg-gray-800 rounded-2xl hover:bg-gray-50 dark:hover:bg-gray-700/50 active:bg-gray-100 dark:active:bg-gray-700 transition-all duration-200 touch-manipulation text-left group shadow-sm hover:shadow-md border border-gray-100 dark:border-gray-700/50 touch-target"
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openChat(chat.id) }}
+                    className="w-full flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-4 sm:py-4.5 bg-white dark:bg-gray-800 rounded-2xl hover:bg-gray-50 dark:hover:bg-gray-700/50 active:bg-gray-100 dark:active:bg-gray-700 transition-all duration-200 touch-manipulation text-left group shadow-sm hover:shadow-md border border-gray-100 dark:border-gray-700/50 touch-target cursor-pointer"
                   >
                     <AiyaAvatar size={44} />
                     <div className="flex-1 min-w-0">
@@ -899,8 +902,8 @@ export default function Aiya() {
                       </div>
                     </div>
                     {/* Delete button */}
-                    <motion.button
-                      whileTap={{ scale: 0.9 }}
+                    <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation()
                         hapticFeedback('warning')
@@ -909,8 +912,8 @@ export default function Aiya() {
                       className="w-10 h-10 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 md:opacity-100 transition-all flex-shrink-0 touch-manipulation touch-target"
                     >
                       <Trash2 size={16} />
-                    </motion.button>
-                  </motion.button>
+                    </button>
+                  </motion.div>
                 )
               })}
             </div>
@@ -928,10 +931,10 @@ export default function Aiya() {
 
   const chatView = (
     <div 
-      className="flex flex-col overflow-hidden absolute inset-0 bg-gray-50 dark:bg-gray-900" 
-      style={{ 
-        height: '100svh',
+      className="flex flex-col overflow-hidden absolute inset-0 bg-gray-50 dark:bg-gray-900"
+      style={{
         paddingTop: 'env(safe-area-inset-top, 0px)',
+        paddingBottom: `calc(${NAVBAR_HEIGHT}px + env(safe-area-inset-bottom, 0px))`,
       }}
     >
       {/* Chat header - Fixed top */}
@@ -1087,7 +1090,7 @@ export default function Aiya() {
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => scrollToBottom()}
             className="absolute right-4 sm:right-6 w-11 h-11 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 shadow-lg flex items-center justify-center z-20 touch-manipulation touch-target"
-            style={{ bottom: `calc(${NAVBAR_HEIGHT}px + env(safe-area-inset-bottom, 0px) + 140px)` }}
+            style={{ bottom: '140px' }}
           >
             <ChevronDown size={20} className="text-gray-600 dark:text-gray-300" />
           </motion.button>
@@ -1097,9 +1100,8 @@ export default function Aiya() {
       {/* Bottom: Input container - Fixed above navbar, z-50 */}
       <div 
         className="flex-shrink-0 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-50 shadow-lg"
-        style={{ 
-          paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + 0.75rem)`,
-          marginBottom: `${NAVBAR_HEIGHT}px`, // Space for navbar
+        style={{
+          paddingBottom: '0.75rem',
         }}
       >
         {/* Suggestion chips */}

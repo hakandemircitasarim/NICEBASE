@@ -4,7 +4,7 @@ import { useStore } from './store/useStore'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import { supabase } from './lib/supabase'
-import { fetchUserData } from './lib/userService'
+import { fetchUserData, ensureUserExists } from './lib/userService'
 import { withTimeout } from './utils/timeout'
 import { initializeNativeApp } from './utils/capacitor'
 import { memorySyncService } from './services/memorySyncService'
@@ -46,10 +46,21 @@ function App() {
           SESSION_TIMEOUT
         )
         if (session?.user) {
-          const user = await withTimeout(
+          let user = await withTimeout(
             fetchUserData(session.user.id),
             FETCH_TIMEOUT
           )
+          // If user record missing (e.g. first Google OAuth login), create it
+          if (!user) {
+            const meta = session.user.user_metadata || {}
+            user = await withTimeout(
+              ensureUserExists(session.user.id, session.user.email, 5, {
+                displayName: meta.full_name || meta.name || null,
+                avatarUrl: meta.avatar_url || meta.picture || null,
+              }),
+              FETCH_TIMEOUT
+            )
+          }
           if (user) {
             setUser(user)
             // Start background sync for restored session (service handles duplicate calls)
@@ -76,7 +87,20 @@ function App() {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         if (session?.user) {
           try {
-            const user = await withTimeout(fetchUserData(session.user.id), FETCH_TIMEOUT)
+            let user = await withTimeout(fetchUserData(session.user.id), FETCH_TIMEOUT)
+
+            // If user doesn't exist in DB (e.g. first Google OAuth login), create them
+            if (!user && event === 'SIGNED_IN') {
+              const meta = session.user.user_metadata || {}
+              user = await withTimeout(
+                ensureUserExists(session.user.id, session.user.email, 5, {
+                  displayName: meta.full_name || meta.name || null,
+                  avatarUrl: meta.avatar_url || meta.picture || null,
+                }),
+                FETCH_TIMEOUT
+              )
+            }
+
             if (user) {
               setUser(user)
               // Migrate any offline-created memories to this cloud user (best-effort)
