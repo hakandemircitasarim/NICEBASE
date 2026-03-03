@@ -118,16 +118,20 @@ export const memoryService = {
     try {
       const { aiyaService } = await import('./aiyaService')
       const lang = typeof localStorage !== 'undefined' ? localStorage.getItem('i18nextLng') || 'tr' : 'tr'
-      const category = await aiyaService.suggestCategory(text, lang)
-      if (category && category !== 'uncategorized') {
-        await db.memories.update(memoryId, {
-          category,
-          categories: [category],
+      const result = await aiyaService.suggestCategoryAndLifeArea(text, lang)
+      if (result && result.category !== 'uncategorized') {
+        const updates: Partial<Memory> = {
+          category: result.category,
+          categories: [result.category],
           updatedAt: new Date().toISOString(),
-        })
+        }
+        if (result.lifeArea && result.lifeArea !== 'uncategorized') {
+          updates.lifeArea = result.lifeArea
+        }
+        await db.memories.update(memoryId, updates)
         // Update sync queue payload if pending
         if (hasSupabaseConfig) {
-          await addToSyncQueue('update', { id: memoryId, category, categories: [category] }, userId)
+          await addToSyncQueue('update', { id: memoryId, ...updates }, userId)
         }
       }
     } catch {
