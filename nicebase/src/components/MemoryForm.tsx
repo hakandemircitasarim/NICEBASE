@@ -736,7 +736,7 @@ export default function MemoryForm({
    *    - Expanded:  card grows until it hits maxHeight, then scrolls.
    * ═══════════════════════════════════════════════════ */
   const formContent = (
-    <div className={`flex flex-col min-h-0 ${presentation === 'screen' ? 'flex-1' : ''}`} style={presentation !== 'screen' ? { maxHeight: '90dvh' } : undefined}>
+    <div className={`flex flex-col min-h-0 ${presentation === 'screen' ? 'flex-1' : ''}`}>
 
       {/* ── HEADER ── */}
       <div className="flex-shrink-0 bg-white dark:bg-gray-800 z-10">
@@ -762,7 +762,7 @@ export default function MemoryForm({
         className="flex-1 min-h-0 overflow-y-auto overscroll-contain overscroll-y-contain"
         style={{ 
           WebkitOverflowScrolling: 'touch',
-          paddingBottom: '5rem', // Space for action bar
+          paddingBottom: '1rem',
         }}
       >
         <div className="px-5 space-y-5 pt-2 pb-4">
@@ -1155,7 +1155,7 @@ export default function MemoryForm({
       </div>
 
       {/* ── ACTION BAR — fixed at bottom of card (outside scroll) ── */}
-      <div className="flex-shrink-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 safe-area-inset-bottom z-10">
+      <div className={`flex-shrink-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10 ${presentation === 'screen' ? 'safe-area-bottom' : ''}`}>
         <div className="flex items-center gap-3">
             <button
             onClick={requestClose}
@@ -1325,8 +1325,12 @@ export default function MemoryForm({
 
   if (presentation === 'screen') {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
-        <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col bg-white dark:bg-gray-800 shadow-2xl overflow-hidden">
+      // fixed inset-0: viewport-relative, out of Layout flow.
+      // When Android keyboard opens, the viewport shrinks → flex reflows →
+      // save button stays visible above the keyboard automatically.
+      <div className="fixed inset-0 z-10 bg-gray-50 dark:bg-gray-900 flex flex-col"
+           style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+        <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col min-h-0 bg-white dark:bg-gray-800 shadow-2xl overflow-hidden">
           {formContent}
         </div>
       </div>

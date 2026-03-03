@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npm --version)",
+      "Bash(npm install)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(git add nicebase/src/services/memoryService.ts nicebase/src/services/memorySyncService.ts nicebase/src/services/streakService.ts nicebase/src/services/syncQueueHelper.ts nicebase/supabase/migrations/20260228000000_add_categories_array_column.sql .claude/launch.json)",
+      "Bash(git commit:*)",
+      "Bash(git add nicebase/src/services/exportService.ts nicebase/src/services/notificationService.ts nicebase/src/hooks/useOAuth.ts nicebase/src/hooks/useVoiceInput.ts nicebase/supabase-fix.sql)",
+      "Bash(git add nicebase/src/components/ImageModal.tsx nicebase/src/components/Layout.tsx nicebase/src/components/MemoryForm.tsx nicebase/src/pages/Achievements.tsx nicebase/src/pages/Aiya.tsx nicebase/src/pages/RelationshipSaver.tsx)",
+      "Bash(npx vite build)",
+      "Bash(git add nicebase/src/components/MemoryCard.tsx nicebase/src/components/OfflineIndicator.tsx nicebase/src/components/VaultMemoryList.tsx nicebase/src/hooks/usePullToRefresh.ts nicebase/src/hooks/useUserId.ts nicebase/src/hooks/useVoiceInput.ts nicebase/src/pages/Home.tsx nicebase/src/pages/Profile.tsx)",
+      "Bash(git add nicebase/src/components/MemoryFormPhotos.tsx nicebase/src/components/ProgressiveImage.tsx nicebase/src/components/SettingsSheet.tsx nicebase/src/i18n.ts nicebase/src/pages/Login.tsx nicebase/src/pages/RelationshipSaver.tsx nicebase/src/pages/ResetPassword.tsx nicebase/src/utils/formValidation.ts)",
+      "Bash(git add nicebase/src/components/ProgressiveImage.tsx nicebase/src/pages/Achievements.tsx nicebase/src/pages/Aiya.tsx nicebase/src/pages/Home.tsx nicebase/src/pages/Statistics.tsx nicebase/src/utils/imageUtils.ts)",
+      "Bash(git checkout main)",
+      "Bash(git merge:*)",
+      "Bash(git push origin main)",
+      "Bash(find \"C:\\\\Users\\\\demir\\\\Desktop\\\\NICABASE\\\\nicebase\\\\.claude\\\\worktrees\\\\happy-raman\\\\nicebase\\\\src\" -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec grep -h \"t\\([''\"\"]\" {} +)",
+      "Bash(git add nicebase/src/i18n.ts)",
+      "Bash(git add nicebase/postcss.config.cjs nicebase/tailwind.config.js nicebase/vite.config.ts)",
+      "Bash(git add nicebase/src/services/aiyaService.ts nicebase/src/services/memoryService.ts)",
+      "Bash(npx supabase projects list)",
+      "Bash(npx supabase orgs list)",
+      "Bash(npx supabase login)",
+      "Bash(npx supabase logout --no-verify-jwt)",
+      "Bash(npx supabase logout)",
+      "Bash(xargs grep -l \"apple\\\\|oauth\" -i)",
+      "Bash(git push)",
+      "Bash(npx cap sync android)",
+      "Bash(./gradlew assembleDebug)",
+      "Bash(npx vercel --prod)",
+      "Bash(npm run build)",
+      "Bash(copy \"C:\\\\Users\\\\demir\\\\Desktop\\\\NICABASE\\\\nicebase\\\\.claude\\\\worktrees\\\\happy-raman\\\\nicebase\\\\android\\\\app\\\\build\\\\outputs\\\\apk\\\\debug\\\\app-debug.apk\" \"C:\\\\Users\\\\demir\\\\Desktop\\\\nicebase-debug.apk\")",
+      "Bash(git add -A)"
+    ]
+  }
+}

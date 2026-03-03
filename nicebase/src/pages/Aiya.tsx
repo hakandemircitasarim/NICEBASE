@@ -48,7 +48,8 @@ const HISTORY_LIMIT = 40
 const PROFILE_MIN_MESSAGE_COUNT = 4
 const PROFILE_UPDATE_MESSAGE_INTERVAL = 6
 const PROFILE_UPDATE_COOLDOWN_MS = 6 * 60 * 60 * 1000
-const NAVBAR_HEIGHT = 80 // Height of bottom navbar in pixels
+// Navbar height comes from CSS custom property --navbar-total-height (defined in index.css)
+// This avoids hardcoded magic numbers across files
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -791,9 +792,9 @@ export default function Aiya() {
   const listView = (
     <div 
       className="flex flex-col w-full h-full bg-gray-50 dark:bg-gray-900"
-      style={{ 
-        height: 'calc(100svh - env(safe-area-inset-bottom, 0px))',
+      style={{
         paddingTop: 'env(safe-area-inset-top, 0px)',
+        paddingBottom: 'var(--navbar-total-height)',
       }}
     >
       {/* Header */}
@@ -934,7 +935,7 @@ export default function Aiya() {
       className="flex flex-col overflow-hidden absolute inset-0 bg-gray-50 dark:bg-gray-900"
       style={{
         paddingTop: 'env(safe-area-inset-top, 0px)',
-        paddingBottom: `calc(${NAVBAR_HEIGHT}px + env(safe-area-inset-bottom, 0px))`,
+        paddingBottom: 'var(--navbar-total-height)',
       }}
     >
       {/* Chat header - Fixed top */}
@@ -1157,13 +1158,7 @@ export default function Aiya() {
   // ═════════════════════════════════════════════════════════
 
   return (
-    <div 
-      className="bg-white dark:bg-gray-900 relative h-full" 
-      style={{ 
-        height: '100svh', 
-        overflow: 'hidden',
-      }}
-    >
+    <div className="fixed inset-0 z-10 overflow-hidden bg-white dark:bg-gray-900">
       <AnimatePresence mode="wait" initial={false}>
         {view === 'list' ? (
           <motion.div

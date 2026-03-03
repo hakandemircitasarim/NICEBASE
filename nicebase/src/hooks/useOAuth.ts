@@ -22,12 +22,16 @@ async function getAppPlugin() {
 
 // Dynamically load Browser plugin at runtime if available
 async function getBrowserPlugin() {
-  if (!isNative()) return null
+  const native = isNative()
+  console.log('[OAuth] getBrowserPlugin: isNative =', native)
+  if (!native) return null
   try {
     const module = await import('@capacitor/browser')
+    console.log('[OAuth] getBrowserPlugin: @capacitor/browser loaded OK, Browser =', !!module.Browser)
     _browserRef = module.Browser
     return module.Browser
-  } catch {
+  } catch (e) {
+    console.error('[OAuth] getBrowserPlugin: import FAILED', e)
     return null
   }
 }
@@ -157,6 +161,8 @@ export function useOAuth() {
       setLoading(true)
       loadingRef.current = true
 
+      console.log('[OAuth] handleOAuthLogin: isNative =', isNative())
+
       if (!hasSupabaseConfig) {
         toast.error(t('invalidApiKey'))
         setLoading(false)
@@ -174,6 +180,8 @@ export function useOAuth() {
         redirectTo = webRedirectUrl || `${window.location.origin}/`
       }
 
+      console.log('[OAuth] redirectTo =', redirectTo, '| skipBrowserRedirect =', isNative())
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -188,14 +196,17 @@ export function useOAuth() {
 
       if (error) throw error
 
+      console.log('[OAuth] signInWithOAuth result - url:', data?.url?.substring(0, 80), '| error:', error)
+
       if (isNative() && data?.url) {
         // Native: open Chrome Custom Tab (in-app browser)
         const Browser = await getBrowserPlugin()
         if (Browser) {
+          console.log('[OAuth] Opening Chrome Custom Tab via Browser.open()...')
           await Browser.open({
             url: data.url,
-            windowName: '_self',
           })
+          console.log('[OAuth] Browser.open() called successfully')
 
           // If user manually closes the browser without completing OAuth
           try {
@@ -214,6 +225,7 @@ export function useOAuth() {
           // Don't setLoading(false) here — wait for callback or browserFinished
         } else {
           // Fallback: system browser
+          console.warn('[OAuth] WARNING: Browser plugin is null — falling back to window.open() (system browser)')
           window.open(data.url, '_blank')
           loadingRef.current = false
           setLoading(false)

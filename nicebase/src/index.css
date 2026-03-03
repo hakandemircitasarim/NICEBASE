@@ -10,6 +10,9 @@
     --safe-area-inset-bottom: env(safe-area-inset-bottom);
     --safe-area-inset-left: env(safe-area-inset-left);
     --safe-area-inset-right: env(safe-area-inset-right);
+    /* Navbar dimensions — single source of truth */
+    --navbar-height: 80px;
+    --navbar-total-height: calc(80px + env(safe-area-inset-bottom, 0px));
   }
 
   .dark {
@@ -24,8 +27,9 @@
       sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    padding-top: var(--safe-area-inset-top);
-    padding-bottom: var(--safe-area-inset-bottom);
+    /* Safe-area: top/bottom handled per-component to avoid double-padding.
+       Full-viewport pages (Aiya, AddMemory) use fixed positioning and manage
+       their own safe areas. Normal pages get top safe-area from Layout. */
     padding-left: var(--safe-area-inset-left);
     padding-right: var(--safe-area-inset-right);
     line-height: 1.6;

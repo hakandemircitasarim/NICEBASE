@@ -23,11 +23,15 @@ export default function Layout() {
   ]
 
   const hideNavForRoutes = location.pathname.startsWith('/add-memory')
-  const isFullscreenChat = location.pathname.startsWith('/aiya')
+  // Full-viewport routes manage their own layout with fixed positioning
+  const isFullscreenRoute = location.pathname.startsWith('/aiya') || location.pathname.startsWith('/add-memory')
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <main className={isFullscreenChat ? '' : 'pb-20'}>
+      <main
+        className={isFullscreenRoute ? 'overflow-hidden' : 'pb-20'}
+        style={isFullscreenRoute ? undefined : { paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      >
         <Outlet />
       </main>
       
