@@ -619,6 +619,8 @@ const resources = {
       memoryAnalysisSystemPrompt: 'Sen bir duygusal analiz uzmanısın. Kullanıcının anılarını analiz ederek duygusal trendleri, öne çıkan anıları, kalıpları ve önerileri belirle. Pozitif ve yapıcı bir dil kullan.',
       
       // Onboarding
+      nextStep: 'İleri',
+      getStarted: 'Başlayalım',
       welcomeToNicebase: 'NICEBASE\'e Hoş Geldiniz',
       onboardingWelcome: 'Güzel anılarınızı saklamak ve hatırlamak için hazır mısınız?',
       onboardingVault: 'Tüm anılarınızı güvenle saklayın ve istediğiniz zaman erişin',
@@ -628,6 +630,17 @@ const resources = {
       onboardingAchievements: 'Başarımlarınızı ve rozetlerinizi keşfedin, yeni hedefler belirleyin',
 
       // Missing keys used in code
+      clearFilters: 'Filtreleri Temizle',
+      doubleTapToZoom: 'Yakınlaştırmak için çift dokunun',
+      image: 'Görsel',
+      invalidConnections: 'Geçersiz bağlantılar',
+      longPressHint: 'Detaylar için uzun basın',
+      newVersionAvailable: 'Yeni sürüm mevcut! Güncellemek için tıklayın.',
+      photoUploadError: 'Fotoğraf yüklenirken hata oluştu',
+      premium: 'Premium',
+      pullToRefreshHint: 'Yenilemek için aşağı çekin',
+      swipeHint: 'Kaydırmak için sola veya sağa sürükleyin',
+      sync: 'Senkronize Et',
       connectionTimeout: 'Bağlantı zaman aşımına uğradı. Lütfen tekrar deneyin.',
       failedToLoadUserData: 'Kullanıcı verileri yüklenemedi',
       passwordResetSuccess: 'Şifreniz başarıyla güncellendi! Yönlendiriliyorsunuz...',
@@ -1253,6 +1266,17 @@ const resources = {
       memoryAnalysisSystemPrompt: 'You are an emotional analysis expert. Analyze the user\'s memories to identify emotional trends, standout memories, patterns, and recommendations. Use positive and constructive language.',
 
       // Missing keys used in code
+      clearFilters: 'Clear Filters',
+      doubleTapToZoom: 'Double tap to zoom',
+      image: 'Image',
+      invalidConnections: 'Invalid connections',
+      longPressHint: 'Long press for details',
+      newVersionAvailable: 'New version available! Click to update.',
+      photoUploadError: 'Error uploading photo',
+      premium: 'Premium',
+      pullToRefreshHint: 'Pull down to refresh',
+      swipeHint: 'Swipe left or right to navigate',
+      sync: 'Sync',
       connectionTimeout: 'Connection timed out. Please try again.',
       failedToLoadUserData: 'Failed to load user data',
       passwordResetSuccess: 'Password updated successfully! Redirecting...',
@@ -1282,6 +1306,17 @@ const resources = {
       exportIntensityLabel: 'Intensity',
       exportCategoryLabel: 'Category',
       imageLoadError: 'Image failed to load',
+
+      // Onboarding
+      nextStep: 'Next',
+      getStarted: 'Get Started',
+      welcomeToNicebase: 'Welcome to NICEBASE',
+      onboardingWelcome: 'Are you ready to save and remember your beautiful memories?',
+      onboardingVault: 'Safely store all your memories and access them anytime',
+      onboardingRelationship: 'View memories with your connections and nurture valuable relationships',
+      onboardingAiya: 'Analyze your memories and get emotional support with your AI assistant Aiya',
+      onboardingStatistics: 'View detailed analysis of your memories and discover trends',
+      onboardingAchievements: 'Discover your achievements and badges, set new goals',
     },
   },
 }
