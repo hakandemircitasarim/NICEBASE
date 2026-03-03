@@ -137,10 +137,13 @@ export const memoryService = {
   },
 
   async _autoCategorize(memoryId: string, text: string, userId: string): Promise<void> {
+    console.log('[categorize] Starting auto-categorize for:', memoryId, text.substring(0, 50))
     try {
       const { aiyaService } = await import('./aiyaService')
       const lang = typeof localStorage !== 'undefined' ? localStorage.getItem('i18nextLng') || 'tr' : 'tr'
+      console.log('[categorize] Calling suggestCategoryAndLifeArea, lang:', lang)
       const result = await aiyaService.suggestCategoryAndLifeArea(text, lang)
+      console.log('[categorize] Result:', JSON.stringify(result))
       if (result && result.category !== 'uncategorized') {
         const updates: Partial<Memory> = {
           category: result.category,
@@ -180,19 +183,24 @@ export const memoryService = {
     if (!hasSupabaseConfig) return
 
     // --- Retry auto-categorization for uncategorized memories ---
+    // Only attempt if Aiya session is available (avoids "no active session" spam)
     try {
-      const uncategorized = await db.memories
-        .where('userId')
-        .equals(userId)
-        .and((m) => m.category === 'uncategorized' && !!m.text?.trim())
-        .toArray()
+      const { aiyaService } = await import('./aiyaService')
+      const canUse = await aiyaService.canUseAiya()
+      if (canUse) {
+        const uncategorized = await db.memories
+          .where('userId')
+          .equals(userId)
+          .and((m) => m.category === 'uncategorized' && !!m.text?.trim())
+          .toArray()
 
-      for (const memory of uncategorized.slice(0, 5)) {
-        // Don't retry if we already tried recently (check updatedAt within last 2 min)
-        const updatedAgo = Date.now() - new Date(memory.updatedAt).getTime()
-        if (updatedAgo < 2 * 60 * 1000) continue
+        for (const memory of uncategorized.slice(0, 3)) {
+          // Don't retry if we already tried recently (check updatedAt within last 5 min)
+          const updatedAgo = Date.now() - new Date(memory.updatedAt).getTime()
+          if (updatedAgo < 5 * 60 * 1000) continue
 
-        memoryService._autoCategorize(memory.id, memory.text, userId).catch(() => {})
+          await memoryService._autoCategorize(memory.id, memory.text, userId)
+        }
       }
     } catch {
       // Non-critical, continue with sync
