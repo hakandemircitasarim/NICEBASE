@@ -313,6 +313,11 @@ export default function Aiya() {
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  // Ref to always have latest chats — needed because React 18 batching
+  // defers setState callbacks, so reading state via setChats() doesn't work
+  const chatsRef = useRef(chats)
+  chatsRef.current = chats
+
   const activeChat = useMemo(() => chats.find((c) => c.id === activeChatId) ?? null, [chats, activeChatId])
   const messages = activeChat?.messages ?? []
 
@@ -751,13 +756,10 @@ export default function Aiya() {
 
     setSending(true)
     try {
-      // Read the updated chat from the functional state update to avoid stale closure
-      let history: AiyaMessage[] = []
-      setChats((prev) => {
-        const currentChat = prev.find((c) => c.id === activeChatId)
-        history = currentChat?.messages ?? []
-        return prev // no mutation, just reading
-      })
+      // Read history from ref — React 18 batching defers setChats callbacks,
+      // so the old approach of reading via setChats((prev) => ...) returned []
+      const currentChat = chatsRef.current.find((c) => c.id === activeChatId)
+      const history = currentChat ? trimMessages(currentChat.messages) : []
       const res = await aiyaService.sendMessage({ message: text, history, memories, locale, systemPrompt })
       const aiyaMsg: AiyaMessage = { role: 'assistant', content: cleanMarkdown(res.reply), ts: Date.now() }
 
