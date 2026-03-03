@@ -137,21 +137,35 @@ export const aiyaService = {
   },
 
   async suggestCategoryAndLifeArea(text: string, locale?: string): Promise<{ category: MemoryCategory; lifeArea: LifeArea } | null> {
-    if (!text.trim()) return null
-    if (!(await hasActiveSessionCached())) return null
+    console.log('[aiya] suggestCategoryAndLifeArea called:', text.substring(0, 50))
+    if (!text.trim()) {
+      console.warn('[aiya] Empty text, skipping')
+      return null
+    }
+    const hasSession = await hasActiveSessionCached()
+    if (!hasSession) {
+      console.warn('[aiya] No active session, skipping categorization')
+      return null
+    }
     try {
+      console.log('[aiya] Calling edge function with action: classify')
       const response = await invokeAiya<{ category?: MemoryCategory | null; lifeArea?: LifeArea | null }>({
         action: 'classify' satisfies AiyaAction,
         message: text,
         locale,
         countUsage: false,
       })
-      if (!response?.category) return null
+      console.log('[aiya] Edge function response:', JSON.stringify(response))
+      if (!response?.category) {
+        console.warn('[aiya] No category in response')
+        return null
+      }
       return {
         category: response.category,
         lifeArea: response.lifeArea ?? 'uncategorized',
       }
-    } catch {
+    } catch (err) {
+      console.error('[aiya] suggestCategoryAndLifeArea error:', err)
       return null
     }
   },
