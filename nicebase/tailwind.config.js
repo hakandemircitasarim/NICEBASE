@@ -1,8 +1,10 @@
 /** @type {import('tailwindcss').Config} */
+const root = __dirname.replace(/\\/g, '/')
+
 module.exports = {
   content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
+    `${root}/index.html`,
+    `${root}/src/**/*.{js,ts,jsx,tsx}`,
   ],
   theme: {
     extend: {
