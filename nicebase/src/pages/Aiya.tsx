@@ -875,11 +875,14 @@ export default function Aiya() {
                 const dateStr = formatDate(chat.updatedAt, locale)
 
                 return (
-                  <motion.button
+                  <motion.div
                     key={chat.id}
+                    role="button"
+                    tabIndex={0}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => openChat(chat.id)}
-                    className="w-full flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-4 sm:py-4.5 bg-white dark:bg-gray-800 rounded-2xl hover:bg-gray-50 dark:hover:bg-gray-700/50 active:bg-gray-100 dark:active:bg-gray-700 transition-all duration-200 touch-manipulation text-left group shadow-sm hover:shadow-md border border-gray-100 dark:border-gray-700/50 touch-target"
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openChat(chat.id) }}
+                    className="w-full flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-4 sm:py-4.5 bg-white dark:bg-gray-800 rounded-2xl hover:bg-gray-50 dark:hover:bg-gray-700/50 active:bg-gray-100 dark:active:bg-gray-700 transition-all duration-200 touch-manipulation text-left group shadow-sm hover:shadow-md border border-gray-100 dark:border-gray-700/50 touch-target cursor-pointer"
                   >
                     <AiyaAvatar size={44} />
                     <div className="flex-1 min-w-0">
@@ -899,8 +902,8 @@ export default function Aiya() {
                       </div>
                     </div>
                     {/* Delete button */}
-                    <motion.button
-                      whileTap={{ scale: 0.9 }}
+                    <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation()
                         hapticFeedback('warning')
@@ -909,8 +912,8 @@ export default function Aiya() {
                       className="w-10 h-10 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 md:opacity-100 transition-all flex-shrink-0 touch-manipulation touch-target"
                     >
                       <Trash2 size={16} />
-                    </motion.button>
-                  </motion.button>
+                    </button>
+                  </motion.div>
                 )
               })}
             </div>

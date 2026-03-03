@@ -69,20 +69,36 @@ export async function fetchCurrentUser(): Promise<User | null> {
 /**
  * Ensures a user exists in the database, creating one if necessary.
  * Implements retry logic to handle race conditions and database replication delays.
- * 
+ *
  * @param userId - The user's unique identifier
  * @param email - The user's email address
  * @param maxRetries - Maximum number of retry attempts (default: 5)
+ * @param metadata - Optional metadata from OAuth provider (displayName, avatarUrl)
  * @returns Promise resolving to the user object, or null if creation failed after all retries
  */
 export async function ensureUserExists(
   userId: string,
   email: string | undefined,
-  maxRetries = 5
+  maxRetries = 5,
+  metadata?: { displayName?: string | null; avatarUrl?: string | null }
 ): Promise<User | null> {
   // First, try to fetch existing user
   let userData = await fetchUserData(userId)
   if (userData) {
+    // If user exists but missing display_name and we have metadata, update it
+    if (!userData.displayName && metadata?.displayName) {
+      try {
+        await supabase.from('users').update({
+          display_name: metadata.displayName,
+          ...(metadata.avatarUrl && !userData.avatarUrl ? { avatar_url: metadata.avatarUrl } : {}),
+        }).eq('id', userId)
+        // Re-fetch to get updated data
+        const updated = await fetchUserData(userId)
+        if (updated) return updated
+      } catch {
+        // Non-critical, return existing user
+      }
+    }
     return userData
   }
 
@@ -96,6 +112,8 @@ export async function ensureUserExists(
       {
         id: userId,
         email: email,
+        display_name: metadata?.displayName || null,
+        avatar_url: metadata?.avatarUrl || null,
         is_premium: false,
         aiya_messages_used: 0,
         aiya_messages_limit: 50,

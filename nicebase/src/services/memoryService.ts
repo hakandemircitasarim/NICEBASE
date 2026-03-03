@@ -137,13 +137,10 @@ export const memoryService = {
   },
 
   async _autoCategorize(memoryId: string, text: string, userId: string): Promise<void> {
-    console.log('[categorize] Starting auto-categorize for:', memoryId, text.substring(0, 50))
     try {
       const { aiyaService } = await import('./aiyaService')
       const lang = typeof localStorage !== 'undefined' ? localStorage.getItem('i18nextLng') || 'tr' : 'tr'
-      console.log('[categorize] Calling suggestCategoryAndLifeArea, lang:', lang)
       const result = await aiyaService.suggestCategoryAndLifeArea(text, lang)
-      console.log('[categorize] Result:', JSON.stringify(result))
       if (result && result.category !== 'uncategorized') {
         const updates: Partial<Memory> = {
           category: result.category,

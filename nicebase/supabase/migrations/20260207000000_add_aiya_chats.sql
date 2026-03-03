@@ -1,12 +1,15 @@
--- Create aiya_chats table for syncing Aiya conversations
-CREATE TABLE IF NOT EXISTS "public"."aiya_chats" (
+-- Drop old table if it exists (had wrong schema with chats_json)
+DROP TABLE IF EXISTS "public"."aiya_chats" CASCADE;
+
+-- Create aiya_chats table for syncing Aiya conversations (per-chat rows)
+CREATE TABLE "public"."aiya_chats" (
     "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
     "user_id" "uuid" NOT NULL,
-    "chats_json" "jsonb" NOT NULL DEFAULT '[]'::jsonb,
+    "title" text NOT NULL DEFAULT '',
+    "messages" "jsonb" NOT NULL DEFAULT '[]'::jsonb,
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "aiya_chats_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "aiya_chats_user_id_key" UNIQUE ("user_id")
+    CONSTRAINT "aiya_chats_pkey" PRIMARY KEY ("id")
 );
 
 ALTER TABLE "public"."aiya_chats" OWNER TO "postgres";
@@ -31,7 +34,8 @@ CREATE POLICY "Users can insert own aiya chats"
 CREATE POLICY "Users can update own aiya chats"
     ON "public"."aiya_chats"
     FOR UPDATE
-    USING (auth.uid() = user_id);
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users can delete own aiya chats"
     ON "public"."aiya_chats"
