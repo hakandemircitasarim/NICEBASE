@@ -131,7 +131,7 @@ export const memoryService = {
         await db.memories.update(memoryId, updates)
         // Update sync queue payload if pending
         if (hasSupabaseConfig) {
-          await addToSyncQueue('update', { id: memoryId, ...updates }, userId)
+          await addToSyncQueue('update', { id: memoryId, updates }, userId)
         }
       }
     } catch {
