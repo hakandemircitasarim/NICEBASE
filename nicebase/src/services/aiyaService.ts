@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase'
 import { Memory, MemoryCategory, LifeArea } from '../types'
 import { withTimeout } from '../utils/timeout'
 
-type AiyaAction = 'chat' | 'category' | 'analysis'
+type AiyaAction = 'chat' | 'category' | 'classify' | 'analysis'
 
 type AiyaMessage = {
   role: 'user' | 'assistant'
@@ -141,7 +141,7 @@ export const aiyaService = {
     if (!(await hasActiveSessionCached())) return null
     try {
       const response = await invokeAiya<{ category?: MemoryCategory | null; lifeArea?: LifeArea | null }>({
-        action: 'category' satisfies AiyaAction,
+        action: 'classify' satisfies AiyaAction,
         message: text,
         locale,
         countUsage: false,
