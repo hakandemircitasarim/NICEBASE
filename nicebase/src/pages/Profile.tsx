@@ -28,7 +28,8 @@ import EditProfileSheet from '../components/EditProfileSheet'
 export default function Profile() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { user, setUser } = useStore()
+  const user = useStore((s) => s.user)
+  const setUser = useStore((s) => s.setUser)
   const userId = useUserId()
   const { memories } = useMemories(userId)
   const [showSettings, setShowSettings] = useState(false)
@@ -56,7 +57,7 @@ export default function Profile() {
         // ignore
       }
     }
-  }, [user?.id])
+  }, [user, setUser])
 
   // Quick stats
   const stats = useMemo(() => {

@@ -8,8 +8,8 @@ import { getLocalUserId } from '../utils/localUserId'
  * @returns User ID string
  */
 export function useUserId(): string {
-  const { user } = useStore()
-  
+  const user = useStore((s) => s.user)
+
   return useMemo(() => {
     return user?.id || getLocalUserId()
   }, [user?.id])

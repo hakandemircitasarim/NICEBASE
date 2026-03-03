@@ -12,6 +12,7 @@ function mapMemoryToSupabase(memory: Memory) {
     user_id: memory.userId,
     text: memory.text,
     category: memory.category,
+    categories: memory.categories || [memory.category],
     intensity: memory.intensity,
     date: memory.date.split('T')[0], // Extract date part
     connections: memory.connections,
@@ -29,6 +30,7 @@ function mapSupabaseToMemory(row: {
   user_id: string
   text: string
   category: string
+  categories?: string[]
   intensity: number
   date: string
   connections: string[]
@@ -43,6 +45,7 @@ function mapSupabaseToMemory(row: {
     userId: row.user_id,
     text: row.text,
     category: row.category as Memory['category'],
+    categories: (row.categories || [row.category]) as Memory['categories'],
     intensity: row.intensity,
     date: new Date(row.date).toISOString(),
     connections: row.connections || [],
@@ -124,13 +127,15 @@ export const memoryService = {
   async syncAll(userId: string): Promise<void> {
     if (!hasSupabaseConfig) return
 
-    // Get pending sync items for this user
+    // Get pending sync items for this user (skip in_progress to avoid double-processing)
     const pendingItems = await db.syncQueueV2
       .where('userId')
       .equals(userId)
       .and((item) => item.status === 'pending' || item.status === 'failed')
       .filter((item) => item.nextAttemptAt <= Date.now())
       .toArray()
+
+    if (pendingItems.length === 0 && !navigator.onLine) return
 
     for (const item of pendingItems) {
       try {
@@ -151,6 +156,7 @@ export const memoryService = {
           
           if (updates.text !== undefined) supabaseUpdates.text = updates.text
           if (updates.category !== undefined) supabaseUpdates.category = updates.category
+          if (updates.categories !== undefined) supabaseUpdates.categories = updates.categories
           if (updates.intensity !== undefined) supabaseUpdates.intensity = updates.intensity
           if (updates.date !== undefined) supabaseUpdates.date = updates.date.split('T')[0]
           if (updates.connections !== undefined) supabaseUpdates.connections = updates.connections
@@ -205,10 +211,12 @@ export const memoryService = {
       if (error) throw error
 
       if (data) {
+        const remoteIds = new Set(data.map((row: { id: string }) => row.id))
+
         for (const row of data) {
           const memory = mapSupabaseToMemory(row)
           const existing = await db.memories.get(memory.id)
-          
+
           if (!existing) {
             // New memory from cloud
             await db.memories.add(memory)
@@ -218,6 +226,23 @@ export const memoryService = {
             const localTime = new Date(existing.updatedAt).getTime()
             if (cloudTime > localTime && existing.synced) {
               await db.memories.put(memory)
+            }
+          }
+        }
+
+        // Remove local memories that were deleted remotely
+        // Only remove synced memories that have no pending sync operations
+        const localMemories = await db.memories.where('userId').equals(userId).toArray()
+        for (const local of localMemories) {
+          if (local.synced && !remoteIds.has(local.id)) {
+            // Check there's no pending sync for this memory
+            const pendingSync = await db.syncQueueV2
+              .where('entityId')
+              .equals(local.id)
+              .and((item) => item.status !== 'done')
+              .first()
+            if (!pendingSync) {
+              await db.memories.delete(local.id)
             }
           }
         }

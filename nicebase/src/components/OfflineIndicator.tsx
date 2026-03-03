@@ -6,7 +6,8 @@ import { WifiOff } from 'lucide-react'
 
 export default function OfflineIndicator() {
   const { t } = useTranslation()
-  const { isOnline, checkOnlineStatus } = useStore()
+  const isOnline = useStore((s) => s.isOnline)
+  const checkOnlineStatus = useStore((s) => s.checkOnlineStatus)
   const [show, setShow] = useState(false)
 
   useEffect(() => {

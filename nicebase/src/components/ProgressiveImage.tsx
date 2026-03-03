@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 
 interface ProgressiveImageProps {
@@ -24,15 +25,18 @@ export default function ProgressiveImage({
   loading = 'lazy',
   placeholder,
 }: ProgressiveImageProps) {
+  const { t } = useTranslation()
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
   const [hasError, setHasError] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
+
     // Reset state when src changes
     setIsLoaded(false)
     setHasError(false)
-    
+
     if (!src) {
       setHasError(true)
       return
@@ -45,10 +49,12 @@ export default function ProgressiveImage({
     // Load the full image
     const fullImg = new Image()
     fullImg.onload = () => {
+      if (cancelled) return
       setImageSrc(src)
       setIsLoaded(true)
     }
     fullImg.onerror = () => {
+      if (cancelled) return
       setHasError(true)
       if (onError) {
         // Create a synthetic event for the error
@@ -74,6 +80,8 @@ export default function ProgressiveImage({
       }
     }
     fullImg.src = src
+
+    return () => { cancelled = true }
   }, [src, placeholder, onError])
 
   if (hasError) {
@@ -84,7 +92,7 @@ export default function ProgressiveImage({
       >
         <div className="text-center">
           <div className="text-gray-400 text-xs mb-1">📷</div>
-          <span className="text-gray-400 text-xs">Görsel yüklenemedi</span>
+          <span className="text-gray-400 text-xs">{t('imageLoadError')}</span>
         </div>
       </div>
     )

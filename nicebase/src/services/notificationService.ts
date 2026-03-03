@@ -4,6 +4,18 @@ import { isNativePlatform } from '../utils/platform'
 import { errorLoggingService } from './errorLoggingService'
 import type { WindowWithCapacitor } from '../types/capacitor'
 
+/**
+ * Generate a stable numeric notification ID from a userId and prefix.
+ * Uses a simple hash to avoid parseInt issues with non-numeric UUID chars.
+ */
+function notificationId(userId: string, prefix: number): number {
+  let hash = prefix
+  for (let i = 0; i < userId.length; i++) {
+    hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0
+  }
+  return Math.abs(hash) % 2147483647 || 1 // Ensure non-zero positive int
+}
+
 // Load Capacitor notification plugins - in native they're available via window, in web they're not
 async function loadPushNotifications() {
   if (!isNativePlatform()) return null
@@ -210,7 +222,7 @@ export const notificationService = {
             {
               title: i18n.t('dailyReminderTitle'),
               body: reminderBody,
-              id: parseInt(`1${userId.slice(-6)}`, 10) % 2147483647, // Unique ID based on userId
+              id: notificationId(userId, 1), // Stable unique ID based on userId
               schedule: {
                 at: reminderTime,
                 repeats: true,
@@ -339,7 +351,7 @@ export const notificationService = {
           notifications.push({
             title: i18n.t('randomMemoryReminderTitle'),
             body: i18n.t('randomMemoryReminderBody'),
-            id: (parseInt(`2${userId.slice(-6)}`, 10) + index) % 2147483647, // Unique ID per time
+            id: (notificationId(userId, 2) + index) % 2147483647, // Unique ID per time
             schedule: {
               at: notificationTime,
               repeats: true,
@@ -363,6 +375,12 @@ export const notificationService = {
     }
 
     // Web platform - use setInterval
+    // Clear any existing interval first to prevent leaks on repeated calls
+    const existingIntervalId = localStorage.getItem(`random_memory_interval_${userId}`)
+    if (existingIntervalId) {
+      clearInterval(Number(existingIntervalId))
+    }
+
     const interval = 6 * 60 * 60 * 1000 // 6 hours in milliseconds
 
     const intervalId = setInterval(async () => {
@@ -393,9 +411,9 @@ export const notificationService = {
           }
           return
         }
-        const notificationId = parseInt(`1${userId.slice(-6)}`, 10) % 2147483647
+        const nId = notificationId(userId, 1)
         await LocalNotifications.cancel({
-          notifications: [{ id: notificationId }],
+          notifications: [{ id: nId }],
         })
       } catch (error) {
         errorLoggingService.logError(
@@ -406,7 +424,7 @@ export const notificationService = {
       }
     }
 
-    // Web platform - clear timeout
+    // Always clean up web timeout too (in case native fell back to web scheduling)
     localStorage.removeItem(`reminder_${userId}`)
     const timeoutId = localStorage.getItem(`reminder_timeout_${userId}`)
     if (timeoutId) {
@@ -479,7 +497,7 @@ export const notificationService = {
               {
                 title: 'NICEBASE',
                 body: message,
-                id: parseInt(`3${userId.slice(-6)}`, 10) % 2147483647, // Unique ID
+                id: notificationId(userId, 3), // Unique ID
                 schedule: {
                   at: reminderTime,
                 },
@@ -533,9 +551,9 @@ export const notificationService = {
           }
           return
         }
-        const notificationId = parseInt(`3${userId.slice(-6)}`, 10) % 2147483647
+        const streakNId = notificationId(userId, 3)
         await LocalNotifications.cancel({
-          notifications: [{ id: notificationId }],
+          notifications: [{ id: streakNId }],
         })
       } catch (error) {
         errorLoggingService.logError(

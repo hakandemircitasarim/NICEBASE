@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { Memory } from '../types'
@@ -17,6 +18,48 @@ interface VaultMemoryListProps {
   onEdit: (memory: Memory) => void
   onDelete: (id: string) => void
   onImageClick: (images: string[], index: number) => void
+}
+
+/**
+ * Individual memory item wrapper that provides stable callback references
+ * to prevent defeating MemoryCard's React.memo optimization.
+ */
+function VaultMemoryItem({
+  memory,
+  index,
+  bulkMode,
+  isSelected,
+  onToggleSelection,
+  onEdit,
+  onDelete,
+  onImageClick,
+}: {
+  memory: Memory
+  index: number
+  bulkMode: boolean
+  isSelected: boolean
+  onToggleSelection: (id: string) => void
+  onEdit: (memory: Memory) => void
+  onDelete: (id: string) => void
+  onImageClick: (images: string[], index: number) => void
+}) {
+  const handleSelect = useCallback(() => onToggleSelection(memory.id), [onToggleSelection, memory.id])
+  const handleEdit = useCallback(() => onEdit(memory), [onEdit, memory])
+  const handleDelete = useCallback(() => onDelete(memory.id), [onDelete, memory.id])
+
+  return (
+    <MemoryCard
+      key={memory.id}
+      memory={memory}
+      index={index}
+      bulkMode={bulkMode}
+      isSelected={isSelected}
+      onSelect={handleSelect}
+      onEdit={handleEdit}
+      onDelete={handleDelete}
+      onImageClick={onImageClick}
+    />
+  )
 }
 
 export default function VaultMemoryList({
@@ -52,16 +95,16 @@ export default function VaultMemoryList({
     <div className="space-y-5 sm:space-y-6">
       <AnimatePresence>
         {memories.slice(0, displayCount).map((memory, index) => (
-          <MemoryCard
+          <VaultMemoryItem
             key={memory.id}
             memory={memory}
             index={index}
             bulkMode={bulkMode}
             isSelected={selectedMemories.has(memory.id)}
-            onSelect={() => onToggleSelection(memory.id)}
-            onEdit={() => onEdit(memory)}
-            onDelete={() => onDelete(memory.id)}
-            onImageClick={(images, idx) => onImageClick(images, idx)}
+            onToggleSelection={onToggleSelection}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onImageClick={onImageClick}
           />
         ))}
       </AnimatePresence>

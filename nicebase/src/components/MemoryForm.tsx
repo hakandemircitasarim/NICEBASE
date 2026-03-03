@@ -529,26 +529,11 @@ export default function MemoryForm({
       }
 
       setSaveSuccess(true)
-      // Clear draft on successful save
+      // Clear all draft storage on successful save
       clearDraft()
-      // Mark draft as saved (with memory ID) to prevent reloading
-      if (savedMemory) {
-        try {
-          const draft = localStorage.getItem(`memory_draft_${userId}`)
-          if (draft) {
-            const parsed = JSON.parse(draft)
-            parsed.memoryId = savedMemory.id
-            parsed.savedAt = Date.now()
-            localStorage.setItem(`memory_draft_${userId}`, JSON.stringify(parsed))
-          }
-        } catch (error) {
-          // Ignore
-        }
-      }
-      // Also clear sessionStorage state
       try {
         sessionStorage.removeItem(`memory_form_state_${userId}`)
-      } catch (error) {
+      } catch (_) {
         // Ignore
       }
       await new Promise(r => setTimeout(r, 500))

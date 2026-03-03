@@ -194,10 +194,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
 
   const handleSync = async () => {
     if (!user) {
-      toast.error(
-        t('loginRequiredForSync') ||
-          'Senkronizasyon için giriş yapmanız gerekiyor'
-      )
+      toast.error(t('loginRequiredForSync'))
       return
     }
     try {
@@ -217,9 +214,10 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
       // Show detailed feedback
       if (statusAfter.pending > 0 || statusAfter.failed > 0) {
         toast.success(
-          t('syncPartial', { 
-            defaultValue: `Senkron tamamlandı. ${statusAfter.pending} bekleyen, ${statusAfter.failed} başarısız.` 
-          }), 
+          t('syncPartial', {
+            pending: statusAfter.pending,
+            failed: statusAfter.failed
+          }),
           { id: 'sync', duration: 4000 }
         )
       } else {
@@ -245,11 +243,11 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
       await supabase.auth.signOut()
       setUser(null)
       hapticFeedback('light')
-      toast.success(t('loggedOut') || 'Çıkış yapıldı')
+      toast.success(t('loggedOut'))
       onClose()
     } catch (error) {
       hapticFeedback('error')
-      toast.error(t('logoutError') || 'Çıkış yapılırken hata oluştu')
+      toast.error(t('logoutError'))
       errorLoggingService.logError(
         error instanceof Error ? error : new Error('Logout error'),
         'error'

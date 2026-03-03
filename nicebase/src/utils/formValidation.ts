@@ -81,7 +81,7 @@ export function getPasswordStrengthLabel(strength: number): string {
     'passwordStrength.good',
     'passwordStrength.strong',
   ]
-  const fallbacks = ['Çok Zayıf', 'Zayıf', 'Orta', 'Güçlü', 'Çok Güçlü']
+  const fallbacks = ['Çok zayıf', 'Zayıf', 'Orta', 'İyi', 'Güçlü']
   return t(keys[strength]) || fallbacks[strength] || fallbacks[0]
 }
 
@@ -112,6 +112,12 @@ export function validateDate(date: string | Date): {
   error?: string
 } {
   const dateObj = typeof date === 'string' ? new Date(date) : date
+
+  // Check for invalid date (e.g. new Date('not-a-date') => NaN)
+  if (isNaN(dateObj.getTime())) {
+    return { isValid: false, error: t('invalidDate') || 'Geçersiz tarih' }
+  }
+
   const today = new Date()
   today.setHours(23, 59, 59, 999)
 

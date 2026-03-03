@@ -10,7 +10,7 @@ import ImageModal from '../components/ImageModal'
 import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import { useNotifications } from '../hooks/useNotifications'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { buildConnectionDisplayMap, normalizeConnectionKey } from '../utils/connections'
 
 type ConnectionOption = { key: string; label: string }
@@ -19,6 +19,7 @@ export default function RelationshipSaver() {
   const { t } = useTranslation()
   const userId = useUserId()
   const location = useLocation()
+  const navigate = useNavigate()
   const { memories, loading } = useMemories(userId)
   const { hapticFeedback } = useNotifications()
   const [connections, setConnections] = useState<ConnectionOption[]>([])
@@ -67,15 +68,11 @@ export default function RelationshipSaver() {
 
   // Helper functions - must be defined before useSwipe
   const nextMemory = () => {
-    if (currentIndex < filteredMemories.length - 1) {
-      setCurrentIndex(currentIndex + 1)
-    }
+    setCurrentIndex(prev => prev < filteredMemories.length - 1 ? prev + 1 : prev)
   }
 
   const prevMemory = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1)
-    }
+    setCurrentIndex(prev => prev > 0 ? prev - 1 : prev)
   }
 
   // Always call useSwipe at component level to maintain hooks order
@@ -105,6 +102,8 @@ export default function RelationshipSaver() {
           if (prev < filteredMemories.length - 1) {
             return prev + 1
           }
+          // Reached the end, stop autoplay
+          setAutoPlay(false)
           return prev
         })
       }, 5000) // 5 seconds per memory
@@ -138,12 +137,12 @@ export default function RelationshipSaver() {
     if (!currentMemory) return
     
     const connectionName = connections.find(c => c.key === selectedConnectionKey)?.label || 'Connection'
-    const shareText = `${connectionName} ile ${filteredMemories.length} anı\n\n"${currentMemory.text.substring(0, 100)}${currentMemory.text.length > 100 ? '...' : ''}"\n\nNICEBASE - Kişisel Duygusal Çapa`
-    
+    const shareText = `${t('shareMemoryCount', { connection: connectionName, count: filteredMemories.length })}\n\n"${currentMemory.text.substring(0, 100)}${currentMemory.text.length > 100 ? '...' : ''}"\n\n${t('shareTagline')}`
+
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `${connectionName} ile Anılar`,
+          title: t('shareTitle', { connection: connectionName }),
           text: shareText,
           url: window.location.href,
         })
@@ -167,14 +166,14 @@ export default function RelationshipSaver() {
     if (filteredMemories.length === 0) return
     
     const connectionName = connections.find(c => c.key === selectedConnectionKey)?.label || 'Connection'
-    let exportText = `${connectionName} ile Anılar\n`
+    let exportText = `${t('shareTitle', { connection: connectionName })}\n`
     exportText += `${'='.repeat(40)}\n\n`
-    
+
     filteredMemories.forEach((memory, index) => {
-      exportText += `Anı ${index + 1}/${filteredMemories.length}\n`
-      exportText += `Tarih: ${new Date(memory.date).toLocaleDateString()}\n`
-      exportText += `Yoğunluk: ${memory.intensity}/10\n`
-      exportText += `Kategori: ${t(`categories.${memory.category}`)}\n`
+      exportText += `${t('exportMemoryLabel')} ${index + 1}/${filteredMemories.length}\n`
+      exportText += `${t('exportDateLabel')}: ${new Date(memory.date).toLocaleDateString()}\n`
+      exportText += `${t('exportIntensityLabel')}: ${memory.intensity}/10\n`
+      exportText += `${t('exportCategoryLabel')}: ${t(`categories.${memory.category}`)}\n`
       exportText += `\n${memory.text}\n\n`
       exportText += `${'-'.repeat(40)}\n\n`
     })
@@ -217,7 +216,7 @@ export default function RelationshipSaver() {
           {t('relationshipSaver')}
         </h1>
         <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">
-          {t('relationshipSaverDescription', { defaultValue: 'Sevdiklerinizle paylaştığınız özel anıları keşfedin' })}
+          {t('relationshipSaverDescription')}
         </p>
       </motion.div>
 
@@ -247,7 +246,7 @@ export default function RelationshipSaver() {
             whileTap={{ scale: 0.95 }}
             onClick={() => {
               hapticFeedback('light')
-              window.location.href = '/vault?action=add'
+              navigate('/vault?action=add')
             }}
             className="px-8 py-4 gradient-primary text-white rounded-2xl font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all touch-manipulation"
           >
@@ -459,8 +458,9 @@ export default function RelationshipSaver() {
                       whileTap={{ scale: 0.98 }}
                       onError={(e) => {
                         const target = e.currentTarget
-                        target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="12"%3EGörsel yüklenemedi%3C/text%3E%3C/svg%3E'
+                        target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23e5e7eb"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="20"%3E%F0%9F%93%B7%3C/text%3E%3C/svg%3E'
                         target.className = target.className + ' opacity-50'
+                        target.alt = t('imageLoadError')
                       }}
                       onClick={() => {
                         hapticFeedback('light')

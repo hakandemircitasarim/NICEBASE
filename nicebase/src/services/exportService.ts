@@ -76,19 +76,31 @@ export const exportService = {
     const dateLocale = lang === 'tr' ? 'tr-TR' : 'en-US'
     const headers = [i18n.t('exportDate'), i18n.t('exportText'), i18n.t('exportCategory'), i18n.t('exportIntensity'), i18n.t('exportConnections'), i18n.t('exportLifeArea'), i18n.t('exportCore'), i18n.t('exportPhotoCount')]
     
+    // Escape a CSV field: wrap in quotes and escape internal quotes.
+    // Also defuse formula injection by prefixing dangerous characters with a tab.
+    const escapeCSV = (value: string): string => {
+      let safe = value
+      // Defuse formula injection: prefix with tab if starts with =, +, -, @, |, %
+      if (/^[=+\-@|%]/.test(safe)) {
+        safe = '\t' + safe
+      }
+      // Always wrap in double quotes and escape internal quotes
+      return `"${safe.replace(/"/g, '""')}"`
+    }
+
     const rows = memories.map(m => [
-      new Date(m.date).toLocaleDateString(dateLocale),
-      `"${m.text.replace(/"/g, '""')}"`, // Escape quotes
-      m.category,
-      m.intensity.toString(),
-      m.connections.join('; '),
-      m.lifeArea,
-      m.isCore ? i18n.t('yes') : i18n.t('no'),
-      m.photos.length.toString(),
+      escapeCSV(new Date(m.date).toLocaleDateString(dateLocale)),
+      escapeCSV(m.text),
+      escapeCSV(m.category),
+      escapeCSV(m.intensity.toString()),
+      escapeCSV(m.connections.join('; ')),
+      escapeCSV(m.lifeArea),
+      escapeCSV(m.isCore ? i18n.t('yes') : i18n.t('no')),
+      escapeCSV(m.photos.length.toString()),
     ])
-    
+
     const csvContent = [
-      headers.join(','),
+      headers.map(h => escapeCSV(h)).join(','),
       ...rows.map(row => row.join(','))
     ].join('\n')
     

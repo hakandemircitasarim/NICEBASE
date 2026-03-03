@@ -588,12 +588,17 @@ export default function Aiya() {
     }
 
     // Delay for Capacitor
+    const timers: ReturnType<typeof setTimeout>[] = []
     if (typeof window !== 'undefined' && 'Capacitor' in window) {
-      setTimeout(loadData, 100)
-      setTimeout(loadData, 500)
-      setTimeout(loadData, 1000)
+      timers.push(setTimeout(loadData, 100))
+      timers.push(setTimeout(loadData, 500))
+      timers.push(setTimeout(loadData, 1000))
     } else {
       loadData()
+    }
+
+    return () => {
+      timers.forEach(clearTimeout)
     }
   }, [chatsKey, profileKey, userId, user])
 
@@ -714,8 +719,13 @@ export default function Aiya() {
 
     setSending(true)
     try {
-      const currentChat = chats.find((c) => c.id === activeChatId)
-      const history = currentChat?.messages ?? []
+      // Read the updated chat from the functional state update to avoid stale closure
+      let history: AiyaMessage[] = []
+      setChats((prev) => {
+        const currentChat = prev.find((c) => c.id === activeChatId)
+        history = currentChat?.messages ?? []
+        return prev // no mutation, just reading
+      })
       const res = await aiyaService.sendMessage({ message: text, history, memories, locale, systemPrompt })
       const aiyaMsg: AiyaMessage = { role: 'assistant', content: cleanMarkdown(res.reply), ts: Date.now() }
 
@@ -727,14 +737,13 @@ export default function Aiya() {
 
       if (res.usage) setUsage(res.usage)
 
-      const allMsgs = [...(currentChat?.messages ?? []), userMsg, aiyaMsg]
-      void maybeUpdateProfile(allMsgs)
+      void maybeUpdateProfile([...history, aiyaMsg])
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : t('aiyaError'))
     } finally {
       setSending(false)
     }
-  }, [input, sending, activeChatId, chats, memories, locale, systemPrompt, t, maybeUpdateProfile])
+  }, [input, sending, activeChatId, memories, locale, systemPrompt, t, maybeUpdateProfile])
 
   // ─── Chip action ───────────────────────────────────────
   const handleChip = useCallback((text: string) => {

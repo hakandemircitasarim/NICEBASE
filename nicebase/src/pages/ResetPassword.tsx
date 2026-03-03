@@ -37,7 +37,7 @@ export default function ResetPassword() {
       setSuccess(true)
       setTimeout(() => navigate('/'), 2000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bir hata oluştu.')
+      setError(err instanceof Error ? err.message : t('errorOccurred'))
     } finally {
       setLoading(false)
     }
