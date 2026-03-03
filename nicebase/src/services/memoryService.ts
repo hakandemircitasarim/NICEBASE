@@ -5,22 +5,22 @@ import { generateUUID } from '../utils/uuid'
 import { addToSyncQueue } from './syncQueueHelper'
 import { SyncQueueItemV2 } from '../lib/db'
 
-// Map Memory to Supabase format
+// Map Memory to Supabase format (defensive — never send null/undefined for NOT NULL columns)
 function mapMemoryToSupabase(memory: Memory) {
   return {
     id: memory.id,
     user_id: memory.userId,
-    text: memory.text,
-    category: memory.category,
-    categories: memory.categories || [memory.category],
-    intensity: memory.intensity,
-    date: memory.date.split('T')[0], // Extract date part
-    connections: memory.connections,
-    life_area: memory.lifeArea,
-    is_core: memory.isCore,
-    photos: memory.photos,
-    created_at: memory.createdAt,
-    updated_at: memory.updatedAt,
+    text: memory.text || '',
+    category: memory.category || 'uncategorized',
+    categories: memory.categories || [memory.category || 'uncategorized'],
+    intensity: memory.intensity ?? 5,
+    date: (memory.date || new Date().toISOString()).split('T')[0],
+    connections: memory.connections || [],
+    life_area: memory.lifeArea || 'uncategorized',
+    is_core: memory.isCore ?? false,
+    photos: memory.photos || [],
+    created_at: memory.createdAt || new Date().toISOString(),
+    updated_at: memory.updatedAt || new Date().toISOString(),
   }
 }
 
@@ -49,13 +49,32 @@ function mapSupabaseToMemory(row: {
     intensity: row.intensity,
     date: new Date(row.date).toISOString(),
     connections: row.connections || [],
-    lifeArea: row.life_area as Memory['lifeArea'],
+    lifeArea: (row.life_area || 'uncategorized') as Memory['lifeArea'],
     isCore: row.is_core,
     photos: row.photos || [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     synced: true,
   }
+}
+
+// Extract updates from a possibly malformed sync payload.
+// Old code sent { id, ...fields } instead of { id, updates: { ...fields } }.
+// This helper handles BOTH formats gracefully.
+function extractUpdatesFromPayload(payload: unknown): { id: string; updates: Partial<Memory> } | null {
+  const p = payload as Record<string, unknown>
+  if (!p || typeof p !== 'object' || !p.id) return null
+
+  // Correct format: { id, updates: { ... } }
+  if (p.updates && typeof p.updates === 'object') {
+    return { id: p.id as string, updates: p.updates as Partial<Memory> }
+  }
+
+  // Legacy/malformed format: { id, category, lifeArea, ... }
+  // Extract everything except 'id' as updates
+  const { id, ...rest } = p
+  if (Object.keys(rest).length === 0) return null
+  return { id: id as string, updates: rest as Partial<Memory> }
 }
 
 export const memoryService = {
@@ -69,6 +88,7 @@ export const memoryService = {
     const memory: Memory = {
       ...data,
       id: generateUUID(),
+      lifeArea: data.lifeArea || 'uncategorized',
       createdAt: now,
       updatedAt: now,
       synced: false,
@@ -84,7 +104,9 @@ export const memoryService = {
 
     // Auto-categorize via Aiya if category is uncategorized
     if (memory.category === 'uncategorized' && memory.text.trim()) {
-      memoryService._autoCategorize(memory.id, memory.text, data.userId).catch(() => {})
+      memoryService._autoCategorize(memory.id, memory.text, data.userId).catch((err) => {
+        console.warn('[memoryService] Auto-categorize failed:', err)
+      })
     }
 
     return memory
@@ -134,8 +156,8 @@ export const memoryService = {
           await addToSyncQueue('update', { id: memoryId, updates }, userId)
         }
       }
-    } catch {
-      // Silently fail — memory stays uncategorized, user can manually set
+    } catch (err) {
+      console.warn('[memoryService] Auto-categorize failed:', err)
     }
   },
 
@@ -157,7 +179,20 @@ export const memoryService = {
   async syncAll(userId: string): Promise<void> {
     if (!hasSupabaseConfig) return
 
-    // Get pending sync items for this user (skip in_progress to avoid double-processing)
+    // --- Cleanup pass: fix stuck in_progress items (crashed mid-sync) ---
+    const stuckItems = await db.syncQueueV2
+      .where('userId')
+      .equals(userId)
+      .and((item) => item.status === 'in_progress')
+      .toArray()
+    for (const stuck of stuckItems) {
+      await db.syncQueueV2.update(stuck.id, {
+        status: 'pending',
+        nextAttemptAt: Date.now(),
+      })
+    }
+
+    // Get pending sync items for this user
     const pendingItems = await db.syncQueueV2
       .where('userId')
       .equals(userId)
@@ -168,6 +203,13 @@ export const memoryService = {
     if (pendingItems.length === 0 && !navigator.onLine) return
 
     for (const item of pendingItems) {
+      // Give up after 10 attempts — mark as done to stop retrying forever
+      if (item.attemptCount >= 10) {
+        console.warn(`[sync] Giving up on item ${item.id} after ${item.attemptCount} attempts: ${item.lastError}`)
+        await db.syncQueueV2.update(item.id, { status: 'done', lastError: `Gave up after ${item.attemptCount} attempts` })
+        continue
+      }
+
       try {
         // Mark as in progress
         await db.syncQueueV2.update(item.id, { status: 'in_progress' })
@@ -175,25 +217,40 @@ export const memoryService = {
         if (item.op === 'create') {
           const memory = item.payload as Memory
           const supabaseData = mapMemoryToSupabase(memory)
-          const { error } = await supabase.from('memories').insert(supabaseData)
+          // Use upsert instead of insert — idempotent, handles retries gracefully
+          const { error } = await supabase.from('memories').upsert(supabaseData, { onConflict: 'id' })
           if (error) throw error
-          
+
           // Mark memory as synced
           await db.memories.update(memory.id, { synced: true })
         } else if (item.op === 'update') {
-          const { id, updates } = item.payload as { id: string; updates: Partial<Memory> }
+          const extracted = extractUpdatesFromPayload(item.payload)
+          if (!extracted) {
+            // Corrupt payload — can't recover, skip it
+            console.warn('[sync] Corrupt update payload, skipping:', item.payload)
+            await db.syncQueueV2.update(item.id, { status: 'done', lastError: 'Corrupt payload — skipped' })
+            continue
+          }
+
+          const { id, updates } = extracted
           const supabaseUpdates: Record<string, unknown> = {}
-          
+
           if (updates.text !== undefined) supabaseUpdates.text = updates.text
           if (updates.category !== undefined) supabaseUpdates.category = updates.category
           if (updates.categories !== undefined) supabaseUpdates.categories = updates.categories
           if (updates.intensity !== undefined) supabaseUpdates.intensity = updates.intensity
-          if (updates.date !== undefined) supabaseUpdates.date = updates.date.split('T')[0]
+          if (updates.date !== undefined) supabaseUpdates.date = String(updates.date).split('T')[0]
           if (updates.connections !== undefined) supabaseUpdates.connections = updates.connections
           if (updates.lifeArea !== undefined) supabaseUpdates.life_area = updates.lifeArea
           if (updates.isCore !== undefined) supabaseUpdates.is_core = updates.isCore
           if (updates.photos !== undefined) supabaseUpdates.photos = updates.photos
           if (updates.updatedAt !== undefined) supabaseUpdates.updated_at = updates.updatedAt
+
+          // Skip if no actual updates to send
+          if (Object.keys(supabaseUpdates).length === 0) {
+            await db.syncQueueV2.update(item.id, { status: 'done', lastError: null })
+            continue
+          }
 
           const { error } = await supabase
             .from('memories')
@@ -213,7 +270,7 @@ export const memoryService = {
         }
 
         // Mark as done
-        await db.syncQueueV2.update(item.id, { 
+        await db.syncQueueV2.update(item.id, {
           status: 'done',
           lastError: null,
         })
@@ -221,11 +278,13 @@ export const memoryService = {
         // Mark as failed and schedule retry
         const attemptCount = item.attemptCount + 1
         const backoffMs = Math.min(1000 * Math.pow(2, attemptCount), 300000) // Max 5 minutes
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        console.warn(`[sync] Item ${item.id} (${item.op}) failed attempt ${attemptCount}:`, errorMsg)
         await db.syncQueueV2.update(item.id, {
           status: 'failed',
           attemptCount,
           nextAttemptAt: Date.now() + backoffMs,
-          lastError: error instanceof Error ? error.message : String(error),
+          lastError: errorMsg,
         })
       }
     }
@@ -278,10 +337,7 @@ export const memoryService = {
         }
       }
     } catch (error) {
-      // Log but don't throw - local-first approach
-      if (import.meta.env.DEV) {
-        console.warn('[memoryService] Failed to pull from Supabase:', error)
-      }
+      console.warn('[memoryService] Failed to pull from Supabase:', error)
     }
   },
 
@@ -289,9 +345,10 @@ export const memoryService = {
     const items = await db.syncQueueV2
       .where('userId')
       .equals(userId)
+      .and((item) => item.status !== 'done')
       .toArray()
 
-    const pending = items.filter((item) => item.status === 'pending').length
+    const pending = items.filter((item) => item.status === 'pending' || item.status === 'in_progress').length
     const failed = items.filter((item) => item.status === 'failed').length
 
     return {
