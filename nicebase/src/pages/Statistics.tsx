@@ -42,15 +42,17 @@ export default function Statistics() {
   const [streak, setStreak] = useState({ currentStreak: 0, longestStreak: 0, lastMemoryDate: null as string | null, streakStartDate: null as string | null })
 
   useEffect(() => {
+    let cancelled = false
     const loadStreak = async () => {
       try {
         const streakData = await streakService.calculateStreak(userId)
-        setStreak(streakData)
+        if (!cancelled) setStreak(streakData)
       } catch (error) {
-        showError(t('loadError'))
+        if (!cancelled) showError(t('loadError'))
       }
     }
     loadStreak()
+    return () => { cancelled = true }
   }, [userId, t, showError])
 
   const lang = (i18n?.language || 'tr').startsWith('tr') ? 'tr' : 'en'

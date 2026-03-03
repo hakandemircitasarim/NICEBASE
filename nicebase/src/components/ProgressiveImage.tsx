@@ -31,10 +31,12 @@ export default function ProgressiveImage({
   const [hasError, setHasError] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
+
     // Reset state when src changes
     setIsLoaded(false)
     setHasError(false)
-    
+
     if (!src) {
       setHasError(true)
       return
@@ -47,10 +49,12 @@ export default function ProgressiveImage({
     // Load the full image
     const fullImg = new Image()
     fullImg.onload = () => {
+      if (cancelled) return
       setImageSrc(src)
       setIsLoaded(true)
     }
     fullImg.onerror = () => {
+      if (cancelled) return
       setHasError(true)
       if (onError) {
         // Create a synthetic event for the error
@@ -76,6 +80,8 @@ export default function ProgressiveImage({
       }
     }
     fullImg.src = src
+
+    return () => { cancelled = true }
   }, [src, placeholder, onError])
 
   if (hasError) {

@@ -53,13 +53,16 @@ export default function Home() {
 
   // Load daily question + check if answered
   useEffect(() => {
+    let cancelled = false
     dailyQuestionService.getTodaysQuestion().then(async (q) => {
+      if (cancelled) return
       setDailyQuestion(q)
       if (userId && q.id) {
         const answered = await dailyQuestionService.hasAnsweredToday(userId, q.id)
-        setHasAnsweredToday(answered)
+        if (!cancelled) setHasAnsweredToday(answered)
       }
     }).catch(() => {})
+    return () => { cancelled = true }
   }, [userId])
 
   // Load streak function - must be defined before useMemories hook

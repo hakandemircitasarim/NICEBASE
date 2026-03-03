@@ -588,12 +588,17 @@ export default function Aiya() {
     }
 
     // Delay for Capacitor
+    const timers: ReturnType<typeof setTimeout>[] = []
     if (typeof window !== 'undefined' && 'Capacitor' in window) {
-      setTimeout(loadData, 100)
-      setTimeout(loadData, 500)
-      setTimeout(loadData, 1000)
+      timers.push(setTimeout(loadData, 100))
+      timers.push(setTimeout(loadData, 500))
+      timers.push(setTimeout(loadData, 1000))
     } else {
       loadData()
+    }
+
+    return () => {
+      timers.forEach(clearTimeout)
     }
   }, [chatsKey, profileKey, userId, user])
 

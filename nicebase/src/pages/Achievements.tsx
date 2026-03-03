@@ -18,21 +18,24 @@ export default function Achievements() {
   const [activeTab, setActiveTab] = useState<'badges' | 'achievements'>('badges')
 
   useEffect(() => {
+    let cancelled = false
     const loadData = async () => {
       try {
         const [badgesData, achievementsData] = await Promise.all([
           gamificationService.getBadges(userId, memories),
           gamificationService.getAchievements(userId, memories),
         ])
+        if (cancelled) return
         setBadges(badgesData)
         setAchievements(achievementsData)
       } catch (error) {
-        showError(t('loadError'))
+        if (!cancelled) showError(t('loadError'))
       }
     }
     if (memories.length > 0 || !loading) {
       loadData()
     }
+    return () => { cancelled = true }
   }, [userId, memories, loading, t, showError])
 
   const unlockedBadges = badges.filter(b => b.unlocked).length

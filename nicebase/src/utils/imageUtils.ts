@@ -23,9 +23,10 @@ export function supportsAVIF(): Promise<boolean> {
           return
         }
         const img = new Image()
-        img.onload = () => resolve(true)
-        img.onerror = () => resolve(false)
-        img.src = URL.createObjectURL(blob)
+        const url = URL.createObjectURL(blob)
+        img.onload = () => { URL.revokeObjectURL(url); resolve(true) }
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(false) }
+        img.src = url
       },
       'image/avif',
       0.5
