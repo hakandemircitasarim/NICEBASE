@@ -6,10 +6,42 @@ import { errorLoggingService } from '../services/errorLoggingService'
 import { hapticFeedback } from '../utils/haptic'
 import { isNative } from '../utils/capacitor'
 
+// ─── Native Google Sign-In (via @capgo/capacitor-social-login) ──────────
+// On Android/iOS: shows the native Google account picker (bottom sheet)
+// Returns an idToken which we exchange with Supabase via signInWithIdToken
+// No browser or Chrome Custom Tab is opened — fully native experience.
+// ─────────────────────────────────────────────────────────────────────────
+
+let _socialLoginInitialized = false
+
+async function initSocialLogin() {
+  if (_socialLoginInitialized) return
+  if (!isNative()) return
+
+  try {
+    const { SocialLogin } = await import('@capgo/capacitor-social-login')
+    const webClientId = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID || ''
+
+    if (!webClientId) {
+      console.warn('[OAuth] VITE_GOOGLE_WEB_CLIENT_ID is not set — native Google Sign-In will fail')
+      return
+    }
+
+    await SocialLogin.initialize({
+      google: {
+        webClientId,
+      },
+    })
+    _socialLoginInitialized = true
+  } catch (error) {
+    console.error('[OAuth] SocialLogin.initialize failed:', error)
+  }
+}
+
+// ─── Web fallback: keep the existing browser-based OAuth flow ───────────
 // Module-level Browser reference so the deep-link callback can close it
 let _browserRef: { close: () => Promise<void> } | null = null
 
-// Dynamically load App plugin at runtime if available
 async function getAppPlugin() {
   if (!isNative()) return null
   try {
@@ -20,7 +52,6 @@ async function getAppPlugin() {
   }
 }
 
-// Dynamically load Browser plugin at runtime if available
 async function getBrowserPlugin() {
   if (!isNative()) return null
   try {
@@ -34,13 +65,26 @@ async function getBrowserPlugin() {
 
 /**
  * Custom hook for handling Google OAuth authentication
+ *
+ * Native (Android/iOS): Uses Google's native Credential Manager via SocialLogin plugin.
+ *   → Shows a native bottom-sheet account picker, no browser opened.
+ *   → Returns idToken → supabase.auth.signInWithIdToken()
+ *
+ * Web: Uses Supabase's browser-based OAuth redirect flow (unchanged).
  */
 export function useOAuth() {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const loadingRef = useRef(false)
 
-  // Set up deep link listener for OAuth callback (native only)
+  // Initialize SocialLogin plugin on mount (native only)
+  useEffect(() => {
+    if (isNative()) {
+      initSocialLogin()
+    }
+  }, [])
+
+  // Deep link listener for web OAuth callback fallback (kept for edge cases)
   useEffect(() => {
     if (!isNative()) return
 
@@ -57,17 +101,15 @@ export function useOAuth() {
           if (!urlString) return
 
           try {
-            // 1) Close the in-app browser (Chrome Custom Tab) immediately
+            // Close the in-app browser if open
             if (_browserRef) {
               try { await _browserRef.close() } catch { /* already closed */ }
             }
 
-            // 2) Parse the callback URL
             const url = new URL(urlString)
             const searchParams = new URLSearchParams(url.search || '')
             const hashParams = new URLSearchParams((url.hash || '').replace('#', ''))
 
-            // 3) Check for error from provider
             const errorParam = searchParams.get('error') || hashParams.get('error')
             if (errorParam) {
               const desc = searchParams.get('error_description') || hashParams.get('error_description') || errorParam
@@ -78,7 +120,7 @@ export function useOAuth() {
               return
             }
 
-            // 4) PKCE flow: exchange authorization code for session
+            // PKCE flow
             const code = searchParams.get('code') || hashParams.get('code')
             if (code) {
               const { error } = await supabase.auth.exchangeCodeForSession(code)
@@ -86,13 +128,12 @@ export function useOAuth() {
                 console.error('[OAuth] Code exchange failed:', error.message)
                 toast.error(t('oauthError'))
               }
-              // App.tsx onAuthStateChange will handle the rest (setUser, sync)
               loadingRef.current = false
               setLoading(false)
               return
             }
 
-            // 5) Implicit flow fallback: extract tokens from hash
+            // Implicit flow fallback
             const accessToken = hashParams.get('access_token')
             const refreshToken = hashParams.get('refresh_token')
             if (accessToken) {
@@ -164,7 +205,61 @@ export function useOAuth() {
         return
       }
 
-      // Determine redirect URL
+      // ─── NATIVE: Use Google's native Credential Manager ───────────
+      if (isNative()) {
+        try {
+          const { SocialLogin } = await import('@capgo/capacitor-social-login')
+
+          // Ensure initialized
+          if (!_socialLoginInitialized) {
+            await initSocialLogin()
+          }
+
+          const res = await SocialLogin.login({
+            provider: 'google',
+            options: {
+              scopes: ['email', 'profile'],
+            },
+          })
+
+          const googleResult = res?.result
+          // The response can be 'online' (has idToken) or 'offline' (has serverAuthCode)
+          if (!googleResult || !('idToken' in googleResult) || !googleResult.idToken) {
+            throw new Error('Google Sign-In did not return an idToken')
+          }
+
+          // Exchange the native idToken with Supabase
+          const { error } = await supabase.auth.signInWithIdToken({
+            provider: 'google',
+            token: googleResult.idToken,
+            access_token: googleResult.accessToken?.token,
+          })
+
+          if (error) {
+            console.error('[OAuth] signInWithIdToken failed:', error.message)
+            throw error
+          }
+
+          // Done! onAuthStateChange in App.tsx will handle the rest
+          loadingRef.current = false
+          setLoading(false)
+          return
+        } catch (nativeError: unknown) {
+          const errMsg = nativeError instanceof Error ? nativeError.message : String(nativeError)
+
+          // User cancelled the native picker — not an error
+          if (errMsg.includes('cancel') || errMsg.includes('Cancel') || errMsg.includes('dismissed')) {
+            loadingRef.current = false
+            setLoading(false)
+            return
+          }
+
+          // Log but fallback to browser OAuth
+          console.warn('[OAuth] Native Google Sign-In failed, falling back to browser:', errMsg)
+        }
+      }
+
+      // ─── WEB (or native fallback): Browser-based Supabase OAuth ───
       let redirectTo: string
 
       if (isNative()) {
@@ -189,7 +284,6 @@ export function useOAuth() {
       if (error) throw error
 
       if (isNative() && data?.url) {
-        // Native: open Chrome Custom Tab (in-app browser)
         const Browser = await getBrowserPlugin()
         if (Browser) {
           await Browser.open({
@@ -197,7 +291,6 @@ export function useOAuth() {
             windowName: '_self',
           })
 
-          // If user manually closes the browser without completing OAuth
           try {
             const finishedListener = await Browser.addListener('browserFinished', () => {
               if (loadingRef.current) {
@@ -211,15 +304,12 @@ export function useOAuth() {
           } catch {
             // Listener setup failed — non-critical
           }
-          // Don't setLoading(false) here — wait for callback or browserFinished
         } else {
-          // Fallback: system browser
           window.open(data.url, '_blank')
           loadingRef.current = false
           setLoading(false)
         }
       }
-      // On web, Supabase handles the redirect automatically
     } catch (error: unknown) {
       hapticFeedback('error')
       loadingRef.current = false
