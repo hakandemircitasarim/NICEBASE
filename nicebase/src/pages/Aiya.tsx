@@ -331,6 +331,7 @@ export default function Aiya() {
     setInput('')
     setSending(false)
     setErrorMessage(null)
+    setUsage(null)
     setProfileSummary('')
     setProfileMeta(null)
     setLoaded(false)
@@ -478,33 +479,16 @@ export default function Aiya() {
         // Step 1: Load from localStorage INSTANTLY (no async)
         let stored = loadJson<AiyaChat[]>(chatsKey)
 
-        // Migration: Try to find chats from any key
-        if (!stored || !Array.isArray(stored) || stored.length === 0) {
-          const allKeys: string[] = []
-          try {
-            for (let i = 0; i < localStorage.length; i++) {
-              const key = localStorage.key(i)
-              if (key && key.startsWith('aiya_chats')) {
-                allKeys.push(key)
-              }
-            }
-          } catch (e) {
-            // Ignore errors
-          }
-
-          for (const key of allKeys) {
-            const candidate = loadJson<AiyaChat[]>(key)
-            if (candidate && Array.isArray(candidate) && candidate.length > 0) {
-              stored = candidate
-              if (key !== chatsKey) {
-                try {
-                  localStorage.setItem(chatsKey, JSON.stringify(candidate))
-                  localStorage.removeItem(key)
-                } catch (e) {
-                  // Ignore migration errors
-                }
-              }
-              break
+        // Migration: only migrate from the legacy unscoped key (never from another user's data)
+        if ((!stored || !Array.isArray(stored) || stored.length === 0) && chatsKey !== 'aiya_chats_local') {
+          const legacy = loadJson<AiyaChat[]>('aiya_chats_local')
+          if (legacy && Array.isArray(legacy) && legacy.length > 0) {
+            stored = legacy
+            try {
+              localStorage.setItem(chatsKey, JSON.stringify(legacy))
+              localStorage.removeItem('aiya_chats_local')
+            } catch (e) {
+              // Ignore migration errors
             }
           }
         }
@@ -583,28 +567,17 @@ export default function Aiya() {
         // Load profile
         let storedProfile = loadJson<AiyaProfileMeta>(profileKey)
         
-        if (!storedProfile?.summary) {
-          try {
-            for (let i = 0; i < localStorage.length; i++) {
-              const key = localStorage.key(i)
-              if (key && key.startsWith('aiya_profile')) {
-                const candidate = loadJson<AiyaProfileMeta>(key)
-                if (candidate?.summary) {
-                  storedProfile = candidate
-                  if (key !== profileKey) {
-                    try {
-                      localStorage.setItem(profileKey, JSON.stringify(candidate))
-                      localStorage.removeItem(key)
-                    } catch (e) {
-                      // Ignore migration errors
-                    }
-                  }
-                  break
-                }
-              }
+        // Migration: only migrate from legacy unscoped key (never from another user's data)
+        if (!storedProfile?.summary && profileKey !== 'aiya_profile_local') {
+          const legacy = loadJson<AiyaProfileMeta>('aiya_profile_local')
+          if (legacy?.summary) {
+            storedProfile = legacy
+            try {
+              localStorage.setItem(profileKey, JSON.stringify(legacy))
+              localStorage.removeItem('aiya_profile_local')
+            } catch (e) {
+              // Ignore migration errors
             }
-          } catch (e) {
-            // Ignore errors
           }
         }
         
