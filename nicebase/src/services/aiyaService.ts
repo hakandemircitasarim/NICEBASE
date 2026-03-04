@@ -45,7 +45,7 @@ type AiyaProfileResponse = {
 }
 
 const FUNCTION_NAME = 'aiya-chat'
-const REQUEST_TIMEOUT_MS = 20000
+const REQUEST_TIMEOUT_MS = 30000
 const MAX_CONTEXT_MEMORIES = 40
 const MAX_CONTEXT_CHARS = 6000
 
@@ -89,7 +89,25 @@ async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
   )
 
   if (response.error) {
-    throw response.error
+    // Extract the actual error message from the Edge Function response
+    const err = response.error
+    let detail = ''
+
+    // FunctionsHttpError has a context with the response body
+    if ('context' in err && err.context) {
+      try {
+        const ctx = err.context as Response
+        if (typeof ctx.json === 'function') {
+          const body = await ctx.json()
+          detail = body?.error || body?.message || ''
+        }
+      } catch {
+        // Could not parse response body
+      }
+    }
+
+    const message = detail || err.message || 'Edge Function error'
+    throw new Error(message)
   }
 
   return response.data as T

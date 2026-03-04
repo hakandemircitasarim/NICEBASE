@@ -772,7 +772,9 @@ export default function Aiya() {
 
       void maybeUpdateProfile([...history, aiyaMsg])
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : t('aiyaError'))
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[Aiya] sendMessage failed:', msg, err)
+      setErrorMessage(msg || t('aiyaError'))
     } finally {
       setSending(false)
     }
@@ -1094,11 +1096,12 @@ export default function Aiya() {
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-center"
+              className="mx-4 my-2"
             >
-              <p className="inline-block text-xs sm:text-sm text-red-500 bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-full">
-                {errorMessage}
-              </p>
+              <div className="text-xs sm:text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 rounded-2xl">
+                <p className="font-medium mb-1">{t('aiyaError')}</p>
+                <p className="text-red-500 dark:text-red-300 break-words">{errorMessage}</p>
+              </div>
             </motion.div>
           )}
 
