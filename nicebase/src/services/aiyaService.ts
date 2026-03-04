@@ -93,16 +93,20 @@ async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
     const err = response.error
     let detail = ''
 
-    // FunctionsHttpError has a context with the response body
     if ('context' in err && err.context) {
+      const ctx = err.context
       try {
-        const ctx = err.context as Response
-        if (typeof ctx.json === 'function') {
-          const body = await ctx.json()
+        // context can be a Response object or a string depending on supabase-js version
+        if (typeof ctx === 'string') {
+          const parsed = JSON.parse(ctx)
+          detail = parsed?.error || parsed?.message || ctx
+        } else if (ctx && typeof (ctx as Response).json === 'function') {
+          const body = await (ctx as Response).json()
           detail = body?.error || body?.message || ''
         }
       } catch {
-        // Could not parse response body
+        // If context is a plain string that's not JSON
+        if (typeof ctx === 'string') detail = ctx
       }
     }
 
