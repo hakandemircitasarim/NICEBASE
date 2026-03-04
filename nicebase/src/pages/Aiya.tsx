@@ -829,15 +829,12 @@ export default function Aiya() {
   // ═════════════════════════════════════════════════════════
 
   const listView = (
-    <div 
-      className="flex flex-col w-full h-full bg-gray-50 dark:bg-gray-900"
-      style={{ 
-        height: 'calc(100svh - env(safe-area-inset-bottom, 0px))',
-        paddingTop: 'env(safe-area-inset-top, 0px)',
-      }}
-    >
+    <div className="flex flex-col w-full h-full bg-gray-50 dark:bg-gray-900">
       {/* Header */}
-      <div className="flex items-center justify-between container-padding py-4 sm:py-5 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 shadow-sm">
+      <div
+        className="flex items-center justify-between container-padding py-4 sm:py-5 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 shadow-sm"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}
+      >
         <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
           <AiyaAvatar size={40} />
           <div className="min-w-0 flex-1">
@@ -868,7 +865,7 @@ export default function Aiya() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+      <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch', paddingBottom: 'env(safe-area-inset-bottom, 0px)' } as React.CSSProperties}>
         {/* Hero / Start Chat section */}
         <div className={`flex flex-col items-center container-padding text-center ${chats.length === 0 ? 'justify-center h-full min-h-[400px]' : 'pt-8 sm:pt-10 pb-6'}`}>
           <motion.div
@@ -970,16 +967,11 @@ export default function Aiya() {
   const showChips = (messages.length === 0 || (messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && !sending)) && input.length === 0
 
   const chatView = (
-    <div 
-      className="flex flex-col overflow-hidden absolute inset-0 bg-gray-50 dark:bg-gray-900"
-      style={{
-        paddingTop: 'env(safe-area-inset-top, 0px)',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-      }}
-    >
+    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 overflow-hidden">
       {/* Chat header - Fixed top */}
-      <div 
+      <div
         className="flex items-center justify-between gap-2 container-padding py-3.5 sm:py-4 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 z-30 shadow-sm"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.875rem)' }}
       >
         <button
           onClick={goToList}
@@ -1130,7 +1122,7 @@ export default function Aiya() {
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => scrollToBottom()}
             className="absolute right-4 sm:right-6 w-11 h-11 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 shadow-lg flex items-center justify-center z-20 touch-manipulation touch-target"
-            style={{ bottom: '140px' }}
+            style={{ bottom: '100px' }}
           >
             <ChevronDown size={20} className="text-gray-600 dark:text-gray-300" />
           </motion.button>
@@ -1138,11 +1130,9 @@ export default function Aiya() {
       </AnimatePresence>
 
       {/* Bottom: Input container - Fixed above navbar, z-50 */}
-      <div 
+      <div
         className="flex-shrink-0 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-50 shadow-lg"
-        style={{
-          paddingBottom: '0.75rem',
-        }}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
         {/* Suggestion chips */}
         <AnimatePresence>
@@ -1197,13 +1187,7 @@ export default function Aiya() {
   // ═════════════════════════════════════════════════════════
 
   return (
-    <div 
-      className="bg-white dark:bg-gray-900 relative h-full" 
-      style={{ 
-        height: '100svh', 
-        overflow: 'hidden',
-      }}
-    >
+    <div className="relative bg-white dark:bg-gray-900 overflow-hidden h-[100dvh]">
       <AnimatePresence mode="wait" initial={false}>
         {view === 'list' ? (
           <motion.div

@@ -185,9 +185,10 @@ export const dailyQuestionService = {
     try {
       const { count, error } = await supabase
         .from('daily_question_answers')
-        .select('id', { count: 'exact', head: true })
+        .select('id', { count: 'exact' })
         .eq('user_id', userId)
         .eq('question_id', questionId)
+        .limit(1)
 
       if (error) return false
       return (count ?? 0) > 0
