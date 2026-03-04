@@ -93,14 +93,25 @@ function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         if (session?.user) {
+          // TOKEN_REFRESHED only renews the JWT — user data hasn't changed,
+          // so skip the DB fetch to save egress bandwidth.
+          if (event === 'TOKEN_REFRESHED') {
+            // Just make sure sync is running for this user
+            if (syncStartedForRef.current !== session.user.id) {
+              memorySyncService.start(session.user.id)
+              syncStartedForRef.current = session.user.id
+            }
+            return
+          }
+
           try {
             let user = await withTimeout(fetchUserData(session.user.id), FETCH_TIMEOUT)
 
             // If user doesn't exist in DB (e.g. first Google OAuth login), create them
-            if (!user && event === 'SIGNED_IN') {
+            if (!user) {
               const meta = session.user.user_metadata || {}
               user = await withTimeout(
-                ensureUserExists(session.user.id, session.user.email, 5, {
+                ensureUserExists(session.user.id, session.user.email, 2, {
                   displayName: meta.full_name || meta.name || null,
                   avatarUrl: meta.avatar_url || meta.picture || null,
                 }),
@@ -111,9 +122,7 @@ function App() {
             if (user) {
               setUser(user)
               // Migrate any offline-created memories to this cloud user (best-effort)
-              if (event === 'SIGNED_IN') {
-                migrateLocalMemories(user.id).catch(() => {})
-              }
+              migrateLocalMemories(user.id).catch(() => {})
               // Start background sync for this user (service handles duplicate calls)
               if (syncStartedForRef.current !== user.id) {
                 memorySyncService.start(user.id)

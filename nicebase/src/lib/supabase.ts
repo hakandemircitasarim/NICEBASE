@@ -33,6 +33,26 @@ if (!hasSupabaseConfig && import.meta.env.DEV) {
 // Safe storage reference — avoids crash when window is not defined
 const safeStorage = typeof window !== 'undefined' ? window.localStorage : undefined
 
+// Extract project ref from URL for default storage key
+const projectRef = supabaseUrl ? new URL(supabaseUrl).hostname.split('.')[0] : 'app'
+
+// Migration: move old custom key to standard key so existing sessions survive
+if (typeof window !== 'undefined' && safeStorage) {
+  try {
+    const standardKey = `sb-${projectRef}-auth-token`
+    const oldData = safeStorage.getItem('supabase.auth.token')
+    if (oldData && !safeStorage.getItem(standardKey)) {
+      safeStorage.setItem(standardKey, oldData)
+    }
+    // Clean up old key after migration
+    if (oldData && safeStorage.getItem(standardKey)) {
+      safeStorage.removeItem('supabase.auth.token')
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 // Only create client if configuration is valid
 // Use empty strings as fallback to prevent crashes, but client won't work without valid config
 export const supabase = createClient(
@@ -44,7 +64,7 @@ export const supabase = createClient(
       autoRefreshToken: true,
       detectSessionInUrl: true,
       storage: safeStorage,
-      storageKey: 'supabase.auth.token',
+      // Use Supabase default storage key format for proper token refresh
     },
   }
 )

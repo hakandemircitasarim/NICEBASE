@@ -96,7 +96,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           if (!error) {
             const { data: userData } = await supabase
               .from('users')
-              .select('*')
+              .select('id, email, display_name, bio, avatar_url, birthday, location, is_premium, aiya_messages_used, aiya_messages_limit, weekly_summary_day, daily_reminder_time, language, theme, created_at')
               .eq('id', user.id)
               .single()
 
@@ -167,7 +167,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
       if (!error) {
         const { data } = await supabase
           .from('users')
-          .select('*')
+          .select('id, email, display_name, bio, avatar_url, birthday, location, is_premium, aiya_messages_used, aiya_messages_limit, weekly_summary_day, daily_reminder_time, language, theme, created_at')
           .eq('id', user.id)
           .single()
 

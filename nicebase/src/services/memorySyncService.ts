@@ -77,12 +77,14 @@ export const memorySyncService = {
     }
     window.addEventListener('online', state.onlineHandler)
 
-    // Periodic sync (best effort) while online - every 30 seconds to reduce load
+    // Periodic sync (best effort) while online
+    // 5 minutes instead of 30 seconds — the old 30s interval was causing
+    // massive Supabase egress (~2 GB/month) because syncAll does SELECT * FROM memories
     state.intervalId = window.setInterval(() => {
       if (!state.userId) return
       if (!navigator.onLine) return
       safeSyncNow(state.userId)
-    }, 30_000)
+    }, 5 * 60 * 1000) // 5 minutes
 
     // Native resume sync
     if (isNative()) {

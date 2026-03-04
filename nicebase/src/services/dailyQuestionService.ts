@@ -85,7 +85,7 @@ export const dailyQuestionService = {
     try {
       const { data, error } = await supabase
         .from('daily_questions')
-        .select('*')
+        .select('id, question_tr, question_en, date, created_at')
         .eq('date', today)
         .maybeSingle()
 
@@ -144,6 +144,10 @@ export const dailyQuestionService = {
     if (questionId.startsWith('fallback-')) {
       return null
     }
+    // Skip cloud operations for local/offline users
+    if (userId.startsWith('local')) {
+      return null
+    }
 
     try {
       const { data, error } = await supabase
@@ -181,14 +185,15 @@ export const dailyQuestionService = {
    */
   async hasAnsweredToday(userId: string, questionId: string): Promise<boolean> {
     if (questionId.startsWith('fallback-')) return false
+    // Skip cloud query for local/offline users — RLS would reject them
+    if (userId.startsWith('local')) return false
 
     try {
       const { count, error } = await supabase
         .from('daily_question_answers')
-        .select('id', { count: 'exact' })
+        .select('*', { count: 'exact', head: true })
         .eq('user_id', userId)
         .eq('question_id', questionId)
-        .limit(1)
 
       if (error) return false
       return (count ?? 0) > 0

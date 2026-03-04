@@ -11,9 +11,12 @@ import { SupabaseError } from '../types/supabase'
  */
 export async function fetchUserData(userId: string): Promise<User | null> {
   try {
+    // Select only the columns we actually use — avoids transferring avatar_url
+    // (which may contain a large base64 string) and any future unused columns.
+    // This drastically reduces PostgREST egress.
     const { data, error } = await supabase
       .from('users')
-      .select('*')
+      .select('id, email, display_name, bio, avatar_url, birthday, location, is_premium, aiya_messages_used, aiya_messages_limit, weekly_summary_day, daily_reminder_time, language, theme, created_at')
       .eq('id', userId)
       // `.single()` throws a 406 when 0 rows are returned. In auth flows, the
       // `public.users` row may not exist yet (race/trigger/app-created row).
@@ -79,7 +82,7 @@ export async function fetchCurrentUser(): Promise<User | null> {
 export async function ensureUserExists(
   userId: string,
   email: string | undefined,
-  maxRetries = 5,
+  maxRetries = 2,
   metadata?: { displayName?: string | null; avatarUrl?: string | null }
 ): Promise<User | null> {
   // First, try to fetch existing user

@@ -107,10 +107,76 @@ async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
     }
 
     const message = detail || err.message || 'Edge Function error'
+    console.error('[aiyaService] Function error:', message)
     throw new Error(message)
   }
 
-  return response.data as T
+  // Handle case where data might be null/undefined
+  if (!response.data) {
+    console.error('[aiyaService] Function returned empty data')
+    throw new Error('Aiya yanıt vermedi')
+  }
+
+  // Handle case where data is a Blob (Supabase may return Blob in Capacitor/production)
+  let data: unknown = response.data
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text()
+      console.warn('[aiyaService] Response was Blob, converting. Size:', data.size, 'Preview:', text.slice(0, 100))
+      data = JSON.parse(text)
+    } catch (blobErr) {
+      console.error('[aiyaService] Failed to parse Blob response:', blobErr)
+      throw new Error('Aiya yanıtı okunamadı (Blob)')
+    }
+  }
+
+  // Handle case where data is a string (needs parsing)
+  if (typeof data === 'string') {
+    try {
+      data = JSON.parse(data)
+    } catch {
+      console.error('[aiyaService] Failed to parse response string:', data)
+      throw new Error('Aiya yanıtı okunamadı')
+    }
+  }
+
+  // Handle ReadableStream (another possible Supabase return type)
+  if (data && typeof data === 'object' && 'getReader' in data && typeof (data as ReadableStream).getReader === 'function') {
+    try {
+      const reader = (data as ReadableStream).getReader()
+      const chunks: Uint8Array[] = []
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read()
+        if (value) chunks.push(value)
+        if (done) break
+      }
+      const merged = new Uint8Array(chunks.reduce((s, c) => s + c.length, 0))
+      let offset = 0
+      for (const chunk of chunks) {
+        merged.set(chunk, offset)
+        offset += chunk.length
+      }
+      const streamText = new TextDecoder().decode(merged)
+      console.warn('[aiyaService] Response was ReadableStream, converted. Preview:', streamText.slice(0, 100))
+      data = JSON.parse(streamText)
+    } catch (streamErr) {
+      console.error('[aiyaService] Failed to parse ReadableStream response:', streamErr)
+      throw new Error('Aiya yanıtı okunamadı (Stream)')
+    }
+  }
+
+  // Log the actual data type for debugging
+  console.warn('[aiyaService] Data type:', typeof data, '| constructor:', data?.constructor?.name, '| keys:', data && typeof data === 'object' ? Object.keys(data as Record<string, unknown>).join(',') : 'N/A')
+
+  // Check if the function returned an error in the body (e.g. 429 usage limit)
+  if (data && typeof data === 'object' && 'error' in data && !('reply' in data) && !('category' in data) && !('analysis' in data) && !('profile' in data)) {
+    const errorMsg = (data as { error: string }).error
+    console.error('[aiyaService] Function returned error in body:', errorMsg)
+    throw new Error(errorMsg || 'Aiya hatası')
+  }
+
+  return data as T
 }
 
 export const aiyaService = {
@@ -191,20 +257,24 @@ export const aiyaService = {
   },
 
   async loadChats(userId: string): Promise<AiyaChat[] | null> {
+    // Skip cloud operations for local/offline users — RLS would reject them
+    if (userId.startsWith('local')) return null
     if (!(await hasActiveSessionCached())) return null
     try {
+      // Select only needed columns — user_id is known, no need to transfer it back.
+      // Limit to 20 most recent chats to avoid transferring massive message histories.
       const { data, error } = await supabase
         .from('aiya_chats')
-        .select('*')
+        .select('id, title, messages, created_at, updated_at')
         .eq('user_id', userId)
         .order('updated_at', { ascending: false })
+        .limit(20)
 
       if (error) throw error
       if (!data) return null
 
       return data.map((row: {
         id: string
-        user_id: string
         title: string
         messages: AiyaMessage[]
         created_at: string
@@ -225,12 +295,21 @@ export const aiyaService = {
   },
 
   async syncChats(userId: string, chats: AiyaChat[]): Promise<void> {
+    // Skip cloud sync for local/offline users — RLS would reject them
+    if (userId.startsWith('local')) return
     if (!(await hasActiveSessionCached())) return
     if (!chats || chats.length === 0) return
 
     try {
-      // Upsert all chats
-      const chatsToSync = chats.map((chat) => ({
+      // Only sync chats that were recently updated (within the last 5 minutes)
+      // instead of syncing ALL chats every time, which wastes egress bandwidth
+      const FIVE_MINUTES = 5 * 60 * 1000
+      const now = Date.now()
+      const recentChats = chats.filter((c) => now - c.updatedAt < FIVE_MINUTES)
+
+      if (recentChats.length === 0) return
+
+      const chatsToSync = recentChats.map((chat) => ({
         id: chat.id,
         user_id: userId,
         title: chat.title,

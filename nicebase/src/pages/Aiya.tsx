@@ -318,6 +318,10 @@ export default function Aiya() {
   const chatsRef = useRef(chats)
   chatsRef.current = chats
 
+  // Ref for user — avoids triggering loadData re-runs when user fields change
+  const userRef = useRef(user)
+  userRef.current = user
+
   // ─── Reset state on user change (prevents cross-account data leak) ───
   const prevUserIdRef = useRef(userId)
   useEffect(() => {
@@ -468,6 +472,9 @@ export default function Aiya() {
   }, [messages.length, view])
 
   // ─── Load from storage and sync ────────────────────────
+  // IMPORTANT: Do NOT add `user` to deps — it changes on every aiyaMessagesUsed
+  // update (via setUser in handleSend), which would re-run loadData and OVERWRITE
+  // any in-flight chat messages with stale localStorage data. Use userRef instead.
   useEffect(() => {
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
       setLoaded(true)
@@ -475,20 +482,27 @@ export default function Aiya() {
     }
 
     const loadData = async () => {
+      // Read user from ref to avoid stale closures and unnecessary re-runs
+      const currentUser = userRef.current
+
       try {
         // Step 1: Load from localStorage INSTANTLY (no async)
         let stored = loadJson<AiyaChat[]>(chatsKey)
 
-        // Migration: only migrate from the legacy unscoped key (never from another user's data)
-        if ((!stored || !Array.isArray(stored) || stored.length === 0) && chatsKey !== 'aiya_chats_local') {
-          const legacy = loadJson<AiyaChat[]>('aiya_chats_local')
-          if (legacy && Array.isArray(legacy) && legacy.length > 0) {
-            stored = legacy
-            try {
-              localStorage.setItem(chatsKey, JSON.stringify(legacy))
-              localStorage.removeItem('aiya_chats_local')
-            } catch (e) {
-              // Ignore migration errors
+        // Migration: Only migrate from the generic 'aiya_chats_local' key (same-device offline→login)
+        // NEVER migrate between different user-specific keys to prevent cross-user contamination
+        if (!stored || !Array.isArray(stored) || stored.length === 0) {
+          const localKey = 'aiya_chats_local'
+          if (localKey !== chatsKey) {
+            const localStored = loadJson<AiyaChat[]>(localKey)
+            if (localStored && Array.isArray(localStored) && localStored.length > 0) {
+              stored = localStored
+              try {
+                localStorage.setItem(chatsKey, JSON.stringify(localStored))
+                localStorage.removeItem(localKey)
+              } catch {
+                // Ignore migration errors
+              }
             }
           }
         }
@@ -502,7 +516,7 @@ export default function Aiya() {
 
         // Step 2: Load from Supabase in background (non-blocking)
         let cloudChats: AiyaChat[] | null = null
-        if (userId && user) {
+        if (userId && currentUser) {
           try {
             cloudChats = await aiyaService.loadChats(userId)
           } catch (err) {
@@ -512,75 +526,94 @@ export default function Aiya() {
           }
         }
 
-        // Step 3: Merge local and cloud chats
-        let mergedChats: AiyaChat[] = []
-        
-        if (cloudChats && Array.isArray(cloudChats) && cloudChats.length > 0) {
-          const cloudMap = new Map(cloudChats.map(c => [c.id, c]))
-          const localMap = new Map((stored || []).map(c => [c.id, c]))
-          
-          // Merge strategy: latest updatedAt wins
-          const allIds = new Set([...cloudMap.keys(), ...localMap.keys()])
-          
-          for (const id of allIds) {
-            const cloud = cloudMap.get(id)
-            const local = localMap.get(id)
-            
-            if (cloud && local) {
-              // Use the one with latest updatedAt
-              mergedChats.push(cloud.updatedAt > local.updatedAt ? cloud : local)
-            } else if (cloud) {
-              mergedChats.push(cloud)
-            } else if (local) {
-              mergedChats.push(local)
-            }
-          }
-        } else if (stored && Array.isArray(stored) && stored.length > 0) {
-          mergedChats = stored
-        }
-        
-        // Sort by updatedAt descending
-        mergedChats.sort((a, b) => b.updatedAt - a.updatedAt)
-        
-        if (mergedChats.length > 0) {
-          setChats(mergedChats)
-          saveJson(chatsKey, mergedChats)
-          
-          // Sync to cloud if user is logged in
-          if (userId && user && cloudChats) {
-            // Only sync if there were changes
-            const needsSync = JSON.stringify(mergedChats) !== JSON.stringify(cloudChats)
-            if (needsSync) {
-              aiyaService.syncChats(userId, mergedChats).catch((err: unknown) => {
-                if (import.meta.env.DEV) {
-                  console.warn('[Aiya] Failed to sync chats to cloud:', err)
+        // Step 3: Use FUNCTIONAL update to preserve any chats created during the async fetch
+        const mergedFromCloud = cloudChats && Array.isArray(cloudChats) && cloudChats.length > 0 ? cloudChats : null
+
+        if (mergedFromCloud || (stored && Array.isArray(stored) && stored.length > 0)) {
+          setChats((prev) => {
+            const sourceChats: AiyaChat[] = []
+
+            if (mergedFromCloud) {
+              const cloudMap = new Map(mergedFromCloud.map(c => [c.id, c]))
+              const localMap = new Map((stored || []).map(c => [c.id, c]))
+              const allIds = new Set([...cloudMap.keys(), ...localMap.keys()])
+
+              for (const id of allIds) {
+                const cloud = cloudMap.get(id)
+                const local = localMap.get(id)
+                if (cloud && local) {
+                  sourceChats.push(cloud.updatedAt > local.updatedAt ? cloud : local)
+                } else if (cloud) {
+                  sourceChats.push(cloud)
+                } else if (local) {
+                  sourceChats.push(local)
                 }
-              })
+              }
+            } else if (stored && Array.isArray(stored)) {
+              sourceChats.push(...stored)
             }
+
+            // Preserve any chats in current state that are NOT in the source
+            const sourceIds = new Set(sourceChats.map(c => c.id))
+            const newChatsInState = prev.filter(c => !sourceIds.has(c.id))
+
+            const finalMap = new Map<string, AiyaChat>()
+            for (const c of sourceChats) finalMap.set(c.id, c)
+            for (const c of prev) {
+              const existing = finalMap.get(c.id)
+              if (existing && c.updatedAt > existing.updatedAt) {
+                finalMap.set(c.id, c)
+              }
+            }
+            for (const c of newChatsInState) finalMap.set(c.id, c)
+
+            const result = Array.from(finalMap.values())
+            result.sort((a, b) => b.updatedAt - a.updatedAt)
+
+            saveJson(chatsKey, result)
+            return result
+          })
+
+          // Sync to cloud if user is logged in
+          if (userId && currentUser && mergedFromCloud) {
+            setTimeout(() => {
+              const current = chatsRef.current
+              const needsSync = JSON.stringify(current) !== JSON.stringify(mergedFromCloud)
+              if (needsSync) {
+                aiyaService.syncChats(userId, current).catch((err: unknown) => {
+                  if (import.meta.env.DEV) {
+                    console.warn('[Aiya] Failed to sync chats to cloud:', err)
+                  }
+                })
+              }
+            }, 100)
           }
-          
+
           if (import.meta.env.DEV) {
-            console.log(`[Aiya] Loaded ${mergedChats.length} chats`)
+            console.log('[Aiya] Loaded and merged chats')
           }
         }
-        
+
         // Load profile
         let storedProfile = loadJson<AiyaProfileMeta>(profileKey)
-        
-        // Migration: only migrate from legacy unscoped key (never from another user's data)
-        if (!storedProfile?.summary && profileKey !== 'aiya_profile_local') {
-          const legacy = loadJson<AiyaProfileMeta>('aiya_profile_local')
-          if (legacy?.summary) {
-            storedProfile = legacy
-            try {
-              localStorage.setItem(profileKey, JSON.stringify(legacy))
-              localStorage.removeItem('aiya_profile_local')
-            } catch (e) {
-              // Ignore migration errors
+
+        // Only migrate profile from generic local key (not between user-specific keys)
+        if (!storedProfile?.summary) {
+          const localProfileKey = 'aiya_profile_local'
+          if (localProfileKey !== profileKey) {
+            const localProfile = loadJson<AiyaProfileMeta>(localProfileKey)
+            if (localProfile?.summary) {
+              storedProfile = localProfile
+              try {
+                localStorage.setItem(profileKey, JSON.stringify(localProfile))
+                localStorage.removeItem(localProfileKey)
+              } catch {
+                // Ignore migration errors
+              }
             }
           }
         }
-        
+
         if (storedProfile?.summary) {
           setProfileSummary(storedProfile.summary)
           setProfileMeta(storedProfile)
@@ -596,7 +629,8 @@ export default function Aiya() {
 
     // Load immediately - no need for multiple delayed calls
     loadData()
-  }, [chatsKey, profileKey, userId, user])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatsKey, profileKey, userId])
 
   // Debounce chats for Supabase sync
   const debouncedChats = useDebounce(chats, 2000)
@@ -619,11 +653,12 @@ export default function Aiya() {
   }, [loaded, chatsKey, chats])
 
   // ─── Sync chats to Supabase (debounced) ────────────────
+  // Use userRef to avoid re-triggering on every user field change
   useEffect(() => {
     if (!loaded) return
     if (debouncedChats.length === 0) return
-    if (!userId || !user) return
-    
+    if (!userId || !userRef.current) return
+
     aiyaService.syncChats(userId, debouncedChats).then(() => {
       if (import.meta.env.DEV) {
         console.log(`[Aiya] Synced ${debouncedChats.length} chats to Supabase`)
@@ -633,7 +668,8 @@ export default function Aiya() {
         console.warn('[Aiya] Failed to sync chats to Supabase:', err)
       }
     })
-  }, [loaded, userId, user, debouncedChats])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, userId, debouncedChats])
 
   useEffect(() => {
     if (!loaded || !profileMeta?.summary) return
@@ -730,43 +766,72 @@ export default function Aiya() {
   }, [memories, locale, profileMeta])
 
   // ─── Send message ──────────────────────────────────────
-  const handleSend = useCallback(async (overrideText?: string) => {
+  const handleSend = useCallback(async (overrideText?: string, overrideChatId?: string) => {
     const text = (overrideText ?? input).trim()
     if (!text || sending) return
+
+    // Use overrideChatId if provided (from handleChip), otherwise use activeChatId from closure
+    const targetChatId = overrideChatId ?? activeChatId
+
+    console.warn('[Aiya] handleSend START — targetChatId:', targetChatId, '| activeChatId:', activeChatId, '| text:', text.slice(0, 30))
+
     setInput('')
     // Clear draft on send
-    if (activeChatId) saveDraft(activeChatId, '')
+    if (targetChatId) saveDraft(targetChatId, '')
     setErrorMessage(null)
 
     const userMsg: AiyaMessage = { role: 'user', content: text, ts: Date.now() }
 
-    setChats((prev) => prev.map((c) => {
-      if (c.id !== activeChatId) return c
-      const updated = trimMessages([...c.messages, userMsg])
-      const title = c.title || generateTitle(text, t)
-      return { ...c, messages: updated, title, updatedAt: Date.now() }
-    }))
+    setChats((prev) => {
+      const found = prev.some((c) => c.id === targetChatId)
+      console.warn('[Aiya] Adding USER msg — chatFound:', found, '| targetChatId:', targetChatId, '| chats:', prev.length, '| chatIds:', prev.map(c => c.id.slice(0, 8)).join(','))
+      return prev.map((c) => {
+        if (c.id !== targetChatId) return c
+        const updated = trimMessages([...c.messages, userMsg])
+        const title = c.title || generateTitle(text, t)
+        return { ...c, messages: updated, title, updatedAt: Date.now() }
+      })
+    })
 
     setSending(true)
     try {
       // Read history from ref — React 18 batching defers setChats callbacks,
       // so the old approach of reading via setChats((prev) => ...) returned []
-      const currentChat = chatsRef.current.find((c) => c.id === activeChatId)
+      const currentChat = chatsRef.current.find((c) => c.id === targetChatId)
       const history = currentChat ? trimMessages(currentChat.messages) : []
+      console.warn('[Aiya] Calling sendMessage — history length:', history.length, '| memories:', memories.length)
       const res = await aiyaService.sendMessage({ message: text, history, memories, locale, systemPrompt })
-      const aiyaMsg: AiyaMessage = { role: 'assistant', content: cleanMarkdown(res.reply), ts: Date.now() }
 
-      setChats((prev) => prev.map((c) => {
-        if (c.id !== activeChatId) return c
-        const updated = trimMessages([...c.messages, aiyaMsg])
-        return { ...c, messages: updated, updatedAt: Date.now() }
-      }))
+      // Guard against missing reply
+      const replyText = res?.reply
+      console.warn('[Aiya] Got reply — type:', typeof replyText, '| length:', typeof replyText === 'string' ? replyText.length : 'N/A', '| preview:', typeof replyText === 'string' ? replyText.slice(0, 50) : String(replyText))
+      if (!replyText || typeof replyText !== 'string') {
+        console.error('[Aiya] Invalid response - no reply field:', JSON.stringify(res).slice(0, 200))
+        throw new Error(t('aiyaError', { defaultValue: 'Aiya yanıt veremedi, tekrar dene.' }))
+      }
+
+      const aiyaMsg: AiyaMessage = { role: 'assistant', content: cleanMarkdown(replyText), ts: Date.now() }
+
+      setChats((prev) => {
+        const found = prev.some((c) => c.id === targetChatId)
+        console.warn('[Aiya] Adding AI msg — chatFound:', found, '| targetChatId:', targetChatId, '| chats:', prev.length, '| chatIds:', prev.map(c => c.id.slice(0, 8)).join(','))
+        if (!found) {
+          console.error('[Aiya] CRITICAL: Chat not found in state! AI message will be LOST. targetChatId:', targetChatId)
+        }
+        return prev.map((c) => {
+          if (c.id !== targetChatId) return c
+          const updated = trimMessages([...c.messages, aiyaMsg])
+          return { ...c, messages: updated, updatedAt: Date.now() }
+        })
+      })
 
       if (res.usage) {
         setUsage(res.usage)
         // Also update the store so counter stays in sync across sessions
-        if (user) {
-          setUser({ ...user, aiyaMessagesUsed: res.usage.used })
+        // Use userRef to avoid adding `user` to deps (which would cause stale closures)
+        const currentUser = userRef.current
+        if (currentUser) {
+          setUser({ ...currentUser, aiyaMessagesUsed: res.usage.used })
         }
       }
 
@@ -778,7 +843,7 @@ export default function Aiya() {
     } finally {
       setSending(false)
     }
-  }, [input, sending, activeChatId, memories, locale, systemPrompt, t, maybeUpdateProfile, saveDraft, user, setUser])
+  }, [input, sending, activeChatId, memories, locale, systemPrompt, t, maybeUpdateProfile, saveDraft, setUser])
 
   // ─── Chip action ───────────────────────────────────────
   const handleChip = useCallback((text: string) => {
@@ -788,7 +853,9 @@ export default function Aiya() {
       setChats((prev) => [chat, ...prev])
       setActiveChatId(id)
       setView('chat')
-      setTimeout(() => handleSend(text), 50)
+      // Pass the new chat ID explicitly to avoid stale closure — handleSend's
+      // activeChatId would still be null from the old closure
+      setTimeout(() => handleSend(text, id), 50)
     } else {
       handleSend(text)
     }
@@ -1148,6 +1215,9 @@ export default function Aiya() {
         <div className="flex items-end gap-2.5 container-padding py-3 max-w-4xl mx-auto w-full">
           <div className="flex-1 relative">
             <textarea
+              id="aiya-message-input"
+              name="aiya-message"
+              autoComplete="off"
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}

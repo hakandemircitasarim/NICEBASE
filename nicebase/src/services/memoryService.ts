@@ -191,10 +191,10 @@ export const memoryService = {
           .and((m) => m.category === 'uncategorized' && !!m.text?.trim())
           .toArray()
 
-        for (const memory of uncategorized.slice(0, 3)) {
-          // Don't retry if we already tried recently (check updatedAt within last 5 min)
+        for (const memory of uncategorized.slice(0, 2)) {
+          // Don't retry if we already tried recently (check updatedAt within last 30 min)
           const updatedAgo = Date.now() - new Date(memory.updatedAt).getTime()
-          if (updatedAgo < 5 * 60 * 1000) continue
+          if (updatedAgo < 30 * 60 * 1000) continue
 
           await memoryService._autoCategorize(memory.id, memory.text, userId)
         }
@@ -314,18 +314,32 @@ export const memoryService = {
     }
 
     // Also pull from Supabase to sync any remote changes
+    // Use INCREMENTAL sync: only fetch memories updated since last pull
+    // This avoids SELECT * on every poll, saving massive egress bandwidth
     try {
-      const { data, error } = await supabase
+      const LAST_SYNC_KEY = `memory_last_sync_${userId}`
+      let lastSyncedAt: string | null = null
+      try {
+        lastSyncedAt = localStorage.getItem(LAST_SYNC_KEY)
+      } catch { /* ignore */ }
+
+      // Build query — only fetch changed memories since last sync
+      // Use explicit columns instead of SELECT * to minimize egress
+      let query = supabase
         .from('memories')
-        .select('*')
+        .select('id, user_id, text, category, categories, intensity, date, connections, life_area, is_core, photos, created_at, updated_at')
         .eq('user_id', userId)
         .order('updated_at', { ascending: false })
 
+      if (lastSyncedAt) {
+        query = query.gt('updated_at', lastSyncedAt)
+      }
+
+      const { data, error } = await query
+
       if (error) throw error
 
-      if (data) {
-        const remoteIds = new Set(data.map((row: { id: string }) => row.id))
-
+      if (data && data.length > 0) {
         for (const row of data) {
           const memory = mapSupabaseToMemory(row)
           const existing = await db.memories.get(memory.id)
@@ -342,22 +356,55 @@ export const memoryService = {
             }
           }
         }
+      }
 
-        // Remove local memories that were deleted remotely
-        // Only remove synced memories that have no pending sync operations
-        const localMemories = await db.memories.where('userId').equals(userId).toArray()
-        for (const local of localMemories) {
-          if (local.synced && !remoteIds.has(local.id)) {
-            // Check there's no pending sync for this memory
-            const pendingSync = await db.syncQueueV2
-              .where('entityId')
-              .equals(local.id)
-              .and((item) => item.status !== 'done')
-              .first()
-            if (!pendingSync) {
-              await db.memories.delete(local.id)
+      // Update last sync timestamp
+      try {
+        localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString())
+      } catch { /* ignore */ }
+
+      // Full reconciliation (check for remote deletions) once per day max.
+      // Uses localStorage with a timestamp so it persists across sessions
+      // but still runs daily to catch remote deletions.
+      const FULL_SYNC_KEY = `memory_full_sync_at_${userId}`
+      let shouldRunFullSync = false
+      try {
+        const lastFullSync = localStorage.getItem(FULL_SYNC_KEY)
+        if (!lastFullSync) {
+          shouldRunFullSync = true
+        } else {
+          const elapsed = Date.now() - parseInt(lastFullSync, 10)
+          shouldRunFullSync = elapsed > 24 * 60 * 60 * 1000 // 24 hours
+        }
+      } catch { shouldRunFullSync = true }
+
+      if (shouldRunFullSync) {
+        try {
+          const { data: allRemote, error: fullErr } = await supabase
+            .from('memories')
+            .select('id')
+            .eq('user_id', userId)
+
+          if (!fullErr && allRemote) {
+            const remoteIds = new Set(allRemote.map((row: { id: string }) => row.id))
+            const localMemories = await db.memories.where('userId').equals(userId).toArray()
+            for (const local of localMemories) {
+              if (local.synced && !remoteIds.has(local.id)) {
+                // Check there's no pending sync for this memory
+                const pendingSync = await db.syncQueueV2
+                  .where('entityId')
+                  .equals(local.id)
+                  .and((item) => item.status !== 'done')
+                  .first()
+                if (!pendingSync) {
+                  await db.memories.delete(local.id)
+                }
+              }
             }
           }
+          try { localStorage.setItem(FULL_SYNC_KEY, String(Date.now())) } catch { /* ignore */ }
+        } catch {
+          // Non-critical — will retry next day
         }
       }
     } catch (error) {

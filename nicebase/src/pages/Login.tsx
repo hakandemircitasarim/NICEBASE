@@ -221,12 +221,9 @@ export default function Login() {
           // Wait a moment for session to be ready
           await new Promise(resolve => setTimeout(resolve, 500))
           
-          // Try to create user record with retries
-          let userCreated = false
-          let retries = 5
-          
-          while (retries > 0 && !userCreated) {
-            const { error: dbError } = await supabase.from('users').insert({
+          // Create or update user record (upsert handles existing users gracefully)
+          const { error: dbError } = await supabase.from('users').upsert(
+            {
               id: data.user.id,
               email: data.user.email,
               is_premium: false,
@@ -237,21 +234,12 @@ export default function Login() {
               language: 'tr',
               theme: 'light',
               created_at: new Date().toISOString(),
-            })
-            
-            if (!dbError) {
-              userCreated = true
-            } else {
-              if (import.meta.env.DEV) {
-                errorLoggingService.logError(
-                  `Insert attempt ${6 - retries} failed: ${dbError.message}`,
-                  'warning',
-                  data.user.id
-                )
-              }
-              retries--
-              await new Promise(resolve => setTimeout(resolve, 500))
-            }
+            },
+            { onConflict: 'id', ignoreDuplicates: true }
+          )
+
+          if (dbError) {
+            console.warn('[Login] User upsert warning:', dbError.message)
           }
 
           // Fetch user record

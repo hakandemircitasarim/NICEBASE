@@ -73,27 +73,31 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/_/, /\/[^/?]+\.[^/]+$/],
         runtimeCaching: [
+          // Supabase Storage: CacheFirst — photos/files should be cached aggressively
+          // to avoid re-downloading on every page load (saves massive egress)
+          // This MUST be before the general Supabase rule to take priority
           {
-            urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
-            handler: 'NetworkFirst',
+            urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/.*/i,
+            handler: 'CacheFirst',
             options: {
-              cacheName: 'supabase-cache',
+              cacheName: 'supabase-storage-cache',
               expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 60 * 24 // 24 hours
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24 * 30 // 30 days
               },
               cacheableResponse: {
                 statuses: [0, 200]
-              },
-              networkTimeoutSeconds: 10
+              }
             }
+          },
+          // Supabase API: NetworkOnly — never cache API/auth/function responses.
+          {
+            urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
+            handler: 'NetworkOnly'
           },
           {
             urlPattern: /^https:\/\/api\.openai\.com\/.*/i,
-            handler: 'NetworkOnly',
-            options: {
-              cacheName: 'openai-cache',
-            }
+            handler: 'NetworkOnly'
           },
           {
             urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/,
@@ -177,7 +181,8 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true, // Remove console.log in production
+        // Only drop console.log — keep console.error and console.warn for debugging
+        pure_funcs: ['console.log'],
         drop_debugger: true
       }
     }
