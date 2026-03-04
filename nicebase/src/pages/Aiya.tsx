@@ -318,6 +318,26 @@ export default function Aiya() {
   const chatsRef = useRef(chats)
   chatsRef.current = chats
 
+  // ─── Reset state on user change (prevents cross-account data leak) ───
+  const prevUserIdRef = useRef(userId)
+  useEffect(() => {
+    if (prevUserIdRef.current === userId) return
+    prevUserIdRef.current = userId
+
+    // Clear all chat state so the next user starts fresh
+    setChats([])
+    setActiveChatId(null)
+    setView('list')
+    setInput('')
+    setSending(false)
+    setErrorMessage(null)
+    setProfileSummary('')
+    setProfileMeta(null)
+    setLoaded(false)
+    setShowMenu(false)
+    setShowScrollDown(false)
+  }, [userId])
+
   const activeChat = useMemo(() => chats.find((c) => c.id === activeChatId) ?? null, [chats, activeChatId])
   const messages = activeChat?.messages ?? []
 
