@@ -736,7 +736,7 @@ export default function MemoryForm({
    *    - Expanded:  card grows until it hits maxHeight, then scrolls.
    * ═══════════════════════════════════════════════════ */
   const formContent = (
-    <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
+    <div className="flex flex-col min-h-0 flex-1 overflow-hidden" style={{ contain: 'layout size style' }}>
 
       {/* ── HEADER ── */}
       <div className="flex-shrink-0 bg-white dark:bg-gray-800 z-10">

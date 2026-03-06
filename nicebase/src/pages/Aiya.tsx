@@ -901,7 +901,10 @@ export default function Aiya() {
   // ═════════════════════════════════════════════════════════
 
   const listView = (
-    <div className="flex flex-col w-full h-full bg-gray-50 dark:bg-gray-900">
+    <div
+      className="flex flex-col w-full bg-gray-50 dark:bg-gray-900"
+      style={{ position: 'absolute', inset: 0, overflow: 'hidden', contain: 'layout size style' }}
+    >
       {/* Header */}
       <div
         className="flex items-center justify-between container-padding py-4 sm:py-5 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 shadow-sm"
@@ -1039,7 +1042,10 @@ export default function Aiya() {
   const showChips = (messages.length === 0 || (messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && !sending)) && input.length === 0
 
   const chatView = (
-    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 overflow-hidden">
+    <div
+      className="flex flex-col bg-gray-50 dark:bg-gray-900"
+      style={{ position: 'absolute', inset: 0, overflow: 'hidden', contain: 'layout size style' }}
+    >
       {/* Chat header - Fixed top */}
       <div
         className="flex items-center justify-between gap-2 container-padding py-3.5 sm:py-4 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 z-30 shadow-sm"
@@ -1205,7 +1211,6 @@ export default function Aiya() {
       {/* Bottom: Input container - Fixed above navbar, z-50 */}
       <div
         className="flex-shrink-0 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-50 shadow-lg"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
         {/* Suggestion chips */}
         <AnimatePresence>
