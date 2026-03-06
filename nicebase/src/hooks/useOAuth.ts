@@ -274,7 +274,21 @@ export function useOAuth() {
           return
         } catch (nativeError: unknown) {
           const errMsg = nativeError instanceof Error ? nativeError.message : String(nativeError)
-          console.error('[OAuth] Native Google Sign-In error:', errMsg, nativeError)
+
+          // Extract ALL properties from error object for debugging
+          let fullDebug = errMsg
+          try {
+            if (nativeError && typeof nativeError === 'object') {
+              const keys = Object.keys(nativeError as Record<string, unknown>)
+              const details: Record<string, unknown> = { _keys: keys }
+              for (const key of keys) {
+                details[key] = (nativeError as Record<string, unknown>)[key]
+              }
+              fullDebug = JSON.stringify(details, null, 2)
+            }
+          } catch { /* ignore */ }
+
+          console.error('[OAuth] Native Google Sign-In error:', fullDebug, nativeError)
 
           // User cancelled the native picker — not an error
           if (errMsg.includes('cancel') || errMsg.includes('Cancel') || errMsg.includes('dismissed')) {
@@ -284,7 +298,12 @@ export function useOAuth() {
             return
           }
 
-          toast.error(`❌ [L] Native hata: ${errMsg}`)
+          // Show full error details on screen for debugging
+          toast.error(`❌ [L] ${errMsg}`, { duration: 8000 })
+          // Second toast with full error object details
+          setTimeout(() => {
+            toast(`🔍 [L-detail] ${fullDebug.slice(0, 300)}`, { duration: 12000 })
+          }, 500)
           loadingRef.current = false
           setLoading(false)
           return
