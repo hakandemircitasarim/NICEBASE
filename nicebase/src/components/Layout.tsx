@@ -58,7 +58,7 @@ export default function Layout() {
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }}
       >
-        <div className="flex justify-around items-center h-16 px-1 sm:px-2 overflow-x-auto scrollbar-hide snap-x snap-mandatory">
+        <div className="flex justify-around items-center h-16 px-1 sm:px-2">
           {navItems.map((item) => {
             const Icon = item.icon
             const isActive = item.path === '/' 
@@ -72,7 +72,7 @@ export default function Layout() {
                   hapticFeedback('light')
                 }}
                 whileTap={{ scale: 0.9 }}
-                className={`flex flex-col items-center justify-center flex-1 min-w-[60px] sm:min-w-[80px] h-full min-h-[56px] relative touch-manipulation px-2 snap-center ${
+                className={`flex flex-col items-center justify-center flex-1 min-w-0 h-full min-h-[48px] relative touch-manipulation px-2 ${
                   isActive
                     ? 'text-primary'
                     : 'text-gray-500 dark:text-gray-400'

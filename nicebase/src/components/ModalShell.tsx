@@ -164,10 +164,12 @@ export default function ModalShell({
               'bg-white dark:bg-gray-800',
               'rounded-t-3xl sm:rounded-3xl',
               'w-full max-w-2xl shadow-2xl border border-gray-200 dark:border-gray-700',
-              'safe-area-inset flex flex-col overflow-hidden min-h-0',
+              'safe-area-inset overflow-hidden',
               panelClassName,
             ].join(' ')}
             style={{
+              display: 'grid',
+              gridTemplateRows: 'auto 1fr auto',
               // Height constraint is required for inner scroll to work reliably.
               // autoHeight: panel sizes to content; only maxHeight is set.
               ...(autoHeight
@@ -183,13 +185,13 @@ export default function ModalShell({
             {header}
             {scroll ? (
               <div
-                className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
-                style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+                className="overflow-y-auto overscroll-contain"
+                style={{ minHeight: 0, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
               >
                 {children}
               </div>
             ) : (
-              <div className="flex-1 min-h-0 flex flex-col">
+              <div className="flex flex-col" style={{ minHeight: 0 }}>
                 {children}
               </div>
             )}

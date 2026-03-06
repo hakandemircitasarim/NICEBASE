@@ -412,10 +412,11 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="fixed inset-x-0 bottom-0 z-50 max-h-[92vh] flex flex-col bg-gray-50 dark:bg-gray-900 rounded-t-3xl shadow-2xl"
+        className="fixed inset-x-0 bottom-0 z-50 bg-gray-50 dark:bg-gray-900 rounded-t-3xl shadow-2xl"
+        style={{ display: 'grid', gridTemplateRows: 'auto 1fr', maxHeight: '92vh', overflow: 'hidden' }}
       >
-        {/* Handle & Header */}
-        <div className="flex-shrink-0 pt-3 pb-2 px-5">
+        {/* Row 1: Handle & Header (auto — cannot scroll) */}
+        <div className="pt-3 pb-2 px-5">
           <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-600 mx-auto mb-3" />
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">
@@ -430,8 +431,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           </div>
         </div>
 
-        {/* Content - Scrollable */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-8 space-y-3 pt-3">
+        {/* Row 2: Content (1fr — sole scrollable area) */}
+        <div className="overflow-y-auto overscroll-contain px-4 pb-8 space-y-3 pt-3" style={{ minHeight: 0 }}>
           {/* Theme */}
           <Section
             id="theme"

@@ -33,7 +33,8 @@ export default function Home() {
   const [streak, setStreak] = useState({ currentStreak: 0, longestStreak: 0, lastMemoryDate: null as string | null, streakStartDate: null as string | null })
   const [showForm, setShowForm] = useState(false)
   const [editingMemory, setEditingMemory] = useState<Memory | undefined>()
-  const [fabBottom, setFabBottom] = useState('calc(88px + env(safe-area-inset-bottom, 0px))')
+  // Nav height is h-16 (64px) + safe-area-inset-bottom + 1.5rem gap
+  const fabBottom = 'calc(64px + env(safe-area-inset-bottom, 0px) + 1.5rem)'
   const skipBreathingRef = useRef<null | (() => void)>(null)
 
   // Daily question state
@@ -145,49 +146,6 @@ export default function Home() {
       notificationService.scheduleDailyReminder(user.dailyReminderTime, userId, streak.currentStreak)
     }
   }, [user, userId, streak.currentStreak])
-
-  // Dynamic FAB positioning based on bottom nav height
-  useEffect(() => {
-    let debounceTimer: NodeJS.Timeout | null = null
-
-    const updateFabPosition = () => {
-      if (debounceTimer) clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(() => {
-        const navBar = document.querySelector('nav[class*="fixed bottom-0"]')
-        if (navBar) {
-          const navHeight = navBar.getBoundingClientRect().height
-          setFabBottom(`calc(${navHeight}px + env(safe-area-inset-bottom, 0px) + 1.5rem)`)
-        } else {
-          setFabBottom('calc(88px + env(safe-area-inset-bottom, 0px) + 1.5rem)')
-        }
-      }, 100)
-    }
-
-    const timer = setTimeout(updateFabPosition, 100)
-    updateFabPosition()
-    window.addEventListener('resize', updateFabPosition)
-    window.addEventListener('load', updateFabPosition)
-
-    const navBar = document.querySelector('nav[class*="fixed bottom-0"]')
-    if (navBar) {
-      const observer = new MutationObserver(updateFabPosition)
-      observer.observe(navBar, { attributes: true, attributeFilter: ['class', 'style'], childList: true, subtree: false })
-      return () => {
-        clearTimeout(timer)
-        if (debounceTimer) clearTimeout(debounceTimer)
-        window.removeEventListener('resize', updateFabPosition)
-        window.removeEventListener('load', updateFabPosition)
-        observer.disconnect()
-      }
-    }
-
-    return () => {
-      clearTimeout(timer)
-      if (debounceTimer) clearTimeout(debounceTimer)
-      window.removeEventListener('resize', updateFabPosition)
-      window.removeEventListener('load', updateFabPosition)
-    }
-  }, [])
 
   useEffect(() => {
     if (user) {

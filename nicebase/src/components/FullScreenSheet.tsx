@@ -18,9 +18,12 @@ export default function FullScreenSheet({
   className = '',
 }: FullScreenSheetProps) {
   return (
-    <div className={['min-h-[100dvh] flex flex-col safe-area-inset', className].join(' ')}>
+    <div
+      className={['safe-area-inset', className].join(' ')}
+      style={{ position: 'fixed', inset: 0, display: 'grid', gridTemplateRows: header && footer ? 'auto 1fr auto' : header ? 'auto 1fr' : footer ? '1fr auto' : '1fr', overflow: 'hidden' }}
+    >
       {header}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+      <div className="overflow-y-auto overscroll-contain" style={{ minHeight: 0, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
         {children}
       </div>
       {footer}
