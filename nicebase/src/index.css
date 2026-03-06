@@ -127,6 +127,11 @@
     overscroll-behavior: none;
   }
 
+  /* Height chain: body(100%) → #app(100% of content area) → Layout */
+  #app {
+    height: 100%;
+  }
+
   /* Respect system reduced motion preferences */
   @media (prefers-reduced-motion: reduce) {
     html {

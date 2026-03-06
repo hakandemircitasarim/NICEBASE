@@ -1326,12 +1326,10 @@ export default function MemoryForm({
   if (presentation === 'screen') {
     return (
       <div
-        className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col"
-        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+        className="bg-white dark:bg-gray-800"
+        style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
       >
-        <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col bg-white dark:bg-gray-800 shadow-2xl overflow-hidden">
-          {formContent}
-        </div>
+        {formContent}
       </div>
     )
   }
