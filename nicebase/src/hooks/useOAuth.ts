@@ -19,21 +19,29 @@ async function initSocialLogin() {
   if (!isNative()) return
 
   try {
+    toast('🔧 [1] SocialLogin import ediliyor...', { duration: 2000 })
     const { SocialLogin } = await import('@capgo/capacitor-social-login')
     const webClientId = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID || ''
 
+    toast(`🔑 [2] Client ID: ${webClientId ? webClientId.slice(0, 20) + '...' : 'BOŞ!'}`, { duration: 3000 })
+
     if (!webClientId) {
+      toast.error('❌ VITE_GOOGLE_WEB_CLIENT_ID boş — Google Sign-In çalışmaz!')
       console.warn('[OAuth] VITE_GOOGLE_WEB_CLIENT_ID is not set — native Google Sign-In will fail')
       return
     }
 
+    toast('⚙️ [3] SocialLogin.initialize() çağrılıyor...', { duration: 2000 })
     await SocialLogin.initialize({
       google: {
         webClientId,
       },
     })
     _socialLoginInitialized = true
+    toast.success('✅ [4] SocialLogin başarıyla initialize edildi')
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    toast.error(`❌ [init] SocialLogin.initialize HATA: ${msg}`)
     console.error('[OAuth] SocialLogin.initialize failed:', error)
   }
 }
@@ -207,44 +215,46 @@ export function useOAuth() {
 
       // ─── NATIVE: Use Google's native Credential Manager ───────────
       if (isNative()) {
+        toast('📱 [A] Native mod — SocialLogin import ediliyor...', { duration: 2000 })
         const { SocialLogin } = await import('@capgo/capacitor-social-login')
 
         // Ensure initialized
         if (!_socialLoginInitialized) {
-          console.log('[OAuth] Initializing SocialLogin...')
+          toast('🔄 [B] SocialLogin henüz init edilmemiş, şimdi yapılıyor...', { duration: 2000 })
           await initSocialLogin()
-          console.log('[OAuth] SocialLogin initialized:', _socialLoginInitialized)
+          toast(`📊 [C] Init sonucu: ${_socialLoginInitialized ? 'BAŞARILI' : 'BAŞARISIZ'}`, { duration: 2000 })
         }
 
         if (!_socialLoginInitialized) {
-          // Initialization failed (probably missing VITE_GOOGLE_WEB_CLIENT_ID)
-          // Show error as toast, do NOT silently fall back to browser
           const msg = 'Native Google Sign-In init failed. Check VITE_GOOGLE_WEB_CLIENT_ID.'
           console.error('[OAuth]', msg)
-          toast.error(msg)
+          toast.error(`❌ [D] ${msg}`)
           loadingRef.current = false
           setLoading(false)
           return
         }
 
         try {
-          console.log('[OAuth] Calling SocialLogin.login()...')
+          toast('🚀 [E] SocialLogin.login() çağrılıyor...', { duration: 3000 })
           const res = await SocialLogin.login({
             provider: 'google',
             options: {
               scopes: ['email', 'profile'],
             },
           })
-          console.log('[OAuth] SocialLogin.login() result:', JSON.stringify(res, null, 2))
+
+          // Debug: show full response
+          const resStr = JSON.stringify(res, null, 2)
+          toast(`📋 [F] Login yanıtı: ${resStr.slice(0, 150)}`, { duration: 5000 })
+          console.log('[OAuth] SocialLogin.login() result:', resStr)
 
           const googleResult = res?.result
-          // The response can be 'online' (has idToken) or 'offline' (has serverAuthCode)
           if (!googleResult || !('idToken' in googleResult) || !googleResult.idToken) {
-            throw new Error('Google Sign-In did not return an idToken. Response: ' + JSON.stringify(res))
+            toast.error(`❌ [G] idToken yok! Yanıt: ${resStr.slice(0, 200)}`)
+            throw new Error('Google Sign-In did not return an idToken. Response: ' + resStr.slice(0, 300))
           }
 
-          // Exchange the native idToken with Supabase
-          console.log('[OAuth] Exchanging idToken with Supabase...')
+          toast(`🔐 [H] idToken alındı (${googleResult.idToken.slice(0, 20)}...), Supabase ile exchange ediliyor...`, { duration: 3000 })
           const { error } = await supabase.auth.signInWithIdToken({
             provider: 'google',
             token: googleResult.idToken,
@@ -252,11 +262,12 @@ export function useOAuth() {
           })
 
           if (error) {
+            toast.error(`❌ [I] Supabase signInWithIdToken HATA: ${error.message}`)
             console.error('[OAuth] signInWithIdToken failed:', error.message)
             throw error
           }
 
-          // Done! onAuthStateChange in App.tsx will handle the rest
+          toast.success('✅ [J] Google Sign-In başarılı!')
           console.log('[OAuth] Native Google Sign-In successful!')
           loadingRef.current = false
           setLoading(false)
@@ -267,13 +278,13 @@ export function useOAuth() {
 
           // User cancelled the native picker — not an error
           if (errMsg.includes('cancel') || errMsg.includes('Cancel') || errMsg.includes('dismissed')) {
+            toast('🚫 [K] Kullanıcı iptal etti', { duration: 2000 })
             loadingRef.current = false
             setLoading(false)
             return
           }
 
-          // Show the actual error instead of silently falling back
-          toast.error(`Google Sign-In hatası: ${errMsg}`)
+          toast.error(`❌ [L] Native hata: ${errMsg}`)
           loadingRef.current = false
           setLoading(false)
           return
