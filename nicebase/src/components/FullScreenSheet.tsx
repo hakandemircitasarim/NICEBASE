@@ -20,7 +20,7 @@ export default function FullScreenSheet({
   return (
     <div
       className={['safe-area-inset', className].join(' ')}
-      style={{ position: 'fixed', inset: 0, display: 'grid', gridTemplateRows: header && footer ? 'auto 1fr auto' : header ? 'auto 1fr' : footer ? '1fr auto' : '1fr', overflow: 'hidden' }}
+      style={{ position: 'fixed', inset: 0, display: 'grid', gridTemplateRows: header && footer ? 'auto 1fr auto' : header ? 'auto 1fr' : footer ? '1fr auto' : '1fr', gridTemplateColumns: 'minmax(0, 1fr)', overflow: 'hidden' }}
     >
       {header}
       <div className="overflow-y-auto overscroll-contain" style={{ minHeight: 0, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>

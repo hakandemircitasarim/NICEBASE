@@ -170,6 +170,7 @@ export default function ModalShell({
             style={{
               display: 'grid',
               gridTemplateRows: 'auto 1fr auto',
+              gridTemplateColumns: 'minmax(0, 1fr)',
               // Height constraint is required for inner scroll to work reliably.
               // autoHeight: panel sizes to content; only maxHeight is set.
               ...(autoHeight

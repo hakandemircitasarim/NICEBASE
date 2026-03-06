@@ -413,7 +413,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         className="fixed inset-x-0 bottom-0 z-50 bg-gray-50 dark:bg-gray-900 rounded-t-3xl shadow-2xl"
-        style={{ display: 'grid', gridTemplateRows: 'auto 1fr', maxHeight: '92vh', overflow: 'hidden' }}
+        style={{ display: 'grid', gridTemplateRows: 'auto 1fr', gridTemplateColumns: 'minmax(0, 1fr)', maxHeight: '92vh', overflow: 'hidden' }}
       >
         {/* Row 1: Handle & Header (auto — cannot scroll) */}
         <div className="pt-3 pb-2 px-5">

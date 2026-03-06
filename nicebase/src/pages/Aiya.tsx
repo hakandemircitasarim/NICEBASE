@@ -903,7 +903,7 @@ export default function Aiya() {
   const listView = (
     <div
       className="w-full bg-gray-50 dark:bg-gray-900"
-      style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateRows: 'auto 1fr', overflow: 'hidden' }}
+      style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateRows: 'auto 1fr', gridTemplateColumns: 'minmax(0, 1fr)', overflow: 'hidden' }}
     >
       {/* Row 1: Header (auto — cannot scroll) */}
       <div
@@ -1043,7 +1043,7 @@ export default function Aiya() {
   const chatView = (
     <div
       className="bg-gray-50 dark:bg-gray-900"
-      style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateRows: 'auto 1fr auto', overflow: 'hidden' }}
+      style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateRows: 'auto 1fr auto', gridTemplateColumns: 'minmax(0, 1fr)', overflow: 'hidden' }}
     >
       {/* Row 1: Header (auto — cannot scroll) */}
       <div

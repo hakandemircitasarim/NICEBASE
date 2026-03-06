@@ -736,7 +736,7 @@ export default function MemoryForm({
    *    - Expanded:  card grows until it hits maxHeight, then scrolls.
    * ═══════════════════════════════════════════════════ */
   const formContent = (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr auto', overflow: 'hidden', minHeight: 0, flex: 1 }}>
+    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr auto', gridTemplateColumns: 'minmax(0, 1fr)', overflow: 'hidden', minHeight: 0, flex: 1 }}>
 
       {/* ── Row 1: HEADER (auto — cannot scroll) ── */}
       <div className="bg-white dark:bg-gray-800 z-10">
