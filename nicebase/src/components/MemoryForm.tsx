@@ -736,10 +736,16 @@ export default function MemoryForm({
    *    - Expanded:  card grows until it hits maxHeight, then scrolls.
    * ═══════════════════════════════════════════════════ */
   const formContent = (
-    <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
+    <div
+      className="flex flex-col min-h-0 flex-1"
+      style={{ overflow: 'hidden', overscrollBehavior: 'none' }}
+    >
 
       {/* ── HEADER ── */}
-      <div className="flex-shrink-0 bg-white dark:bg-gray-800 z-10">
+      <div
+        className="bg-white dark:bg-gray-800 z-10"
+        style={{ flexShrink: 0, position: 'sticky', top: 0 }}
+      >
         <div className="flex justify-center pt-2.5 pb-1 sm:hidden">
           <div className="w-9 h-1 rounded-full bg-gray-200 dark:bg-gray-600" />
         </div>
@@ -759,8 +765,8 @@ export default function MemoryForm({
 
       {/* ── SCROLLABLE BODY ── */}
       <div
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
-        style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+        className="flex-1 min-h-0 overflow-y-auto"
+        style={{ overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
       >
         <div className="px-5 space-y-5 pt-2 pb-4">
 
@@ -1151,10 +1157,10 @@ export default function MemoryForm({
         </div>
       </div>
 
-      {/* ── ACTION BAR — fixed at bottom of card (outside scroll) ── */}
+      {/* ── ACTION BAR — pinned at bottom of card (outside scroll) ── */}
       <div
-        className="flex-shrink-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10"
-        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
+        className="bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10"
+        style={{ flexShrink: 0, position: 'sticky', bottom: 0, paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
       >
         <div className="flex items-center gap-3">
             <button

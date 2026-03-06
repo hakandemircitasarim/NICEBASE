@@ -164,7 +164,7 @@ export default function ModalShell({
               'bg-white dark:bg-gray-800',
               'rounded-t-3xl sm:rounded-3xl',
               'w-full max-w-2xl shadow-2xl border border-gray-200 dark:border-gray-700',
-              'safe-area-inset flex flex-col overflow-hidden min-h-0',
+              'flex flex-col overflow-hidden min-h-0',
               panelClassName,
             ].join(' ')}
             style={{
