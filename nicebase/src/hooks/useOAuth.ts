@@ -306,20 +306,22 @@ export function useOAuth() {
           const isError16 = errMsg.includes('[16]') || errMsg.includes('DEVELOPER_ERROR')
 
           if (isError16) {
-            toast(
-              '⚠️ Native Sign-In SHA-1 hatası — tarayıcı ile giriş deneniyor...',
-              { duration: 4000 }
+            toast.error(
+              'Google Hata [16] DEVELOPER_ERROR: CI/GitHub build keystore SHA-1 fingerprint Google Cloud Console\'da kayıtlı değil. ' +
+              'CI keystore SHA-1\'ini Console → Credentials → Android client\'a ekle.',
+              { duration: 20000 }
             )
-            // Fall through to browser-based OAuth below (don't return)
           } else {
             toast.error(`❌ [L] ${errMsg}`, { duration: 8000 })
-            setTimeout(() => {
-              toast(`🔍 [L-detail] ${fullDebug.slice(0, 400)}`, { duration: 15000 })
-            }, 500)
-            loadingRef.current = false
-            setLoading(false)
-            return
           }
+
+          setTimeout(() => {
+            toast(`🔍 Detay: ${fullDebug.slice(0, 400)}`, { duration: 20000 })
+          }, 500)
+
+          loadingRef.current = false
+          setLoading(false)
+          return
         }
       }
 
