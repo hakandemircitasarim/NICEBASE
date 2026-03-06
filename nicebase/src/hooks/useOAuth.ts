@@ -275,16 +275,20 @@ export function useOAuth() {
         } catch (nativeError: unknown) {
           const errMsg = nativeError instanceof Error ? nativeError.message : String(nativeError)
 
-          // Extract ALL properties from error object for debugging
+          // Extract ALL properties with explicit value serialization
           let fullDebug = errMsg
           try {
             if (nativeError && typeof nativeError === 'object') {
-              const keys = Object.keys(nativeError as Record<string, unknown>)
-              const details: Record<string, unknown> = { _keys: keys }
-              for (const key of keys) {
-                details[key] = (nativeError as Record<string, unknown>)[key]
+              const err = nativeError as Record<string, unknown>
+              const details: Record<string, string> = {}
+              for (const key of Object.keys(err)) {
+                try {
+                  details[key] = typeof err[key] === 'object' ? JSON.stringify(err[key]) : String(err[key])
+                } catch {
+                  details[key] = '[unserializable]'
+                }
               }
-              fullDebug = JSON.stringify(details, null, 2)
+              fullDebug = JSON.stringify(details)
             }
           } catch { /* ignore */ }
 
@@ -298,15 +302,24 @@ export function useOAuth() {
             return
           }
 
-          // Show full error details on screen for debugging
-          toast.error(`❌ [L] ${errMsg}`, { duration: 8000 })
-          // Second toast with full error object details
-          setTimeout(() => {
-            toast(`🔍 [L-detail] ${fullDebug.slice(0, 300)}`, { duration: 12000 })
-          }, 500)
-          loadingRef.current = false
-          setLoading(false)
-          return
+          // Check for error 16 specifically — this is DEVELOPER_ERROR (SHA-1 mismatch)
+          const isError16 = errMsg.includes('[16]') || errMsg.includes('DEVELOPER_ERROR')
+
+          if (isError16) {
+            toast(
+              '⚠️ Native Sign-In SHA-1 hatası — tarayıcı ile giriş deneniyor...',
+              { duration: 4000 }
+            )
+            // Fall through to browser-based OAuth below (don't return)
+          } else {
+            toast.error(`❌ [L] ${errMsg}`, { duration: 8000 })
+            setTimeout(() => {
+              toast(`🔍 [L-detail] ${fullDebug.slice(0, 400)}`, { duration: 15000 })
+            }, 500)
+            loadingRef.current = false
+            setLoading(false)
+            return
+          }
         }
       }
 
