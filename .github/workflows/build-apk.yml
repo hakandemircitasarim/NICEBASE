@@ -50,9 +50,15 @@ jobs:
         working-directory: nicebase/android
         run: chmod +x gradlew
 
+      - name: Print debug keystore SHA-1 (for Google Cloud Console)
+        run: keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android 2>/dev/null | grep -E "SHA1|SHA-1" || echo "Debug keystore not found yet"
+
       - name: Build debug APK
         working-directory: nicebase/android
         run: ./gradlew assembleDebug --no-daemon
+
+      - name: Print debug keystore SHA-1 (after build)
+        run: keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android 2>/dev/null | grep -E "SHA1|SHA-1" || echo "Debug keystore not found"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
