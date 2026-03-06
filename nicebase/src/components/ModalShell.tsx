@@ -144,7 +144,9 @@ export default function ModalShell({
           }}
           style={{
             paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))',
-            paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0px))',
+            // Mobile bottom-sheet: no bottom padding on backdrop — panel sits flush
+            // at screen bottom; safe-area is handled inside the panel via safe-area-inset class.
+            // Desktop (sm:p-4 class) overrides this with 1rem padding all around.
           }}
         >
           <motion.div
@@ -173,14 +175,16 @@ export default function ModalShell({
               gridTemplateColumns: 'minmax(0, 1fr)',
               // Height constraint is required for inner scroll to work reliably.
               // autoHeight: panel sizes to content; only maxHeight is set.
+              // Height subtracts only top safe area + small gap. Bottom safe area
+              // is handled inside the panel (via safe-area-inset class or content padding).
               ...(autoHeight
                 ? {}
                 : {
                     height:
-                      'min(calc(100dvh - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)), 92vh)',
+                      'min(calc(100dvh - 0.5rem - env(safe-area-inset-top, 0px)), 92vh)',
                   }),
               maxHeight:
-                'min(calc(100dvh - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)), 92vh)',
+                'min(calc(100dvh - 0.5rem - env(safe-area-inset-top, 0px)), 92vh)',
             }}
           >
             {header}
