@@ -908,7 +908,7 @@ export default function Aiya() {
       {/* Header */}
       <div
         className="flex items-center justify-between container-padding py-4 sm:py-5 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 shadow-sm"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)', touchAction: 'none' }}
       >
         <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
           <AiyaAvatar size={40} />
@@ -1049,7 +1049,7 @@ export default function Aiya() {
       {/* Chat header - Fixed top */}
       <div
         className="flex items-center justify-between gap-2 container-padding py-3.5 sm:py-4 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 z-30 shadow-sm"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.875rem)' }}
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.875rem)', touchAction: 'none' }}
       >
         <button
           onClick={goToList}
@@ -1211,6 +1211,7 @@ export default function Aiya() {
       {/* Bottom: Input container - Fixed above navbar, z-50 */}
       <div
         className="flex-shrink-0 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-50 shadow-lg"
+        style={{ touchAction: 'manipulation' }}
       >
         {/* Suggestion chips */}
         <AnimatePresence>
