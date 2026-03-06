@@ -1154,8 +1154,7 @@ export default function MemoryForm({
       {/* ── ACTION BAR — fixed at bottom of card (outside scroll) ── */}
       <div
         className="flex-shrink-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10"
-        style={{ touchAction: 'none' }}
-        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
+        style={{ touchAction: 'none', paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
       >
         <div className="flex items-center gap-3">
             <button
