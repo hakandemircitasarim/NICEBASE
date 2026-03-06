@@ -311,6 +311,16 @@ export const setBackButtonHandler = (handler: (() => boolean) | null) => {
   backButtonHandler = handler
 }
 
+// App foreground callback — registered by App.tsx to refresh auth session
+let appForegroundHandler: (() => void) | null = null
+
+/**
+ * Register a callback to run when app comes back to foreground
+ */
+export const setAppForegroundHandler = (handler: (() => void) | null) => {
+  appForegroundHandler = handler
+}
+
 /**
  * Setup app state listeners (native only)
  * Should only be called once
@@ -325,7 +335,9 @@ export const setupAppListeners = async () => {
     // Handle app state changes
     App.addListener('appStateChange', (data: unknown) => {
       const { isActive } = data as { isActive: boolean }
-      // App state changed - can be used for analytics or background sync
+      if (isActive && appForegroundHandler) {
+        appForegroundHandler()
+      }
       if (import.meta.env.DEV) {
         console.log('App state changed. Is active?', isActive)
       }

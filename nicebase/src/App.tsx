@@ -6,7 +6,7 @@ import Login from './pages/Login'
 import { supabase } from './lib/supabase'
 import { fetchUserData, ensureUserExists } from './lib/userService'
 import { withTimeout } from './utils/timeout'
-import { initializeNativeApp, updateStatusBar } from './utils/capacitor'
+import { initializeNativeApp, updateStatusBar, setAppForegroundHandler } from './utils/capacitor'
 import { memorySyncService } from './services/memorySyncService'
 import { migrateLocalMemories } from './utils/localUserId'
 import Toaster from './components/Toaster'
@@ -89,6 +89,22 @@ function App() {
 
     initializeApp()
 
+    // When app comes back to foreground, verify the session is still valid.
+    // Without this, a background token refresh failure can cause a false SIGNED_OUT.
+    setAppForegroundHandler(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) {
+          // Truly no session — ensure store is cleared
+          memorySyncService.stop()
+          syncStartedForRef.current = null
+          setUser(null)
+        }
+      } catch {
+        // Network not ready yet — ignore, stay logged in
+      }
+    })
+
     // Listen to auth changes (login, logout, token refresh, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
@@ -167,6 +183,7 @@ function App() {
         subscriptionRef.current.unsubscribe()
         subscriptionRef.current = null
       }
+      setAppForegroundHandler(null)
       memorySyncService.stop()
       syncStartedForRef.current = null
     }
