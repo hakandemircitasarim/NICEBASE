@@ -902,13 +902,13 @@ export default function Aiya() {
 
   const listView = (
     <div
-      className="flex flex-col w-full bg-gray-50 dark:bg-gray-900"
-      style={{ position: 'absolute', inset: 0, overflow: 'hidden', contain: 'layout size style' }}
+      className="w-full bg-gray-50 dark:bg-gray-900"
+      style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateRows: 'auto 1fr', overflow: 'hidden' }}
     >
-      {/* Header */}
+      {/* Row 1: Header (auto — cannot scroll) */}
       <div
-        className="flex items-center justify-between container-padding py-4 sm:py-5 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 shadow-sm"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)', touchAction: 'none' }}
+        className="flex items-center justify-between container-padding py-4 sm:py-5 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl shadow-sm"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}
       >
         <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
           <AiyaAvatar size={40} />
@@ -939,8 +939,8 @@ export default function Aiya() {
         </motion.button>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'none', paddingBottom: 'env(safe-area-inset-bottom, 0px)' } as React.CSSProperties}>
+      {/* Row 2: Content (1fr — sole scrollable area) */}
+      <div className="overflow-y-auto" style={{ minHeight: 0, overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch', paddingBottom: 'env(safe-area-inset-bottom, 0px)' } as React.CSSProperties}>
         {/* Hero / Start Chat section */}
         <div className={`flex flex-col items-center container-padding text-center ${chats.length === 0 ? 'justify-center h-full min-h-[400px]' : 'pt-8 sm:pt-10 pb-6'}`}>
           <motion.div
@@ -1043,13 +1043,13 @@ export default function Aiya() {
 
   const chatView = (
     <div
-      className="flex flex-col bg-gray-50 dark:bg-gray-900"
-      style={{ position: 'absolute', inset: 0, overflow: 'hidden', contain: 'layout size style' }}
+      className="bg-gray-50 dark:bg-gray-900"
+      style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateRows: 'auto 1fr auto', overflow: 'hidden' }}
     >
-      {/* Chat header - Fixed top */}
+      {/* Row 1: Header (auto — cannot scroll) */}
       <div
-        className="flex items-center justify-between gap-2 container-padding py-3.5 sm:py-4 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 z-30 shadow-sm"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.875rem)', touchAction: 'none' }}
+        className="flex items-center justify-between gap-2 container-padding py-3.5 sm:py-4 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-30 shadow-sm"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.875rem)' }}
       >
         <button
           onClick={goToList}
@@ -1122,14 +1122,11 @@ export default function Aiya() {
         </div>
       </div>
 
-      {/* Messages area - Scrollable, flex-1 */}
+      {/* Row 2: Messages (1fr — sole scrollable area) */}
       <div
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto container-padding py-6 space-y-4 min-h-0"
-        style={{
-          WebkitOverflowScrolling: 'touch',
-          overscrollBehavior: 'none',
-        } as React.CSSProperties}
+        className="overflow-y-auto container-padding py-6 space-y-4"
+        style={{ minHeight: 0, overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch', position: 'relative' } as React.CSSProperties}
       >
         {/* Container for centering on desktop */}
         <div className="max-w-4xl mx-auto w-full">
@@ -1208,10 +1205,9 @@ export default function Aiya() {
         )}
       </AnimatePresence>
 
-      {/* Bottom: Input container - Fixed above navbar, z-50 */}
+      {/* Row 3: Input (auto — cannot scroll) */}
       <div
-        className="flex-shrink-0 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-50 shadow-lg"
-        style={{ touchAction: 'manipulation' }}
+        className="border-t border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-50 shadow-lg"
       >
         {/* Suggestion chips */}
         <AnimatePresence>

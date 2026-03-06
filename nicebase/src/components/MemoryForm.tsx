@@ -736,10 +736,10 @@ export default function MemoryForm({
    *    - Expanded:  card grows until it hits maxHeight, then scrolls.
    * ═══════════════════════════════════════════════════ */
   const formContent = (
-    <div className="flex flex-col min-h-0 flex-1 overflow-hidden" style={{ contain: 'layout size style' }}>
+    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr auto', overflow: 'hidden', minHeight: 0, flex: 1 }}>
 
-      {/* ── HEADER ── */}
-      <div className="flex-shrink-0 bg-white dark:bg-gray-800 z-10" style={{ touchAction: 'none' }}>
+      {/* ── Row 1: HEADER (auto — cannot scroll) ── */}
+      <div className="bg-white dark:bg-gray-800 z-10">
         <div className="flex justify-center pt-2.5 pb-1 sm:hidden">
           <div className="w-9 h-1 rounded-full bg-gray-200 dark:bg-gray-600" />
         </div>
@@ -757,10 +757,10 @@ export default function MemoryForm({
               </div>
       </div>
 
-      {/* ── SCROLLABLE BODY ── */}
+      {/* ── Row 2: SCROLLABLE BODY (1fr — sole scrollable area) ── */}
       <div
-        className="flex-1 min-h-0 overflow-y-auto"
-        style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'none' } as React.CSSProperties}
+        className="overflow-y-auto"
+        style={{ minHeight: 0, overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
       >
         <div className="px-5 space-y-5 pt-2 pb-4">
 
@@ -1151,10 +1151,10 @@ export default function MemoryForm({
         </div>
       </div>
 
-      {/* ── ACTION BAR — fixed at bottom of card (outside scroll) ── */}
+      {/* ── Row 3: ACTION BAR (auto — cannot scroll) ── */}
       <div
-        className="flex-shrink-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10"
-        style={{ touchAction: 'none', paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
+        className="bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10"
+        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
       >
         <div className="flex items-center gap-3">
             <button
