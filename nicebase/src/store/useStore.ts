@@ -71,8 +71,31 @@ const getStoredOnboarding = (): boolean => {
   }
 }
 
+// Cache user in localStorage for instant restore on app reopen
+const getCachedUser = (): User | null => {
+  if (typeof window === 'undefined') return null
+  try {
+    const cached = localStorage.getItem('cachedUser')
+    if (cached) {
+      const user = JSON.parse(cached) as User
+      if (user && user.id && user.email) return user
+    }
+  } catch { /* ignore */ }
+  return null
+}
+
+const setCachedUser = (user: User | null) => {
+  try {
+    if (user) {
+      localStorage.setItem('cachedUser', JSON.stringify(user))
+    } else {
+      localStorage.removeItem('cachedUser')
+    }
+  } catch { /* ignore */ }
+}
+
 export const useStore = create<AppState>((set, get) => ({
-  user: null,
+  user: getCachedUser(),
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
   theme: getStoredTheme(),
   language: getStoredLanguage(),
@@ -81,6 +104,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   setUser: (user) => {
     set({ user })
+    setCachedUser(user)
     // If user has a language preference, apply it
     if (user?.language && user.language !== get().language) {
       get().setLanguage(user.language)

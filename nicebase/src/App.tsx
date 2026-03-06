@@ -46,7 +46,20 @@ function App() {
       // Initialize native platform (StatusBar, back button, listeners)
       await initializeNativeApp(themeRef.current === 'dark')
 
-      // First, try to restore session from storage (with timeout to avoid hanging)
+      // Initialize app settings (theme, language, online listeners) immediately
+      await init()
+
+      // If we have a cached user from localStorage (set by useStore initial state),
+      // start sync immediately while we validate the session in the background
+      const cachedUser = useStore.getState().user
+      if (cachedUser?.id) {
+        if (syncStartedForRef.current !== cachedUser.id) {
+          memorySyncService.start(cachedUser.id)
+          syncStartedForRef.current = cachedUser.id
+        }
+      }
+
+      // Validate session and refresh user data in background (non-blocking)
       try {
         const { data: { session } } = await withTimeout(
           supabase.auth.getSession(),
@@ -76,15 +89,18 @@ function App() {
               syncStartedForRef.current = user.id
             }
           }
+        } else if (!session && cachedUser) {
+          // Session expired/invalid but we had a cached user - clear it
+          setUser(null)
+          memorySyncService.stop()
+          syncStartedForRef.current = null
         }
       } catch (error) {
         if (import.meta.env.DEV) {
           console.error('Session restore error:', error)
         }
+        // On error, keep cached user visible (offline-friendly)
       }
-
-      // Then initialize the rest of the app
-      await init()
     }
 
     initializeApp()
