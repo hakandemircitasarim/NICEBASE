@@ -376,7 +376,14 @@ export default function Aiya() {
 
   // ─── Auto-scroll ───────────────────────────────────────
   const scrollToBottom = useCallback((smooth = true) => {
-    chatEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' })
+    const container = chatContainerRef.current
+    if (container) {
+      if (smooth) {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+      } else {
+        container.scrollTop = container.scrollHeight
+      }
+    }
   }, [])
 
   // ─── Auto-resize textarea ──────────────────────────────
@@ -395,15 +402,18 @@ export default function Aiya() {
     if (!textarea || view !== 'chat') return
 
     const handleFocus = () => {
-      // Scroll input into view when keyboard opens
+      // When keyboard opens, scroll messages to bottom (not scrollIntoView which moves the whole page)
       setTimeout(() => {
-        textarea.scrollIntoView({ behavior: 'smooth', block: 'end' })
-      }, 300) // Delay to allow keyboard animation
+        scrollToBottom(false)
+      }, 300)
     }
 
     const handleBlur = () => {
-      // Scroll to bottom of messages when keyboard closes
+      // Reset any accidental page scroll when keyboard closes
       setTimeout(() => {
+        window.scrollTo(0, 0)
+        document.documentElement.scrollTop = 0
+        document.body.scrollTop = 0
         scrollToBottom(false)
       }, 100)
     }
@@ -413,15 +423,16 @@ export default function Aiya() {
     if (window.visualViewport) {
       viewport = window.visualViewport
       const handleResize = () => {
-        // Ensure input stays visible when keyboard opens/closes
+        // Reset page scroll — only the chat container should scroll
+        window.scrollTo(0, 0)
+        document.documentElement.scrollTop = 0
+        document.body.scrollTop = 0
         if (document.activeElement === textarea) {
-          setTimeout(() => {
-            textarea.scrollIntoView({ behavior: 'smooth', block: 'end' })
-          }, 100)
+          setTimeout(() => scrollToBottom(false), 100)
         }
       }
       viewport.addEventListener('resize', handleResize)
-      
+
       textarea.addEventListener('focus', handleFocus)
       textarea.addEventListener('blur', handleBlur)
 
@@ -433,7 +444,6 @@ export default function Aiya() {
         textarea.removeEventListener('blur', handleBlur)
       }
     } else {
-      // Fallback for browsers without Visual Viewport API
       textarea.addEventListener('focus', handleFocus)
       textarea.addEventListener('blur', handleBlur)
 
@@ -1253,7 +1263,7 @@ export default function Aiya() {
   // ═════════════════════════════════════════════════════════
 
   return (
-    <div className="relative bg-white dark:bg-gray-900 overflow-hidden h-[100dvh]">
+    <div className="fixed inset-0 bg-white dark:bg-gray-900 overflow-hidden">
       <AnimatePresence mode="wait" initial={false}>
         {view === 'list' ? (
           <motion.div
