@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "dev:android": "vite",
+    "android:live": "node scripts/dev-android-emulator.mjs",
+    "android:live:device": "node scripts/dev-android-device.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "cap:sync": "npx cap sync android",
