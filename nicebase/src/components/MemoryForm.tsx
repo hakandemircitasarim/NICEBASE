@@ -16,7 +16,6 @@ import { hapticFeedback } from '../utils/haptic'
 import { errorLoggingService } from '../services/errorLoggingService'
 import LoadingSpinner from './LoadingSpinner'
 import ConfirmationDialog from './ConfirmationDialog'
-import ModalShell from './ModalShell'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import Toggle from './Toggle'
 import ConnectionsInput from './ConnectionsInput'
@@ -1333,15 +1332,23 @@ export default function MemoryForm({
     )
   }
 
+  // Modal mode: use the same absolute positioning that works reliably on
+  // Android WebView, wrapped in a fixed backdrop for the overlay effect.
+  // ModalShell's flex-based height calculation is unreliable on Android.
   return (
-    <ModalShell
-      isOpen={true}
-      onClose={requestClose}
-      scroll={false}
-      panelClassName="p-0"
-      className="z-[100]"
+    <div
+      className="fixed inset-0 z-[100]"
+      onClick={(e) => { if (e.target === e.currentTarget) requestClose() }}
     >
-      {formContent}
-    </ModalShell>
+      {/* Dark backdrop */}
+      <div className="absolute inset-0 bg-black/60" />
+      {/* Panel — absolute positioned, same as screen mode */}
+      <div
+        className="absolute bg-white dark:bg-gray-800 rounded-t-3xl overflow-hidden"
+        style={{ top: '0.5rem', left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column' }}
+      >
+        {formContent}
+      </div>
+    </div>
   )
 }
