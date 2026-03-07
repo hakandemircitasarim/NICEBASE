@@ -122,10 +122,11 @@ export default function ModalShell({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className={[
-            'fixed inset-0 bg-black/60 backdrop-blur-sm z-50 safe-area overflow-hidden',
-            'flex items-end sm:items-center justify-center',
-            // Keep padding off mobile bottom-sheet feel, add padding on desktop.
-            'sm:p-4',
+            'fixed inset-0 bg-black/60 backdrop-blur-sm z-50 overflow-hidden',
+            // flex-col: panel uses flex-1 to fill vertical space reliably
+            // (avoids height:100% bug on Android WebView in flex-row containers).
+            'flex flex-col items-center sm:justify-center',
+            'pt-2 sm:p-4',
             className,
           ].join(' ')}
           data-modal="true"
@@ -141,13 +142,6 @@ export default function ModalShell({
           }}
           onClick={(e) => {
             if (e.target === e.currentTarget) onClose()
-          }}
-          style={{
-            // Small top gap on mobile so the dark backdrop peeks through above
-            // the rounded panel (bottom-sheet feel). On desktop, sm:p-4 overrides.
-            // Note: env(safe-area-inset-*) not used because Android's adjustResize +
-            // overlaysWebView:false already keeps the WebView within safe bounds.
-            paddingTop: '0.5rem',
           }}
         >
           <motion.div
@@ -168,19 +162,16 @@ export default function ModalShell({
               'rounded-t-3xl sm:rounded-3xl',
               'w-full max-w-2xl shadow-2xl border border-gray-200 dark:border-gray-700',
               'overflow-hidden',
+              // flex-1: fill available vertical space in the flex-col backdrop.
+              // min-h-0: allow grid 1fr row to shrink for scroll.
+              // On desktop, maxHeight caps the panel; sm:justify-center centers it.
+              autoHeight ? '' : 'flex-1 min-h-0',
               panelClassName,
             ].join(' ')}
             style={{
               display: 'grid',
               gridTemplateRows: 'auto 1fr auto',
               gridTemplateColumns: 'minmax(0, 1fr)',
-              // Height: 100% fills the backdrop's content area (fixed inset:0 minus
-              // paddingTop). This is more reliable than dvh on Android WebView where
-              // viewport units may not update correctly when the keyboard opens.
-              // maxHeight caps height for the desktop centered-dialog layout (sm:p-4).
-              ...(autoHeight
-                ? {}
-                : { height: '100%' }),
               maxHeight: '92vh',
             }}
           >
