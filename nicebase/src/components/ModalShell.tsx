@@ -143,10 +143,11 @@ export default function ModalShell({
             if (e.target === e.currentTarget) onClose()
           }}
           style={{
-            paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))',
-            // Mobile bottom-sheet: no bottom padding on backdrop — panel sits flush
-            // at screen bottom; safe-area is handled inside the panel via safe-area-inset class.
-            // Desktop (sm:p-4 class) overrides this with 1rem padding all around.
+            // Small top gap on mobile so the dark backdrop peeks through above
+            // the rounded panel (bottom-sheet feel). On desktop, sm:p-4 overrides.
+            // Note: env(safe-area-inset-*) not used because Android's adjustResize +
+            // overlaysWebView:false already keeps the WebView within safe bounds.
+            paddingTop: '0.5rem',
           }}
         >
           <motion.div
@@ -166,25 +167,21 @@ export default function ModalShell({
               'bg-white dark:bg-gray-800',
               'rounded-t-3xl sm:rounded-3xl',
               'w-full max-w-2xl shadow-2xl border border-gray-200 dark:border-gray-700',
-              'safe-area-inset overflow-hidden',
+              'overflow-hidden',
               panelClassName,
             ].join(' ')}
             style={{
               display: 'grid',
               gridTemplateRows: 'auto 1fr auto',
               gridTemplateColumns: 'minmax(0, 1fr)',
-              // Height constraint is required for inner scroll to work reliably.
-              // autoHeight: panel sizes to content; only maxHeight is set.
-              // Height subtracts only top safe area + small gap. Bottom safe area
-              // is handled inside the panel (via safe-area-inset class or content padding).
+              // Height: 100% fills the backdrop's content area (fixed inset:0 minus
+              // paddingTop). This is more reliable than dvh on Android WebView where
+              // viewport units may not update correctly when the keyboard opens.
+              // maxHeight caps height for the desktop centered-dialog layout (sm:p-4).
               ...(autoHeight
                 ? {}
-                : {
-                    height:
-                      'min(calc(100dvh - 0.5rem - env(safe-area-inset-top, 0px)), 92vh)',
-                  }),
-              maxHeight:
-                'min(calc(100dvh - 0.5rem - env(safe-area-inset-top, 0px)), 92vh)',
+                : { height: '100%' }),
+              maxHeight: '92vh',
             }}
           >
             {header}

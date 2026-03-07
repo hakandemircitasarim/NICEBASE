@@ -1154,7 +1154,6 @@ export default function MemoryForm({
       {/* ── Row 3: ACTION BAR (auto — cannot scroll) ── */}
       <div
         className="bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10"
-        style={presentation === 'modal' ? { paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' } : undefined}
       >
         <div className="flex items-center gap-3">
             <button
