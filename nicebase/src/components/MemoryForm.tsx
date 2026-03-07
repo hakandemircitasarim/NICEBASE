@@ -1325,7 +1325,7 @@ export default function MemoryForm({
     return (
       <div
         className="bg-white dark:bg-gray-800"
-        style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+        style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 50 }}
       >
         {formContent}
       </div>
