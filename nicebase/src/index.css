@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * safe-area-inset lives in @layer components so that Tailwind utilities
+ * (p-0, pb-4, etc.) can override individual padding sides when needed.
+ * Without this, .safe-area-inset's longhand padding-bottom wins over
+ * p-0's shorthand because custom @layer utilities are injected after
+ * Tailwind's generated utilities in the compiled CSS.
+ */
+@layer components {
+  .safe-area-inset {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+}
+
 @layer base {
   :root {
     --toast-bg: #fff;
@@ -306,13 +322,6 @@
 
   .safe-area-top {
     padding-top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
-  }
-
-  .safe-area-inset {
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    padding-left: env(safe-area-inset-left, 0px);
-    padding-right: env(safe-area-inset-right, 0px);
   }
 
   .touch-manipulation {
