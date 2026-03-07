@@ -267,7 +267,7 @@ export default function MemoryForm({
     onConfirm: () => {},
   })
 
-  useBodyScrollLock(presentation === 'modal')
+  useBodyScrollLock(true)
 
   // Auto-save draft
   useEffect(() => {
@@ -1153,6 +1153,7 @@ export default function MemoryForm({
       {/* ── Row 3: ACTION BAR (auto — cannot scroll) ── */}
       <div
         className="bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10"
+        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
       >
         <div className="flex items-center gap-3">
             <button
@@ -1321,34 +1322,15 @@ export default function MemoryForm({
     </div>
   )
 
-  if (presentation === 'screen') {
-    return (
-      <div
-        className="bg-white dark:bg-gray-800"
-        style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 50 }}
-      >
-        {formContent}
-      </div>
-    )
-  }
-
-  // Modal mode: use the same absolute positioning that works reliably on
-  // Android WebView, wrapped in a fixed backdrop for the overlay effect.
-  // ModalShell's flex-based height calculation is unreliable on Android.
+  // Single rendering path for all modes: fixed fullscreen overlay.
+  // fixed inset:0 fills the WebView viewport directly, bypassing any
+  // body padding from phantom env(safe-area-inset-bottom) on Android.
   return (
     <div
-      className="fixed inset-0 z-[100]"
-      onClick={(e) => { if (e.target === e.currentTarget) requestClose() }}
+      className="fixed inset-0 bg-white dark:bg-gray-800 z-[100]"
+      style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
     >
-      {/* Dark backdrop */}
-      <div className="absolute inset-0 bg-black/60" />
-      {/* Panel — absolute positioned, same as screen mode */}
-      <div
-        className="absolute bg-white dark:bg-gray-800 rounded-t-3xl overflow-hidden"
-        style={{ top: '0.5rem', left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column' }}
-      >
-        {formContent}
-      </div>
+      {formContent}
     </div>
   )
 }

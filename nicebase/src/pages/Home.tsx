@@ -14,7 +14,7 @@ import MemoryForm from '../components/MemoryForm'
 import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import { useNotifications } from '../hooks/useNotifications'
-import { isNative } from '../utils/capacitor'
+
 import ConflictResolutionDialog from '../components/ConflictResolutionDialog'
 
 export default function Home() {
@@ -120,23 +120,15 @@ export default function Home() {
     hapticFeedback('light')
     setEditingMemory(undefined)
     setDailyQuestionForForm(null)
-    if (isNative()) {
-      navigate('/add-memory')
-      return
-    }
     setShowForm(true)
-  }, [hapticFeedback, navigate])
+  }, [hapticFeedback])
 
   const handleDailyQuestionClick = useCallback(() => {
     hapticFeedback('light')
     setEditingMemory(undefined)
     setDailyQuestionForForm(dailyQuestion)
-    if (isNative()) {
-      navigate('/add-memory', { state: { dailyQuestion } })
-      return
-    }
     setShowForm(true)
-  }, [hapticFeedback, navigate, dailyQuestion])
+  }, [hapticFeedback, dailyQuestion])
 
   // Setup notifications function
   const setupNotifications = useCallback(async () => {
