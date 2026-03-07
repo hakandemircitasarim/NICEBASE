@@ -12,9 +12,9 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 // Live reload ayarları - environment variable'dan oku, yoksa default değerleri kullan
 const USE_LIVE_RELOAD = process.env.CAPACITOR_USE_LIVE_RELOAD === 'true' || false;
-// IP adresini environment variable'dan oku, yoksa default değer kullan
-// Örnek kullanım: CAPACITOR_DEV_SERVER_URL=http://192.168.0.230:5173 npm run dev:android
-const DEV_SERVER_URL = process.env.CAPACITOR_DEV_SERVER_URL || 'http://192.168.0.230:5173';
+// 10.0.2.2 = Android emülatöründen host makinenin localhost'u
+// Gerçek cihaz kullanıyorsan: CAPACITOR_DEV_SERVER_URL=http://192.168.x.x:5173 npm run dev:emulator
+const DEV_SERVER_URL = process.env.CAPACITOR_DEV_SERVER_URL || 'http://10.0.2.2:5173';
 
 const config: CapacitorConfig = {
   appId: 'com.nicebase.app',

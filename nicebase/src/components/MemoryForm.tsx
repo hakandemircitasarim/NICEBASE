@@ -1154,7 +1154,6 @@ export default function MemoryForm({
       {/* ── ACTION BAR — fixed at bottom of card (outside scroll) ── */}
       <div
         className="flex-shrink-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10"
-        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
       >
         <div className="flex items-center gap-3">
             <button
@@ -1327,7 +1326,10 @@ export default function MemoryForm({
     return (
       <div
         className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col"
-        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+        style={{
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        }}
       >
         <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col bg-white dark:bg-gray-800 shadow-2xl overflow-hidden">
           {formContent}
