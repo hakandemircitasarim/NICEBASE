@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
+import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import {
   X, Sparkles, AlertCircle, Calendar, ChevronDown,
   Star, Link2, Check, Camera, Tag, Compass, Settings2,
@@ -268,6 +269,7 @@ export default function MemoryForm({
   })
 
   useBodyScrollLock(true)
+  const keyboardOpen = useKeyboardVisible()
 
   // Auto-save draft
   useEffect(() => {
@@ -1153,7 +1155,7 @@ export default function MemoryForm({
       {/* ── Row 3: ACTION BAR (auto — cannot scroll) ── */}
       <div
         className="bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10"
-        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
+        style={keyboardOpen ? undefined : { paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
       >
         <div className="flex items-center gap-3">
             <button
