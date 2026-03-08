@@ -736,7 +736,10 @@ export default function MemoryForm({
    *    - Expanded:  card grows until it hits maxHeight, then scrolls.
    * ═══════════════════════════════════════════════════ */
   const formContent = (
-    <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
+    <div
+      className="flex-1 min-h-0 overflow-hidden"
+      style={{ display: 'grid', gridTemplateRows: 'auto 1fr auto' }}
+    >
 
       {/* ── HEADER ── */}
       <div className="flex-shrink-0 bg-white dark:bg-gray-800 z-10">
@@ -759,7 +762,7 @@ export default function MemoryForm({
 
       {/* ── SCROLLABLE BODY ── */}
       <div
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+        className="overflow-y-auto overscroll-contain min-h-0"
         style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
       >
         <div className="px-5 space-y-5 pt-2 pb-4">
