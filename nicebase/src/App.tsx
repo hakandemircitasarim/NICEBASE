@@ -176,7 +176,7 @@ function App() {
   return (
     <>
       {/* DEV VERSION BADGE — remove when done */}
-      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 56, height: 56, borderRadius: '50%', background: '#2563eb', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 'bold', zIndex: 99999, pointerEvents: 'none' }}>7</div>
+      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 56, height: 56, borderRadius: '50%', background: '#2563eb', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 'bold', zIndex: 99999, pointerEvents: 'none' }}>8</div>
       <OfflineIndicator />
       <Toaster />
       <Suspense fallback={

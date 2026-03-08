@@ -1323,7 +1323,7 @@ export default function MemoryForm({
         className="fixed inset-0 flex flex-col bg-white dark:bg-gray-800 z-50"
         style={{
           paddingTop: 'env(safe-area-inset-top, 0px)',
-          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem)',
         }}
       >
         <div className="flex-shrink-0">{modalHeader}</div>
