@@ -180,7 +180,7 @@ export default function ModalShell({
                 'min(calc(100dvh - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)), 92vh)',
             }}
           >
-            {header}
+            {header && <div className="flex-shrink-0">{header}</div>}
             {scroll ? (
               <div
                 className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
@@ -193,7 +193,7 @@ export default function ModalShell({
                 {children}
               </div>
             )}
-            {footer}
+            {footer && <div className="flex-shrink-0">{footer}</div>}
           </motion.div>
         </motion.div>
       )}
