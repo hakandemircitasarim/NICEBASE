@@ -1320,15 +1320,19 @@ export default function MemoryForm({
   if (presentation === 'screen') {
     return (
       <div
-        className="h-screen overflow-y-auto bg-white dark:bg-gray-800"
+        className="h-screen flex flex-col bg-white dark:bg-gray-800"
         style={{
           paddingTop: 'env(safe-area-inset-top, 0px)',
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }}
       >
-        <div className="max-w-2xl mx-auto w-full">
-          {formContent}
+        <div className="flex-shrink-0">{modalHeader}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="max-w-2xl mx-auto w-full">
+            {formContent}
+          </div>
         </div>
+        <div className="flex-shrink-0">{modalFooter}</div>
       </div>
     )
   }
