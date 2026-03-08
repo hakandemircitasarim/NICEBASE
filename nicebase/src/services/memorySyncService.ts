@@ -1,29 +1,7 @@
 import { isNative } from '../utils/capacitor'
 import { memoryService } from './memoryService'
-import type { WindowWithCapacitor } from '../types/capacitor'
 import { errorLoggingService } from './errorLoggingService'
-
-// Mutex to prevent concurrent sync operations
-let syncInProgress = false
-
-// Load Capacitor App - in native it's available via window, in web it's not
-async function loadCapacitorApp() {
-  if (!isNative()) return null
-  
-  try {
-    if (typeof window !== 'undefined') {
-      const plugins = (window as WindowWithCapacitor).CapacitorPlugins
-      if (plugins?.App) {
-        return plugins.App
-      }
-    }
-    // Try dynamic import as fallback
-    const module = await import('@capacitor/app')
-    return module.App
-  } catch {
-    return null
-  }
-}
+import { App } from '@capacitor/app'
 
 type SyncState = {
   userId: string | null
@@ -87,34 +65,17 @@ export const memorySyncService = {
     }, 5 * 60 * 1000) // 5 minutes
 
     // Native resume sync
+    // Note: App is imported statically to avoid the "thenable trap" — returning
+    // a Capacitor proxy from an async function causes Promise.resolve() to call
+    // plugin.then(), which triggers "App.then() is not implemented on android".
     if (isNative()) {
-      loadCapacitorApp().then((CapacitorApp) => {
-        if (!CapacitorApp) return
-        const listenerResult = (CapacitorApp.addListener as (event: string, callback: (data: unknown) => void) => { remove: () => void } | Promise<{ remove: () => Promise<void> }>)('appStateChange', (data: unknown) => {
-          const { isActive } = data as { isActive: boolean }
-          if (!isActive) return
-          if (!state.userId) return
-          safeSyncNow(state.userId)
-        })
-        
-        // Handle both sync and async listener return types
-        if (listenerResult instanceof Promise) {
-          listenerResult.then((handler: { remove: () => Promise<void> } | { remove: () => void }) => {
-            if (handler && 'remove' in handler) {
-              const removeFn = handler.remove
-              state.resumeHandler = typeof removeFn === 'function' 
-                ? { remove: async () => { await removeFn() } }
-                : null
-            }
-          }).catch(() => {
-            // ignore
-          })
-        } else if (listenerResult && 'remove' in listenerResult) {
-          const removeFn = listenerResult.remove
-          state.resumeHandler = typeof removeFn === 'function' 
-            ? { remove: async () => { await Promise.resolve(removeFn()) } }
-            : null
-        }
+      App.addListener('appStateChange', (data: unknown) => {
+        const { isActive } = data as { isActive: boolean }
+        if (!isActive) return
+        if (!state.userId) return
+        safeSyncNow(state.userId)
+      }).then((handle) => {
+        state.resumeHandler = { remove: async () => { await handle.remove() } }
       }).catch(() => {
         // ignore
       })

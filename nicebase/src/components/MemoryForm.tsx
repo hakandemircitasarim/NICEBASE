@@ -735,34 +735,76 @@ export default function MemoryForm({
    *    - Collapsed: card is compact, centered by the overlay's flexbox.
    *    - Expanded:  card grows until it hits maxHeight, then scrolls.
    * ═══════════════════════════════════════════════════ */
-  const formContent = (
-    <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
-
-      {/* ── HEADER ── */}
-      <div className="flex-shrink-0 bg-white dark:bg-gray-800 z-10">
-        <div className="flex justify-center pt-2.5 pb-1 sm:hidden">
-          <div className="w-9 h-1 rounded-full bg-gray-200 dark:bg-gray-600" />
-        </div>
-        <div className="px-5 py-3 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-            {memory ? t('edit') : t('addMemory')}
-          </h2>
-                <button
-            onClick={requestClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors touch-manipulation"
-            aria-label={t('close')}
-                >
-                  <X size={18} />
-                </button>
-              </div>
+  /* ── MODAL HEADER — rendered outside scroll container via ModalShell header prop ── */
+  const modalHeader = (
+    <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700/50">
+      <div className="flex justify-center pt-2.5 pb-1 sm:hidden">
+        <div className="w-9 h-1 rounded-full bg-gray-200 dark:bg-gray-600" />
       </div>
+      <div className="px-5 py-3 flex items-center justify-between">
+        <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+          {memory ? t('edit') : t('addMemory')}
+        </h2>
+        <button
+          onClick={requestClose}
+          className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors touch-manipulation"
+          aria-label={t('close')}
+        >
+          <X size={18} />
+        </button>
+      </div>
+    </div>
+  )
 
-      {/* ── SCROLLABLE BODY ── */}
-      <div
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
-        style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
-      >
-        <div className="px-5 space-y-5 pt-2 pb-4">
+  /* ── MODAL FOOTER — rendered outside scroll container via ModalShell footer prop ── */
+  const modalFooter = (
+    <div className="bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3">
+      <div className="flex items-center gap-3">
+        <button
+          onClick={requestClose}
+          disabled={saving}
+          className="px-5 py-2.5 rounded-xl font-medium text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 touch-manipulation"
+        >
+          {t('cancel')}
+        </button>
+        <motion.button
+          onClick={handleSave}
+          disabled={saving || !formData.text.trim() || saveSuccess}
+          whileTap={!saving ? { scale: 0.97 } : {}}
+          className={`flex-1 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all disabled:cursor-not-allowed flex items-center justify-center gap-2 touch-manipulation ${
+            saveSuccess
+              ? 'bg-green-500 text-white shadow-lg shadow-green-500/25'
+              : formData.text.trim()
+                ? 'gradient-primary text-white shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 active:shadow-md'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
+          }`}
+        >
+          {saveSuccess ? (
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              className="flex items-center gap-2"
+            >
+              <Check size={16} />
+              <span>{t('saved', { defaultValue: 'Kaydedildi!' })}</span>
+            </motion.div>
+          ) : saving ? (
+            <>
+              <LoadingSpinner size="sm" />
+              <span>{t('saving')}</span>
+            </>
+          ) : (
+            t('save')
+          )}
+        </motion.button>
+      </div>
+    </div>
+  )
+
+  const formContent = (
+    <>
+      {/* ── FORM BODY — scrolls inside ModalShell's scroll container ── */}
+      <div className="px-5 space-y-5 pt-2 pb-4">
 
           {/* Daily Question Banner */}
           <AnimatePresence>
@@ -1149,54 +1191,6 @@ export default function MemoryForm({
             )}
           </AnimatePresence>
         </div>
-      </div>
-
-      {/* ── ACTION BAR — fixed at bottom of card (outside scroll) ── */}
-      <div
-        className="flex-shrink-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10"
-        style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
-      >
-        <div className="flex items-center gap-3">
-            <button
-            onClick={requestClose}
-              disabled={saving}
-            className="px-5 py-2.5 rounded-xl font-medium text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 touch-manipulation"
-            >
-              {t('cancel')}
-            </button>
-
-          <motion.button
-              onClick={handleSave}
-            disabled={saving || !formData.text.trim() || saveSuccess}
-            whileTap={!saving ? { scale: 0.97 } : {}}
-            className={`flex-1 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all disabled:cursor-not-allowed flex items-center justify-center gap-2 touch-manipulation ${
-              saveSuccess
-                ? 'bg-green-500 text-white shadow-lg shadow-green-500/25'
-                : formData.text.trim()
-                  ? 'gradient-primary text-white shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 active:shadow-md'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
-            }`}
-          >
-            {saveSuccess ? (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="flex items-center gap-2"
-              >
-                <Check size={16} />
-                <span>{t('saved', { defaultValue: 'Kaydedildi!' })}</span>
-              </motion.div>
-            ) : saving ? (
-                <>
-                  <LoadingSpinner size="sm" />
-                <span>{t('saving')}</span>
-                </>
-              ) : (
-                t('save')
-              )}
-          </motion.button>
-          </div>
-        </div>
 
       {/* Modals */}
         {showImageModal && (
@@ -1320,18 +1314,25 @@ export default function MemoryForm({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </>
   )
 
   if (presentation === 'screen') {
     return (
       <div
-        className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col"
-        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+        className="fixed inset-0 flex flex-col bg-white dark:bg-gray-800 z-50"
+        style={{
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        }}
       >
-        <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col bg-white dark:bg-gray-800 shadow-2xl overflow-hidden">
-          {formContent}
+        <div className="flex-shrink-0">{modalHeader}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div className="max-w-2xl mx-auto w-full">
+            {formContent}
+          </div>
         </div>
+        <div className="flex-shrink-0">{modalFooter}</div>
       </div>
     )
   }
@@ -1340,9 +1341,11 @@ export default function MemoryForm({
     <ModalShell
       isOpen={true}
       onClose={requestClose}
-      scroll={false}
+      scroll={true}
       panelClassName="p-0"
       className="z-[100]"
+      header={modalHeader}
+      footer={modalFooter}
     >
       {formContent}
     </ModalShell>

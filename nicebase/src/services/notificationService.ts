@@ -17,19 +17,28 @@ function notificationId(userId: string, prefix: number): number {
 }
 
 // Load Capacitor notification plugins - in native they're available via window, in web they're not
+//
+// IMPORTANT: These functions return plain wrapper objects, NOT the raw Capacitor plugin.
+// Returning a Capacitor plugin directly from an async function triggers the "thenable trap":
+// Promise.resolve(plugin) calls plugin.then(), causing "Plugin.then() is not implemented on android".
 async function loadPushNotifications() {
   if (!isNativePlatform()) return null
-  
+
   try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let p: any
     if (typeof window !== 'undefined') {
       const plugins = (window as WindowWithCapacitor).CapacitorPlugins
       if (plugins?.PushNotifications) {
-        return plugins.PushNotifications
+        p = plugins.PushNotifications
       }
     }
-    // Try dynamic import as fallback
-    const module = await import('@capacitor/push-notifications')
-    return module.PushNotifications
+    if (!p) {
+      const module = await import('@capacitor/push-notifications')
+      p = module.PushNotifications
+    }
+    // Plain wrapper — no .then() property, safe to return from async function
+    return { requestPermissions: () => p.requestPermissions() as Promise<{ receive: string }> }
   } catch {
     return null
   }
@@ -37,17 +46,27 @@ async function loadPushNotifications() {
 
 async function loadLocalNotifications() {
   if (!isNativePlatform()) return null
-  
+
   try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let p: any
     if (typeof window !== 'undefined') {
       const plugins = (window as WindowWithCapacitor).CapacitorPlugins
       if (plugins?.LocalNotifications) {
-        return plugins.LocalNotifications
+        p = plugins.LocalNotifications
       }
     }
-    // Try dynamic import as fallback
-    const module = await import('@capacitor/local-notifications')
-    return module.LocalNotifications
+    if (!p) {
+      const module = await import('@capacitor/local-notifications')
+      p = module.LocalNotifications
+    }
+    // Plain wrapper — no .then() property, safe to return from async function
+    return {
+      requestPermissions: () => p.requestPermissions() as Promise<{ display: string }>,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      schedule: (opts: any) => p.schedule(opts) as Promise<void>,
+      cancel: (opts: { notifications: { id: number }[] }) => p.cancel(opts) as Promise<void>,
+    }
   } catch {
     return null
   }
