@@ -736,13 +736,10 @@ export default function MemoryForm({
    *    - Expanded:  card grows until it hits maxHeight, then scrolls.
    * ═══════════════════════════════════════════════════ */
   const formContent = (
-    <div
-      className="flex-1 min-h-0 overflow-hidden"
-      style={{ display: 'grid', gridTemplateRows: 'auto 1fr auto' }}
-    >
+    <>
 
-      {/* ── HEADER ── */}
-      <div className="flex-shrink-0 bg-white dark:bg-gray-800 z-10">
+      {/* ── HEADER — sticky top so it never scrolls away ── */}
+      <div className="sticky top-0 z-20 bg-white dark:bg-gray-800">
         <div className="flex justify-center pt-2.5 pb-1 sm:hidden">
           <div className="w-9 h-1 rounded-full bg-gray-200 dark:bg-gray-600" />
         </div>
@@ -760,12 +757,8 @@ export default function MemoryForm({
               </div>
       </div>
 
-      {/* ── SCROLLABLE BODY ── */}
-      <div
-        className="overflow-y-auto overscroll-contain min-h-0"
-        style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
-      >
-        <div className="px-5 space-y-5 pt-2 pb-4">
+      {/* ── FORM BODY — scrolls inside ModalShell's scroll container ── */}
+      <div className="px-5 space-y-5 pt-2 pb-4">
 
           {/* Daily Question Banner */}
           <AnimatePresence>
@@ -1152,11 +1145,10 @@ export default function MemoryForm({
             )}
           </AnimatePresence>
         </div>
-      </div>
 
-      {/* ── ACTION BAR — fixed at bottom of card (outside scroll) ── */}
+      {/* ── ACTION BAR — sticky bottom so it never scrolls away ── */}
       <div
-        className="flex-shrink-0 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3 z-10"
+        className="sticky bottom-0 z-20 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3"
       >
         <div className="flex items-center gap-3">
             <button
@@ -1322,19 +1314,19 @@ export default function MemoryForm({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </>
   )
 
   if (presentation === 'screen') {
     return (
       <div
-        className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col"
+        className="h-screen overflow-y-auto bg-white dark:bg-gray-800"
         style={{
           paddingTop: 'env(safe-area-inset-top, 0px)',
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }}
       >
-        <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col bg-white dark:bg-gray-800 shadow-2xl overflow-hidden">
+        <div className="max-w-2xl mx-auto w-full">
           {formContent}
         </div>
       </div>
@@ -1345,7 +1337,7 @@ export default function MemoryForm({
     <ModalShell
       isOpen={true}
       onClose={requestClose}
-      scroll={false}
+      scroll={true}
       panelClassName="p-0"
       className="z-[100]"
     >
