@@ -18,6 +18,8 @@ const state: SyncState = {
   resumeHandler: null,
 }
 
+let syncInProgress = false
+
 async function safeSyncNow(userId: string) {
   if (syncInProgress) return // Skip if another sync is already running
   syncInProgress = true
