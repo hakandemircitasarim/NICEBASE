@@ -147,6 +147,8 @@ export default defineConfig({
         // @capacitor/core must be bundled — it provides registerPlugin() and the native bridge.
         // @capgo plugins also need it bundled so their imports resolve correctly.
         if (id === '@capacitor/core') return false
+        // @capacitor/app is statically imported in memorySyncService — must be bundled
+        if (id === '@capacitor/app') return false
         // Other @capacitor/* plugins are external — only loaded in native via dynamic import
         if (id.startsWith('@capacitor/')) return true
         return false
