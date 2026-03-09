@@ -897,7 +897,14 @@ export default function Aiya() {
         className="flex items-center justify-between container-padding py-4 sm:py-5 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 shadow-sm"
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}
       >
-        <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+          <button
+            onClick={() => navigate('/')}
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors touch-manipulation touch-target flex-shrink-0"
+            aria-label={t('back', { defaultValue: 'Geri' })}
+          >
+            <ChevronLeft size={24} />
+          </button>
           <AiyaAvatar size={40} />
           <div className="min-w-0 flex-1">
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 leading-tight">Aiya</h1>

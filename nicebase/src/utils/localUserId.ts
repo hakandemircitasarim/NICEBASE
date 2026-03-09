@@ -20,13 +20,13 @@ export function getLocalUserId(): string {
 
   try {
     let localUserId = localStorage.getItem(LOCAL_USER_ID_KEY)
-    
+
     if (!localUserId) {
       // Create a new local user ID
       localUserId = 'local-' + generateUUID()
       localStorage.setItem(LOCAL_USER_ID_KEY, localUserId)
     }
-    
+
     return localUserId
   } catch (error) {
     // Fallback if localStorage is not available
@@ -54,8 +54,40 @@ export function clearLocalUserId(): void {
 }
 
 /**
+ * Returns the count of local (offline) memories that would be migrated.
+ */
+export async function countLocalMemories(): Promise<number> {
+  try {
+    const localMemories = await db.memories
+      .filter((m) => m.userId.startsWith('local-') || m.userId.startsWith('local-user-'))
+      .count()
+    return localMemories
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Deletes all local (offline) memories permanently.
+ */
+export async function deleteLocalMemories(): Promise<void> {
+  try {
+    const localMemories = await db.memories
+      .filter((m) => m.userId.startsWith('local-') || m.userId.startsWith('local-user-'))
+      .toArray()
+    for (const m of localMemories) {
+      await db.memories.delete(m.id)
+    }
+    clearLocalUserId()
+  } catch {
+    // Best-effort
+  }
+}
+
+/**
  * Migrates local (offline) memories to a cloud user after login.
- * Re-assigns the userId field on all memories that belong to any local-* user.
+ * Re-assigns the userId field on all memories that belong to any local-* user
+ * and enqueues them for cloud sync.
  * Safe to call multiple times — skips if already migrated for this cloud user.
  */
 export async function migrateLocalMemories(cloudUserId: string): Promise<number> {
@@ -75,9 +107,13 @@ export async function migrateLocalMemories(cloudUserId: string): Promise<number>
       return 0
     }
 
-    // Re-assign to cloud user
+    // Re-assign to cloud user and enqueue for sync
+    const { addToSyncQueue } = await import('../services/syncQueueHelper')
     for (const m of localMemories) {
+      const updatedMemory = { ...m, userId: cloudUserId, synced: false }
       await db.memories.update(m.id, { userId: cloudUserId, synced: false })
+      // Enqueue a 'create' operation so syncAll() picks it up
+      await addToSyncQueue('create', updatedMemory, cloudUserId)
     }
 
     // Mark migration done for this cloud user
@@ -92,13 +128,3 @@ export async function migrateLocalMemories(cloudUserId: string): Promise<number>
     return 0
   }
 }
-
-
-
-
-
-
-
-
-
-

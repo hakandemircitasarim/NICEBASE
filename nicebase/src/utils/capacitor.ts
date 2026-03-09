@@ -248,6 +248,36 @@ export const initializeStatusBar = async (isDarkMode: boolean = false) => {
       console.warn('StatusBar initialization failed:', error)
     }
   }
+
+  // On Android with edge-to-edge (Capacitor 7+/8), env(safe-area-inset-top)
+  // may return 0 even though the status bar overlaps the WebView. Detect this
+  // and set a fallback CSS variable so body padding works correctly.
+  ensureSafeAreaTopVariable()
+}
+
+/**
+ * Detect if env(safe-area-inset-top) returns 0 on native Android
+ * and set a CSS variable fallback so body padding accounts for the status bar.
+ */
+function ensureSafeAreaTopVariable() {
+  if (typeof document === 'undefined') return
+
+  // Probe whether env(safe-area-inset-top) evaluates to a non-zero value
+  const probe = document.createElement('div')
+  probe.style.cssText =
+    'position:fixed;top:0;left:0;padding-top:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none'
+  document.body.appendChild(probe)
+  const envTop = parseFloat(getComputedStyle(probe).paddingTop) || 0
+  document.body.removeChild(probe)
+
+  if (envTop > 0) return // CSS env() works, nothing to do
+
+  // env(safe-area-inset-top) is 0 — the status bar likely overlays the WebView.
+  // Use screen.availTop if available; otherwise fall back to a reasonable
+  // default (Android status bar is typically 24dp which is ~24–48px
+  // depending on density, but the WebView already accounts for density).
+  const fallback = (window.screen as { availTop?: number }).availTop || 28
+  document.documentElement.style.setProperty('--safe-area-inset-top', `${fallback}px`)
 }
 
 /**
