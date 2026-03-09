@@ -107,11 +107,13 @@ export async function migrateLocalMemories(cloudUserId: string): Promise<number>
       return 0
     }
 
-    // Re-assign to cloud user and enqueue for sync
+    // Re-assign to cloud user and enqueue for sync + categorization
     const { addToSyncQueue } = await import('../services/syncQueueHelper')
+    const { memoryService } = await import('../services/memoryService')
+    const now = new Date().toISOString()
     for (const m of localMemories) {
-      const updatedMemory = { ...m, userId: cloudUserId, synced: false }
-      await db.memories.update(m.id, { userId: cloudUserId, synced: false })
+      const updatedMemory = { ...m, userId: cloudUserId, synced: false, updatedAt: now }
+      await db.memories.update(m.id, { userId: cloudUserId, synced: false, updatedAt: now })
       // Enqueue a 'create' operation so syncAll() picks it up
       await addToSyncQueue('create', updatedMemory, cloudUserId)
     }
@@ -121,6 +123,13 @@ export async function migrateLocalMemories(cloudUserId: string): Promise<number>
 
     // Clear old local user ID
     clearLocalUserId()
+
+    // Trigger AI categorization for migrated uncategorized memories (fire-and-forget)
+    for (const m of localMemories) {
+      if (m.category === 'uncategorized' && m.text?.trim()) {
+        memoryService._autoCategorize(m.id, m.text, cloudUserId).catch(() => {})
+      }
+    }
 
     return localMemories.length
   } catch {
