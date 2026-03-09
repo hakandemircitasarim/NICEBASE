@@ -20,29 +20,44 @@ interface ModalShellProps {
 }
 
 /**
- * Track the real visible viewport height via the VisualViewport API.
+ * Track the real visible viewport height via the VisualViewport API
+ * and detect whether the on-screen keyboard is open.
+ *
  * On Android WebView with adjustResize, CSS vh/dvh units may NOT update
  * when the keyboard opens, but visualViewport.height always reflects
  * the true visible area. Falls back to window.innerHeight.
+ *
+ * keyboardOpen is true when the viewport has shrunk by more than 100px
+ * compared to its maximum observed height (i.e. the keyboard appeared).
  */
-function useVisualViewportHeight(): number {
+function useVisualViewport(): { height: number; keyboardOpen: boolean } {
   const [height, setHeight] = useState(() => {
     if (typeof window !== 'undefined') {
       return window.visualViewport?.height ?? window.innerHeight
     }
     return 800
   })
+  // Track the largest viewport height we've ever seen.
+  // This is the "full" height without keyboard.
+  const maxHeightRef = useRef(height)
 
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) {
-      // Fallback: listen to resize
-      const onResize = () => setHeight(window.innerHeight)
+      const onResize = () => {
+        const h = window.innerHeight
+        if (h > maxHeightRef.current) maxHeightRef.current = h
+        setHeight(h)
+      }
       window.addEventListener('resize', onResize)
       return () => window.removeEventListener('resize', onResize)
     }
 
-    const onUpdate = () => setHeight(vv.height)
+    const onUpdate = () => {
+      const h = vv.height
+      if (h > maxHeightRef.current) maxHeightRef.current = h
+      setHeight(h)
+    }
     onUpdate()
     vv.addEventListener('resize', onUpdate)
     vv.addEventListener('scroll', onUpdate)
@@ -52,7 +67,8 @@ function useVisualViewportHeight(): number {
     }
   }, [])
 
-  return height
+  const keyboardOpen = maxHeightRef.current - height > 100
+  return { height, keyboardOpen }
 }
 
 /**
@@ -79,7 +95,7 @@ export default function ModalShell({
   useBodyScrollLock(isOpen)
   useModalPresence(isOpen)
   const previouslyFocusedRef = useRef<HTMLElement | null>(null)
-  const vpHeight = useVisualViewportHeight()
+  const { height: vpHeight, keyboardOpen } = useVisualViewport()
 
   // Escape closes (web convenience + accessibility)
   useEffect(() => {
@@ -230,7 +246,18 @@ export default function ModalShell({
                 {children}
               </div>
             )}
-            {footer && <div className="flex-shrink-0">{footer}</div>}
+            {footer && (
+              <div
+                className="flex-shrink-0"
+                style={{
+                  // Only add safe-area bottom padding when keyboard is CLOSED.
+                  // When keyboard is open, nav bar is behind the keyboard so no padding needed.
+                  paddingBottom: keyboardOpen ? 0 : 'env(safe-area-inset-bottom, 0px)',
+                }}
+              >
+                {footer}
+              </div>
+            )}
           </motion.div>
         </motion.div>
       )}

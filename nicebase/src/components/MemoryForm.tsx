@@ -773,10 +773,7 @@ export default function MemoryForm({
 
   /* ── MODAL FOOTER — rendered outside scroll container via ModalShell footer prop ── */
   const modalFooter = (
-    <div
-      className="bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3"
-      style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}
-    >
+    <div className="bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3">
       <div className="flex items-center gap-3">
         <button
           onClick={requestClose}
