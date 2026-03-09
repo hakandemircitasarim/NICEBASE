@@ -75,14 +75,11 @@ export class ErrorBoundary extends Component<Props, State> {
               {this.safeTranslate('errorOccurredMessage', 'Üzgünüm, beklenmeyen bir hata oluştu. Lütfen sayfayı yenileyin.')}
             </p>
             {this.state.error && (
-              <details className="mb-4 text-xs text-gray-500 dark:text-gray-400">
-                <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
-                  {this.safeTranslate('errorDetails', 'Hata Detayları')}
-                </summary>
-                <pre className="mt-2 p-2 bg-gray-100 dark:bg-gray-900 rounded overflow-auto">
-                  {this.state.error.message}
-                </pre>
-              </details>
+              <pre className="mb-4 p-2 bg-gray-100 dark:bg-gray-900 rounded overflow-auto text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-all">
+                {this.state.error.message}
+                {'\n'}
+                {this.state.error.stack}
+              </pre>
             )}
             <div className="flex gap-3">
               <button

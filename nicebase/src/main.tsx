@@ -15,6 +15,20 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
   }
 }
 
+// Show fatal errors before React mounts
+window.addEventListener('error', (e) => {
+  const el = document.getElementById('app')
+  if (el && (!el.children.length || el.innerHTML === '')) {
+    el.innerHTML = `<pre style="color:red;padding:16px;font-size:12px;white-space:pre-wrap;word-break:break-all">${e.message}\n${e.error?.stack || ''}</pre>`
+  }
+})
+window.addEventListener('unhandledrejection', (e) => {
+  const el = document.getElementById('app')
+  if (el && (!el.children.length || el.innerHTML === '')) {
+    el.innerHTML = `<pre style="color:red;padding:16px;font-size:12px;white-space:pre-wrap;word-break:break-all">Unhandled: ${e.reason}</pre>`
+  }
+})
+
 const container = document.getElementById('app')
 
 if (!container) {
