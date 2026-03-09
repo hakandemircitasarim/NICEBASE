@@ -13,6 +13,7 @@ import { notificationService } from '../services/notificationService'
 import { compressImage } from '../utils/imageUtils'
 import ImageModal from './ImageModal'
 import { hapticFeedback } from '../utils/haptic'
+import { isNative, setBackButtonHandler } from '../utils/capacitor'
 import { errorLoggingService } from '../services/errorLoggingService'
 import LoadingSpinner from './LoadingSpinner'
 import ConfirmationDialog from './ConfirmationDialog'
@@ -644,6 +645,20 @@ export default function MemoryForm({
     }
     onClose()
   }
+
+  // Use a ref so the back button handler always calls the latest requestClose
+  const requestCloseRef = useRef(requestClose)
+  requestCloseRef.current = requestClose
+
+  // Handle Android back button to close the modal
+  useEffect(() => {
+    if (!isNative()) return
+    setBackButtonHandler(() => {
+      requestCloseRef.current()
+      return true
+    })
+    return () => setBackButtonHandler(null)
+  }, [])
 
   const questionText = dailyQuestion
     ? dailyQuestionService.getLocalizedQuestion(dailyQuestion)
@@ -1342,6 +1357,7 @@ export default function MemoryForm({
       isOpen={true}
       onClose={requestClose}
       scroll={true}
+      autoHeight={true}
       panelClassName="p-0"
       className="z-[100]"
       header={modalHeader}
