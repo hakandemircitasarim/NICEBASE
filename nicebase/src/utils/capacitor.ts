@@ -235,24 +235,37 @@ export const initializeStatusBar = async (isDarkMode: boolean = false) => {
       color: backgroundColor,
     })
 
-    // Ensure status bar doesn't overlay the WebView content
+    // On Android 15+ (API 35), setOverlaysWebView is ignored because
+    // edge-to-edge is enforced. The native MainActivity now handles insets
+    // via ViewCompat.setOnApplyWindowInsetsListener, so we only call this
+    // for older Android / iOS as a best-effort.
     try {
       const module = await import('@capacitor/status-bar')
       await module.StatusBar.setOverlaysWebView({ overlay: false })
     } catch {
-      // setOverlaysWebView not available — handled by native config
+      // Not available — handled by native insets listener
     }
   } catch (error) {
-    // StatusBar initialization failed - non-critical
     if (import.meta.env.DEV) {
       console.warn('StatusBar initialization failed:', error)
     }
   }
 
-  // On Android with edge-to-edge (Capacitor 7+/8), env(safe-area-inset-top)
-  // may return 0 even though the status bar overlaps the WebView. Detect this
-  // and set a fallback CSS variable so body padding works correctly.
-  ensureSafeAreaTopVariable()
+  // iOS still needs CSS env() values; Android insets are handled natively
+  // by ViewCompat.setOnApplyWindowInsetsListener in MainActivity.
+  if (isIOS()) {
+    ensureSafeAreaTopVariable()
+  }
+
+  if (isAndroid()) {
+    // Native side pads the WebView directly, so zero out CSS safe-area
+    // variables to prevent double padding.
+    const root = document.documentElement
+    root.style.setProperty('--safe-area-inset-top', '0px')
+    root.style.setProperty('--safe-area-inset-bottom', '0px')
+    root.style.setProperty('--safe-area-inset-left', '0px')
+    root.style.setProperty('--safe-area-inset-right', '0px')
+  }
 }
 
 /**

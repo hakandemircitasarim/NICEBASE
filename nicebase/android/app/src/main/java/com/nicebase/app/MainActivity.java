@@ -4,7 +4,11 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
 import ee.forgr.capacitor.social.login.ModifiedMainActivityForSocialLoginPlugin;
 
@@ -17,10 +21,19 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Capacitor 8 defaults to edge-to-edge (content goes behind system bars).
-        // Opt out so the WebView content stays below the status bar and above the
-        // navigation bar, matching the traditional Android layout.
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+        // Android 15 (API 35) enforces edge-to-edge — setDecorFitsSystemWindows(true)
+        // is ignored. Instead, apply actual system-bar insets as padding on the WebView
+        // so content never renders behind the status bar or navigation bar.
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+
+        View webView = getBridge().getWebView();
+        ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
+            Insets insets = windowInsets.getInsets(
+                WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars()
+            );
+            view.setPadding(insets.left, insets.top, insets.right, insets.bottom);
+            return WindowInsetsCompat.CONSUMED;
+        });
 
         // Create notification channels for Android 8.0+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
