@@ -1357,7 +1357,7 @@ export default function MemoryForm({
       isOpen={true}
       onClose={requestClose}
       scroll={true}
-      autoHeight={false}
+      autoHeight={true}
       panelClassName="p-0"
       className="z-[100]"
       header={modalHeader}

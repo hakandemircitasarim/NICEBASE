@@ -43,6 +43,13 @@
     padding-right: 0;
   }
 
+  /* Android native: reduce page-level top padding since the native status bar
+     inset already provides spacing. py-8 (2rem) + native inset (~24dp) is too
+     much; override to a compact value so total top spacing feels natural. */
+  html.native-android main > div {
+    padding-top: 0.5rem !important;
+  }
+
   /* Theme transition only on body background — avoids mass re-paint on theme toggle */
 
   /* Typography improvements for mobile readability - Fluid Typography */
