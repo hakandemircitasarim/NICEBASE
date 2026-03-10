@@ -24,12 +24,23 @@
       sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Safe-area padding for web & iOS. On Android, native content-view
+       padding handles this — the .native-android class disables it. */
     padding-top: var(--safe-area-inset-top);
     padding-bottom: var(--safe-area-inset-bottom);
     padding-left: var(--safe-area-inset-left);
     padding-right: var(--safe-area-inset-right);
     line-height: 1.6;
     font-size: 16px;
+  }
+
+  /* Android native: content-view padding already accounts for system bars,
+     so zero out body safe-area padding to prevent doubling. */
+  html.native-android body {
+    padding-top: 0;
+    padding-bottom: 0;
+    padding-left: 0;
+    padding-right: 0;
   }
 
   /* Theme transition only on body background — avoids mass re-paint on theme toggle */
