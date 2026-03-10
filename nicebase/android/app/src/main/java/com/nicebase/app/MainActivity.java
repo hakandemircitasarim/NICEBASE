@@ -21,13 +21,13 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Android 15 (API 35) enforces edge-to-edge. Apply system bar insets
-        // as padding on the root content view so the WebView never renders
-        // behind the status bar or navigation bar.
+        // Android 15 (API 35) enforces edge-to-edge. Apply only the status bar
+        // inset as top padding so content doesn't render behind it. Bottom is not
+        // padded — the app's fixed bottom nav already sits above the system nav bar.
         View contentView = findViewById(android.R.id.content);
         ViewCompat.setOnApplyWindowInsetsListener(contentView, (view, windowInsets) -> {
-            Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
-            view.setPadding(insets.left, insets.top, insets.right, insets.bottom);
+            Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.statusBars());
+            view.setPadding(0, insets.top, 0, 0);
             return windowInsets;
         });
 
