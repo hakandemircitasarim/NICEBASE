@@ -1,6 +1,6 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
@@ -8,11 +8,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig({
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    include: ['src/**/*.test.{ts,tsx}'],
-  },
   css: {
     postcss: __dirname, // Resolve PostCSS/Tailwind config from project root
   },
