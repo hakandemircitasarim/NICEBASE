@@ -201,7 +201,7 @@ export default function ModalShell({
           style={{
             // On desktop (sm+), keep safe-area padding. On mobile the panel
             // extends to the bottom edge so we only need top padding.
-            paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))',
+            paddingTop: 'max(0.5rem, var(--safe-area-inset-top, 0px))',
           }}
         >
           <motion.div
@@ -252,7 +252,7 @@ export default function ModalShell({
                 style={{
                   // Only add safe-area bottom padding when keyboard is CLOSED.
                   // When keyboard is open, nav bar is behind the keyboard so no padding needed.
-                  paddingBottom: keyboardOpen ? 0 : 'env(safe-area-inset-bottom, 0px)',
+                  paddingBottom: keyboardOpen ? 0 : 'var(--safe-area-inset-bottom, 0px)',
                 }}
               >
                 {footer}

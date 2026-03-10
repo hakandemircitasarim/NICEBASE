@@ -43,7 +43,7 @@ const config: CapacitorConfig = {
     StatusBar: {
       overlaysWebView: false,
       style: 'dark',
-      backgroundColor: '#ffffff',
+      backgroundColor: '#F9FAFB',
     },
     SocialLogin: {
       providers: {

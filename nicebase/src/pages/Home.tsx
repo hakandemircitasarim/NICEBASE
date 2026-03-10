@@ -32,7 +32,7 @@ export default function Home() {
   const [streak, setStreak] = useState({ currentStreak: 0, longestStreak: 0, lastMemoryDate: null as string | null, streakStartDate: null as string | null })
   const [showForm, setShowForm] = useState(false)
   const [editingMemory, setEditingMemory] = useState<Memory | undefined>()
-  const [fabBottom, setFabBottom] = useState('calc(88px + env(safe-area-inset-bottom, 0px))')
+  const [fabBottom, setFabBottom] = useState('calc(88px + var(--safe-area-inset-bottom, 0px))')
   const skipBreathingRef = useRef<null | (() => void)>(null)
 
   // Daily question state
@@ -147,9 +147,9 @@ export default function Home() {
         const navBar = document.querySelector('nav[class*="fixed bottom-0"]')
         if (navBar) {
           const navHeight = navBar.getBoundingClientRect().height
-          setFabBottom(`calc(${navHeight}px + env(safe-area-inset-bottom, 0px) + 1.5rem)`)
+          setFabBottom(`calc(${navHeight}px + var(--safe-area-inset-bottom, 0px) + 1.5rem)`)
         } else {
-          setFabBottom('calc(88px + env(safe-area-inset-bottom, 0px) + 1.5rem)')
+          setFabBottom('calc(88px + var(--safe-area-inset-bottom, 0px) + 1.5rem)')
         }
       }, 100)
     }
