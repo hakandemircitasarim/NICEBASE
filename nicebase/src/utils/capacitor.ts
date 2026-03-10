@@ -251,42 +251,20 @@ export const initializeStatusBar = async (isDarkMode: boolean = false) => {
     }
   }
 
-  // iOS still needs CSS env() values; Android insets are handled natively
-  // by MainActivity injecting CSS variables via evaluateJavascript.
+  // iOS still needs CSS env() values for safe areas.
   if (isIOS()) {
     ensureSafeAreaTopVariable()
   }
 
-  // On Android, MainActivity injects --safe-area-inset-* CSS variables from
-  // native WindowInsets (via evaluateJavascript with delays). As a fallback,
-  // also try to read them from window.__SAFE_AREA_INSETS if the delayed
-  // injection already ran, or use ensureSafeAreaTopVariable() heuristic.
+  // On Android, native content view padding handles safe areas.
+  // Zero out CSS variables to prevent double padding.
   if (isAndroid()) {
-    applySafeAreaFromNativeInsets()
-  }
-}
-
-/**
- * On Android, read insets that MainActivity injected into
- * window.__SAFE_AREA_INSETS and apply them as CSS variables.
- * Falls back to ensureSafeAreaTopVariable() heuristic.
- */
-function applySafeAreaFromNativeInsets() {
-  if (typeof document === 'undefined') return
-
-  const win = window as unknown as { __SAFE_AREA_INSETS?: { top: number; bottom: number; left: number; right: number } }
-  if (win.__SAFE_AREA_INSETS) {
-    const insets = win.__SAFE_AREA_INSETS
     const root = document.documentElement
-    root.style.setProperty('--safe-area-inset-top', `${insets.top}px`)
-    root.style.setProperty('--safe-area-inset-bottom', `${insets.bottom}px`)
-    root.style.setProperty('--safe-area-inset-left', `${insets.left}px`)
-    root.style.setProperty('--safe-area-inset-right', `${insets.right}px`)
-    return
+    root.style.setProperty('--safe-area-inset-top', '0px')
+    root.style.setProperty('--safe-area-inset-bottom', '0px')
+    root.style.setProperty('--safe-area-inset-left', '0px')
+    root.style.setProperty('--safe-area-inset-right', '0px')
   }
-
-  // Native injection hasn't fired yet — fall back to heuristic
-  ensureSafeAreaTopVariable()
 }
 
 /**
