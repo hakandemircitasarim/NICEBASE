@@ -229,8 +229,8 @@ export const initializeStatusBar = async (isDarkMode: boolean = false) => {
       style: isDarkMode ? 'light' : 'dark',
     })
 
-    // Set background color based on theme
-    const backgroundColor = isDarkMode ? '#1f2937' : '#ffffff'
+    // Set background color to match body background (gray-50 light / gray-900 dark)
+    const backgroundColor = isDarkMode ? '#111827' : '#F9FAFB'
     await StatusBar.setBackgroundColor({
       color: backgroundColor,
     })

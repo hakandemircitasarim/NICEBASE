@@ -2,6 +2,8 @@ package com.nicebase.app;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.res.Configuration;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
@@ -24,6 +26,13 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         // system bars by default. Apply system-bar insets as padding on the root
         // content view (not the WebView — Capacitor resets WebView padding).
         View contentView = findViewById(android.R.id.content);
+
+        // Match content view background to app body so the padding areas
+        // (behind status bar and navigation bar) blend seamlessly.
+        boolean isDark = (getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        contentView.setBackgroundColor(Color.parseColor(isDark ? "#111827" : "#F9FAFB"));
+
         ViewCompat.setOnApplyWindowInsetsListener(contentView, (view, windowInsets) -> {
             Insets insets = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars()
