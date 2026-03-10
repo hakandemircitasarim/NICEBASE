@@ -8,6 +8,8 @@
     "dev:android": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "cap:sync": "npx cap sync android",
     "cap:open:android": "npx cap open android",
     "cap:run:android": "npx cap run android",
@@ -22,11 +24,15 @@
   "devDependencies": {
     "@capacitor/android": "^8.0.0",
     "@capacitor/cli": "^8.0.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "jsdom": "^28.1.0",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.9.3",
     "vite": "^7.2.4",
     "vite-plugin-pwa": "^1.2.0",
+    "vitest": "^4.0.18",
     "workbox-window": "^7.4.0"
   },
   "dependencies": {
