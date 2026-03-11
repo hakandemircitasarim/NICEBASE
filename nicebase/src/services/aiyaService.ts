@@ -111,13 +111,13 @@ async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
     }
 
     const message = detail || err.message || 'Edge Function error'
-    console.error('[aiyaService] Function error:', message)
+    if (import.meta.env.DEV) console.error('[aiyaService] Function error:', message)
     throw new Error(message)
   }
 
   // Handle case where data might be null/undefined
   if (!response.data) {
-    console.error('[aiyaService] Function returned empty data')
+    if (import.meta.env.DEV) console.error('[aiyaService] Function returned empty data')
     throw new Error('Aiya yanıt vermedi')
   }
 
@@ -126,10 +126,10 @@ async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
   if (data instanceof Blob) {
     try {
       const text = await data.text()
-      console.warn('[aiyaService] Response was Blob, converting. Size:', data.size, 'Preview:', text.slice(0, 100))
+      if (import.meta.env.DEV) console.warn('[aiyaService] Response was Blob, converting. Size:', data.size, 'Preview:', text.slice(0, 100))
       data = JSON.parse(text)
     } catch (blobErr) {
-      console.error('[aiyaService] Failed to parse Blob response:', blobErr)
+      if (import.meta.env.DEV) console.error('[aiyaService] Failed to parse Blob response:', blobErr)
       throw new Error('Aiya yanıtı okunamadı (Blob)')
     }
   }
@@ -139,7 +139,7 @@ async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
     try {
       data = JSON.parse(data)
     } catch {
-      console.error('[aiyaService] Failed to parse response string:', data)
+      if (import.meta.env.DEV) console.error('[aiyaService] Failed to parse response string:', data)
       throw new Error('Aiya yanıtı okunamadı')
     }
   }
@@ -162,21 +162,18 @@ async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
         offset += chunk.length
       }
       const streamText = new TextDecoder().decode(merged)
-      console.warn('[aiyaService] Response was ReadableStream, converted. Preview:', streamText.slice(0, 100))
+      if (import.meta.env.DEV) console.warn('[aiyaService] Response was ReadableStream, converted. Preview:', streamText.slice(0, 100))
       data = JSON.parse(streamText)
     } catch (streamErr) {
-      console.error('[aiyaService] Failed to parse ReadableStream response:', streamErr)
+      if (import.meta.env.DEV) console.error('[aiyaService] Failed to parse ReadableStream response:', streamErr)
       throw new Error('Aiya yanıtı okunamadı (Stream)')
     }
   }
 
-  // Log the actual data type for debugging
-  console.warn('[aiyaService] Data type:', typeof data, '| constructor:', data?.constructor?.name, '| keys:', data && typeof data === 'object' ? Object.keys(data as Record<string, unknown>).join(',') : 'N/A')
-
   // Check if the function returned an error in the body (e.g. 429 usage limit)
   if (data && typeof data === 'object' && 'error' in data && !('reply' in data) && !('category' in data) && !('analysis' in data) && !('profile' in data)) {
     const errorMsg = (data as { error: string }).error
-    console.error('[aiyaService] Function returned error in body:', errorMsg)
+    if (import.meta.env.DEV) console.error('[aiyaService] Function returned error in body:', errorMsg)
     throw new Error(errorMsg || 'Aiya hatası')
   }
 

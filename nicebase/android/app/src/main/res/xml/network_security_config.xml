@@ -1,11 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Emülatörde live reload için 10.0.2.2 (host makinenin localhost'u) HTTP'ye izin ver -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">10.0.2.2</domain>
-    </domain-config>
-    <!-- Gerçek cihazda live reload kullanıyorsan kendi IP'ni buraya ekle -->
-    <!-- <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">192.168.1.X</domain>
-    </domain-config> -->
+    <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

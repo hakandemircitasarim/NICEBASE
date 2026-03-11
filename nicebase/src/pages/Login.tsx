@@ -239,7 +239,7 @@ export default function Login() {
           )
 
           if (dbError) {
-            console.warn('[Login] User upsert warning:', dbError.message)
+            if (import.meta.env.DEV) console.warn('[Login] User upsert warning:', dbError.message)
           }
 
           // Fetch user record

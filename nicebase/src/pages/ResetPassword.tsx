@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { KeyRound } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import LoadingSpinner from '../components/LoadingSpinner'
 
 export default function ResetPassword() {
   const { t } = useTranslation()
@@ -19,12 +20,12 @@ export default function ResetPassword() {
     setError(null)
 
     if (password.length < 6) {
-      setError(t('passwordTooShort') || 'Şifre en az 6 karakter olmalıdır.')
+      setError(t('passwordTooShort'))
       return
     }
 
     if (password !== confirmPassword) {
-      setError(t('passwordsDoNotMatch') || 'Şifreler eşleşmiyor.')
+      setError(t('passwordsDoNotMatch'))
       return
     }
 
@@ -55,21 +56,21 @@ export default function ResetPassword() {
             <KeyRound className="text-primary" size={20} />
           </div>
           <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
-            {t('resetPassword') || 'Şifre Sıfırlama'}
+            {t('resetPassword')}
           </h1>
         </div>
 
         {success ? (
           <div className="text-center py-4">
             <p className="text-green-600 dark:text-green-400 font-semibold">
-              {t('passwordResetSuccess') || 'Şifreniz başarıyla güncellendi! Yönlendiriliyorsunuz...'}
+              {t('passwordResetSuccess')}
             </p>
           </div>
         ) : (
           <form onSubmit={handleReset} className="space-y-4">
             <div>
               <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">
-                {t('newPassword') || 'Yeni Şifre'}
+                {t('newPassword')}
               </label>
               <input
                 type="password"
@@ -82,7 +83,7 @@ export default function ResetPassword() {
             </div>
             <div>
               <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">
-                {t('confirmNewPassword') || 'Yeni Şifre (Tekrar)'}
+                {t('confirmNewPassword')}
               </label>
               <input
                 type="password"
@@ -101,11 +102,16 @@ export default function ResetPassword() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 rounded-xl bg-primary text-white font-semibold hover:bg-primary-dark disabled:opacity-50 transition-colors"
+              className="w-full py-3 rounded-xl bg-primary text-white font-semibold hover:bg-primary-dark disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
             >
-              {loading
-                ? (t('loading') || 'Güncelleniyor...')
-                : (t('updatePassword') || 'Şifreyi Güncelle')}
+              {loading ? (
+                <>
+                  <LoadingSpinner size="sm" />
+                  <span>{t('loading')}</span>
+                </>
+              ) : (
+                t('updatePassword')
+              )}
             </button>
           </form>
         )}

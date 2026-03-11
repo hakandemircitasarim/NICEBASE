@@ -773,8 +773,6 @@ export default function Aiya() {
     // Use overrideChatId if provided (from handleChip), otherwise use activeChatId from closure
     const targetChatId = overrideChatId ?? activeChatId
 
-    console.warn('[Aiya] handleSend START — targetChatId:', targetChatId, '| activeChatId:', activeChatId, '| text:', text.slice(0, 30))
-
     setInput('')
     // Clear draft on send
     if (targetChatId) saveDraft(targetChatId, '')
@@ -783,8 +781,6 @@ export default function Aiya() {
     const userMsg: AiyaMessage = { role: 'user', content: text, ts: Date.now() }
 
     setChats((prev) => {
-      const found = prev.some((c) => c.id === targetChatId)
-      console.warn('[Aiya] Adding USER msg — chatFound:', found, '| targetChatId:', targetChatId, '| chats:', prev.length, '| chatIds:', prev.map(c => c.id.slice(0, 8)).join(','))
       return prev.map((c) => {
         if (c.id !== targetChatId) return c
         const updated = trimMessages([...c.messages, userMsg])
@@ -799,25 +795,17 @@ export default function Aiya() {
       // so the old approach of reading via setChats((prev) => ...) returned []
       const currentChat = chatsRef.current.find((c) => c.id === targetChatId)
       const history = currentChat ? trimMessages(currentChat.messages) : []
-      console.warn('[Aiya] Calling sendMessage — history length:', history.length, '| memories:', memories.length)
       const res = await aiyaService.sendMessage({ message: text, history, memories, locale, systemPrompt })
 
       // Guard against missing reply
       const replyText = res?.reply
-      console.warn('[Aiya] Got reply — type:', typeof replyText, '| length:', typeof replyText === 'string' ? replyText.length : 'N/A', '| preview:', typeof replyText === 'string' ? replyText.slice(0, 50) : String(replyText))
       if (!replyText || typeof replyText !== 'string') {
-        console.error('[Aiya] Invalid response - no reply field:', JSON.stringify(res).slice(0, 200))
         throw new Error(t('aiyaError', { defaultValue: 'Aiya yanıt veremedi, tekrar dene.' }))
       }
 
       const aiyaMsg: AiyaMessage = { role: 'assistant', content: cleanMarkdown(replyText), ts: Date.now() }
 
       setChats((prev) => {
-        const found = prev.some((c) => c.id === targetChatId)
-        console.warn('[Aiya] Adding AI msg — chatFound:', found, '| targetChatId:', targetChatId, '| chats:', prev.length, '| chatIds:', prev.map(c => c.id.slice(0, 8)).join(','))
-        if (!found) {
-          console.error('[Aiya] CRITICAL: Chat not found in state! AI message will be LOST. targetChatId:', targetChatId)
-        }
         return prev.map((c) => {
           if (c.id !== targetChatId) return c
           const updated = trimMessages([...c.messages, aiyaMsg])
@@ -838,7 +826,7 @@ export default function Aiya() {
       void maybeUpdateProfile([...history, aiyaMsg])
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      console.error('[Aiya] sendMessage failed:', msg, err)
+      if (import.meta.env.DEV) console.error('[Aiya] sendMessage failed:', msg, err)
       setErrorMessage(msg || t('aiyaError'))
     } finally {
       setSending(false)
