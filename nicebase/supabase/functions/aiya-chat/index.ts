@@ -13,10 +13,11 @@ const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || SUPABASE_SERVICE_RO
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || ''
 
 const MODEL = 'gpt-4o'
-const CHAT_MAX_TOKENS = 1200
-const CHAT_TEMPERATURE = 0.85
-const CHAT_FREQUENCY_PENALTY = 0.3
-const CHAT_PRESENCE_PENALTY = 0.4
+const CHAT_MAX_TOKENS = 1500
+const CHAT_TEMPERATURE = 0.88
+const CHAT_FREQUENCY_PENALTY = 0.35
+const CHAT_PRESENCE_PENALTY = 0.5
+const CHAT_TOP_P = 0.92
 const DEFAULT_LIMIT = 50
 const ALLOWED_CATEGORIES = [
   'success',
@@ -93,6 +94,7 @@ async function callOpenAI(params: {
   temperature: number
   frequencyPenalty?: number
   presencePenalty?: number
+  topP?: number
 }) {
   const body: Record<string, unknown> = {
     model: MODEL,
@@ -102,6 +104,7 @@ async function callOpenAI(params: {
   }
   if (params.frequencyPenalty !== undefined) body.frequency_penalty = params.frequencyPenalty
   if (params.presencePenalty !== undefined) body.presence_penalty = params.presencePenalty
+  if (params.topP !== undefined) body.top_p = params.topP
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -396,16 +399,26 @@ Memory: ${message}`
     if (action === 'analysis') {
       if (!memoryContext) return jsonResponse({ error: 'No memories for analysis' }, 400)
       const memoryBlock = systemPromptHasPlaceholder ? '' : `\n\nMemories:\n${memoryContext}`
-      const prompt = `Provide a concise analysis of the user's memories. Return JSON only with keys:
-emotionalTrends (string), standoutMemories (array of short strings), patterns (string), recommendations (string).
-Language: ${langHint}.${memoryBlock}`
+      const prompt = `You are a deeply insightful emotional intelligence analyst. Analyze this person's memories with extraordinary depth and nuance. Look for:
+
+1. EMOTIONAL TRENDS: What's the emotional arc of their life recently? Are they on an upswing or downswing? What emotions dominate? What's missing? Be specific with dates and patterns.
+
+2. STANDOUT MEMORIES: Which memories are the most emotionally significant? Look at intensity scores, CORE flags, and the emotional weight of the text. Pick the ones that define who this person is.
+
+3. PATTERNS: What recurring themes do you see? Same people appearing? Same life areas? Same emotional states? What time-based patterns exist (weekdays vs weekends, morning vs evening)? What life areas are over/under-represented?
+
+4. RECOMMENDATIONS: Based on everything, what specific, actionable insights would genuinely help this person? Don't give generic advice. Reference their actual memories and patterns. What should they do more of? Less of? Who should they spend more time with? What life areas need attention?
+
+Return JSON with keys: emotionalTrends (string, 2-3 paragraphs), standoutMemories (array of strings with dates and context), patterns (string, 2-3 paragraphs), recommendations (string, specific and actionable).
+Language: ${langHint}. Be warm, insightful, and genuinely helpful - not clinical.${memoryBlock}`
       const content = await callOpenAI({
         messages: [
-          { role: 'system', content: system || `You are Aiya. Respond in ${langHint}.` },
+          { role: 'system', content: system || `You are Aiya, a deeply perceptive emotional analyst. You see patterns others miss. Respond in ${langHint}.` },
           { role: 'user', content: prompt },
         ],
-        maxTokens: 600,
-        temperature: 0.4,
+        maxTokens: 1200,
+        temperature: 0.45,
+        topP: 0.9,
       })
       const parsed = safeJsonParse(content)
       let analysis = parsed
@@ -440,28 +453,55 @@ Language: ${langHint}.${memoryBlock}`
               .map((item) => `${item.role.toUpperCase()}: ${item.content}`)
               .join('\n')}`
           : ''
-      const prompt = `Build a deep psychological profile of this user based on their memories and conversations. This profile will be used to make future conversations deeply personal. Include:
+      const prompt = `Build an extraordinarily detailed psychological profile of this user. This profile is your memory — it will be injected into every future conversation to make you feel like you truly KNOW this person. Write it as dense notes to yourself.
 
-1. Core personality traits (from how they write, what they share)
-2. Key people in their life (names, relationships, recurring mentions)
-3. Emotional patterns (what makes them happy/sad/anxious, recurring themes)
-4. Values and priorities (what they care most about)
-5. Communication style (humor level, openness, depth preference)
-6. Current life situation (what's going on lately, mood trends)
-7. Interests and passions
-8. Sensitive topics (things to approach carefully)
+MUST INCLUDE (if evidence exists):
 
-Be specific — use names, dates, exact references from memories. Do NOT make up facts. If something is unknown, skip it. Keep under 1500 characters.
+1. IDENTITY & PERSONALITY
+   - Core traits (introvert/extrovert, optimist/realist, analytical/emotional)
+   - How they express themselves (writing style, humor type, emotional openness)
+   - What makes them unique as a person
+
+2. INNER CIRCLE (with specific names)
+   - Romantic partner (name, relationship dynamics, how they talk about them)
+   - Family members (names, relationships, dynamics)
+   - Close friends (names, what they do together)
+   - Colleagues/mentors (if mentioned)
+
+3. EMOTIONAL LANDSCAPE
+   - What genuinely makes them happy (with memory references)
+   - What causes stress/anxiety/sadness
+   - How they handle difficult emotions
+   - Their emotional growth trajectory
+
+4. VALUES & WORLDVIEW
+   - What they care most deeply about
+   - Their life philosophy (even if unstated — infer from patterns)
+   - What motivates them
+
+5. CURRENT CHAPTER
+   - What's happening in their life RIGHT NOW
+   - Recent mood trajectory (improving? declining? stable?)
+   - What they might be struggling with but not saying directly
+
+6. CONVERSATION PREFERENCES
+   - Do they prefer deep or light conversations?
+   - How much humor do they appreciate?
+   - Are there sensitive topics to approach carefully?
+   - Do they want advice or just to be heard?
+
+RULES: Be SPECIFIC — use names, dates, exact references. NEVER invent facts. If unknown, skip. Write in dense paragraph format, not bullet points. Keep under 2000 characters.
 Language: ${langHint}.` +
         (memoryContext ? `\n\nMemories:\n${memoryContext}` : '') +
         conversationBlock
       const content = await callOpenAI({
         messages: [
-          { role: 'system', content: `You are a psychologically astute profile builder. Analyze deeply but never invent facts. Respond in ${langHint}.` },
+          { role: 'system', content: `You are building a psychological profile that will serve as persistent memory for an AI companion. Be extraordinarily perceptive — notice what's said AND what's not said. Write dense, insightful notes. Never invent facts. Respond in ${langHint}.` },
           { role: 'user', content: prompt },
         ],
-        maxTokens: 800,
-        temperature: 0.3,
+        maxTokens: 1000,
+        temperature: 0.35,
+        topP: 0.9,
       })
 
       if (countUsage !== false) {
@@ -492,6 +532,7 @@ Language: ${langHint}.` +
       temperature: CHAT_TEMPERATURE,
       frequencyPenalty: CHAT_FREQUENCY_PENALTY,
       presencePenalty: CHAT_PRESENCE_PENALTY,
+      topP: CHAT_TOP_P,
     })
 
     if (countUsage !== false) {

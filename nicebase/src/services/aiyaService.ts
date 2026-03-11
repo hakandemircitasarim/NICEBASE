@@ -48,6 +48,7 @@ const FUNCTION_NAME = 'aiya-chat'
 const REQUEST_TIMEOUT_MS = 30000
 const MAX_CONTEXT_MEMORIES = 60
 const MAX_CONTEXT_CHARS = 12000
+const STATS_HEADER_BUDGET = 800
 
 let lastSessionCheckAt = 0
 let lastSessionOk = false
@@ -66,12 +67,104 @@ async function hasActiveSessionCached(): Promise<boolean> {
   }
 }
 
+function buildMemoryStats(memories: Memory[]): string {
+  if (memories.length < 3) return ''
+
+  const now = new Date()
+  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+  // Category distribution
+  const catCounts: Record<string, number> = {}
+  const areaCounts: Record<string, number> = {}
+  const connectionCounts: Record<string, number> = {}
+  let coreCount = 0
+  let recentCount = 0
+  let thisMonthCount = 0
+  let totalIntensity = 0
+  let intensityCount = 0
+  const recentMoods: string[] = []
+
+  for (const m of memories) {
+    const mDate = new Date(m.date)
+
+    // Categories
+    const cat = m.category && m.category !== 'uncategorized' ? m.category : null
+    if (cat) catCounts[cat] = (catCounts[cat] || 0) + 1
+
+    // Life areas
+    const area = m.lifeArea && m.lifeArea !== 'uncategorized' ? m.lifeArea : null
+    if (area) areaCounts[area] = (areaCounts[area] || 0) + 1
+
+    // Connections
+    if (m.connections?.length) {
+      for (const c of m.connections) {
+        connectionCounts[c] = (connectionCounts[c] || 0) + 1
+      }
+    }
+
+    // Core & intensity
+    if (m.isCore) coreCount++
+    if (m.intensity) {
+      totalIntensity += m.intensity
+      intensityCount++
+    }
+
+    // Recent
+    if (mDate >= oneWeekAgo) {
+      recentCount++
+      if (cat) recentMoods.push(cat)
+    }
+    if (mDate >= oneMonthAgo) thisMonthCount++
+  }
+
+  const parts: string[] = [`[STATS] Total: ${memories.length} memories`]
+
+  if (coreCount > 0) parts[0] += `, ${coreCount} CORE`
+  if (intensityCount > 0) parts[0] += `, avg intensity: ${(totalIntensity / intensityCount).toFixed(1)}/10`
+
+  // Top categories
+  const topCats = Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 4)
+  if (topCats.length) {
+    parts.push(`[TOP EMOTIONS] ${topCats.map(([c, n]) => `${c}(${n})`).join(', ')}`)
+  }
+
+  // Life area balance
+  const allAreas = ['personal', 'work', 'relationship', 'family', 'friends', 'hobby', 'travel', 'health']
+  const activeAreas = Object.entries(areaCounts).sort((a, b) => b[1] - a[1])
+  const missingAreas = allAreas.filter(a => !areaCounts[a])
+  if (activeAreas.length) {
+    parts.push(`[LIFE AREAS] Active: ${activeAreas.map(([a, n]) => `${a}(${n})`).join(', ')}${missingAreas.length ? ` | Empty: ${missingAreas.join(', ')}` : ''}`)
+  }
+
+  // Top connections
+  const topConns = Object.entries(connectionCounts).sort((a, b) => b[1] - a[1]).slice(0, 5)
+  if (topConns.length) {
+    parts.push(`[KEY PEOPLE] ${topConns.map(([name, n]) => `${name}(${n})`).join(', ')}`)
+  }
+
+  // Recent activity
+  if (recentCount > 0) {
+    const recentMoodStr = recentMoods.length ? ` — mood: ${[...new Set(recentMoods)].join(', ')}` : ''
+    parts.push(`[RECENT] ${recentCount} in last 7 days, ${thisMonthCount} in last 30 days${recentMoodStr}`)
+  } else {
+    parts.push(`[RECENT] No memories in last 7 days (last 30 days: ${thisMonthCount})`)
+  }
+
+  const header = parts.join('\n')
+  return header.length <= STATS_HEADER_BUDGET ? header : header.slice(0, STATS_HEADER_BUDGET)
+}
+
 function buildMemoryContext(memories: Memory[]): string {
   if (!memories.length) return ''
   const sorted = [...memories].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   )
-  let totalChars = 0
+
+  // Build stats header
+  const statsHeader = buildMemoryStats(sorted)
+
+  let totalChars = statsHeader.length
   const lines: string[] = []
   for (const memory of sorted.slice(0, MAX_CONTEXT_MEMORIES)) {
     const parts: string[] = [memory.date.split('T')[0]]
@@ -110,7 +203,9 @@ function buildMemoryContext(memories: Memory[]): string {
     if (totalChars > MAX_CONTEXT_CHARS) break
     lines.push(line)
   }
-  return lines.join('\n')
+
+  const memoriesBlock = lines.join('\n')
+  return statsHeader ? `${statsHeader}\n\n${memoriesBlock}` : memoriesBlock
 }
 
 async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {

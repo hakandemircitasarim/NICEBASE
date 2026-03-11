@@ -44,10 +44,10 @@ type ViewMode = 'list' | 'chat'
 
 // ─── Constants ───────────────────────────────────────────
 
-const HISTORY_LIMIT = 40
-const PROFILE_MIN_MESSAGE_COUNT = 4
-const PROFILE_UPDATE_MESSAGE_INTERVAL = 6
-const PROFILE_UPDATE_COOLDOWN_MS = 6 * 60 * 60 * 1000
+const HISTORY_LIMIT = 50
+const PROFILE_MIN_MESSAGE_COUNT = 3
+const PROFILE_UPDATE_MESSAGE_INTERVAL = 5
+const PROFILE_UPDATE_COOLDOWN_MS = 4 * 60 * 60 * 1000
 const DRAFT_SAVE_KEY_PREFIX = 'aiya_draft_'
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -164,15 +164,16 @@ function TypingDots() {
 
 // ─── Suggestion Chips ────────────────────────────────────
 
-function SuggestionChips({ 
-  onSelect, 
-  memories 
-}: { 
+function SuggestionChips({
+  onSelect,
+  memories
+}: {
   onSelect: (text: string) => void
   memories: Memory[]
 }) {
-  const { t } = useTranslation()
-  
+  const { t, i18n } = useTranslation()
+  const isTr = i18n.language?.startsWith('tr')
+
   const chips = useMemo(() => {
     const baseChips = [
       { key: 'analyze', label: t('aiyaChipAnalyze', { defaultValue: 'Anılarımı analiz et' }) },
@@ -180,38 +181,98 @@ function SuggestionChips({
       { key: 'motivate', label: t('aiyaChipMotivate', { defaultValue: 'Beni motive et' }) },
       { key: 'week', label: t('aiyaChipWeek', { defaultValue: 'Son haftamı özetle' }) },
     ]
-    
+
     if (memories.length === 0) return baseChips
-    
-    const recentMemories = memories.slice(0, 10)
-    const categories = new Set(recentMemories.map(m => m.category))
-    const connections = new Set(recentMemories.flatMap(m => m.connections))
-    
+
+    const now = new Date()
+    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const recentMemories = memories.filter(m => new Date(m.date) >= oneWeekAgo)
+    const allCategories = new Set(memories.slice(0, 30).map(m => m.category))
+
+    // Count connections across all memories
+    const connectionCounts: Record<string, number> = {}
+    for (const m of memories.slice(0, 40)) {
+      if (m.connections?.length) {
+        for (const c of m.connections) {
+          connectionCounts[c] = (connectionCounts[c] || 0) + 1
+        }
+      }
+    }
+
     const personalized: Array<{ key: string; label: string }> = []
-    
-    if (categories.has('gratitude')) {
-      personalized.push({ 
-        key: 'gratitude', 
-        label: t('aiyaChipGratitude', { defaultValue: 'Minettarlık anılarımı göster' }) 
+
+    // Time-of-day aware chips
+    const hour = now.getHours()
+    if (hour >= 20 || hour < 5) {
+      personalized.push({
+        key: 'reflect',
+        label: isTr ? 'Bugünü değerlendir' : 'Reflect on today'
+      })
+    } else if (hour >= 6 && hour < 11) {
+      personalized.push({
+        key: 'morning',
+        label: isTr ? 'Bugün için motivasyon ver' : 'Motivate me for today'
       })
     }
-    if (categories.has('love')) {
-      personalized.push({ 
-        key: 'love', 
-        label: t('aiyaChipLove', { defaultValue: 'Sevgi anılarımı hatırlat' }) 
+
+    // Core memories chip
+    const coreMemories = memories.filter(m => m.isCore)
+    if (coreMemories.length > 0) {
+      personalized.push({
+        key: 'core',
+        label: isTr ? 'En önemli anılarımı hatırlat' : 'Remind me of my key moments'
       })
     }
-    
-    if (connections.size > 0) {
-      const topConnection = Array.from(connections)[0]
-      personalized.push({ 
-        key: 'connection', 
-        label: t('aiyaChipConnection', { defaultValue: `${topConnection} ile anılarım` }) 
+
+    // Category-based chips
+    if (allCategories.has('gratitude')) {
+      personalized.push({
+        key: 'gratitude',
+        label: t('aiyaChipGratitude', { defaultValue: 'Minettarlık anılarımı göster' })
       })
     }
-    
-    return [...baseChips, ...personalized].slice(0, 6)
-  }, [memories, t])
+    if (allCategories.has('love')) {
+      personalized.push({
+        key: 'love',
+        label: t('aiyaChipLove', { defaultValue: 'Sevgi anılarımı hatırlat' })
+      })
+    }
+    if (allCategories.has('growth')) {
+      personalized.push({
+        key: 'growth',
+        label: isTr ? 'Gelişim sürecimi göster' : 'Show my growth journey'
+      })
+    }
+
+    // Top connection chip
+    const topConnection = Object.entries(connectionCounts).sort((a, b) => b[1] - a[1])[0]
+    if (topConnection && topConnection[1] >= 2) {
+      personalized.push({
+        key: 'connection',
+        label: t('aiyaChipConnection', { name: topConnection[0], defaultValue: `${topConnection[0]} ile anılarım` })
+      })
+    }
+
+    // Pattern/insight chips
+    if (memories.length >= 10) {
+      personalized.push({
+        key: 'pattern',
+        label: isTr ? 'Hayatımdaki kalıpları göster' : 'Show me patterns in my life'
+      })
+    }
+
+    // Emotional check if no recent memories
+    if (recentMemories.length === 0 && memories.length > 0) {
+      personalized.push({
+        key: 'checkin',
+        label: isTr ? 'Süredir anı eklemedim, ne oldu?' : 'I haven\'t added memories lately'
+      })
+    }
+
+    // Shuffle personalized to add variety, but keep baseChips first
+    const shuffled = [...personalized].sort(() => Math.random() - 0.5)
+    return [...baseChips, ...shuffled].slice(0, 6)
+  }, [memories, t, isTr])
 
   return (
     <div className="flex gap-2.5 overflow-x-auto scrollbar-hide pb-1.5 -mx-1 px-1 snap-x snap-mandatory">
