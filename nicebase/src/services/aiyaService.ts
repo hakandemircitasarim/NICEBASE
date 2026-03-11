@@ -46,9 +46,9 @@ type AiyaProfileResponse = {
 
 const FUNCTION_NAME = 'aiya-chat'
 const REQUEST_TIMEOUT_MS = 30000
-const MAX_CONTEXT_MEMORIES = 60
-const MAX_CONTEXT_CHARS = 12000
-const STATS_HEADER_BUDGET = 800
+const MAX_CONTEXT_MEMORIES = 80
+const MAX_CONTEXT_CHARS = 16000
+const STATS_HEADER_BUDGET = 1200
 
 let lastSessionCheckAt = 0
 let lastSessionOk = false
@@ -149,6 +149,46 @@ function buildMemoryStats(memories: Memory[]): string {
     parts.push(`[RECENT] ${recentCount} in last 7 days, ${thisMonthCount} in last 30 days${recentMoodStr}`)
   } else {
     parts.push(`[RECENT] No memories in last 7 days (last 30 days: ${thisMonthCount})`)
+  }
+
+  // Emotional trajectory — compare last 2 weeks vs previous 2 weeks
+  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
+  const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000)
+  let recentIntensitySum = 0, recentIntensityN = 0
+  let olderIntensitySum = 0, olderIntensityN = 0
+  const recentCats: string[] = []
+  const olderCats: string[] = []
+
+  for (const m of memories) {
+    const mDate = new Date(m.date)
+    if (mDate >= twoWeeksAgo) {
+      if (m.intensity) { recentIntensitySum += m.intensity; recentIntensityN++ }
+      if (m.category && m.category !== 'uncategorized') recentCats.push(m.category)
+    } else if (mDate >= fourWeeksAgo) {
+      if (m.intensity) { olderIntensitySum += m.intensity; olderIntensityN++ }
+      if (m.category && m.category !== 'uncategorized') olderCats.push(m.category)
+    }
+  }
+
+  if (recentIntensityN >= 2 && olderIntensityN >= 2) {
+    const recentAvg = recentIntensitySum / recentIntensityN
+    const olderAvg = olderIntensitySum / olderIntensityN
+    const diff = recentAvg - olderAvg
+    const trend = diff > 0.5 ? 'RISING' : diff < -0.5 ? 'DECLINING' : 'STABLE'
+    const recentTopMood = recentCats.length ? [...new Set(recentCats)].slice(0, 3).join(', ') : 'mixed'
+    const olderTopMood = olderCats.length ? [...new Set(olderCats)].slice(0, 3).join(', ') : 'mixed'
+    parts.push(`[EMOTIONAL TRAJECTORY] ${trend} (last 2wk avg: ${recentAvg.toFixed(1)}, prev 2wk avg: ${olderAvg.toFixed(1)}) | Recent mood: ${recentTopMood} → Was: ${olderTopMood}`)
+  }
+
+  // Core memories highlight
+  const coreMemories = memories.filter(m => m.isCore).slice(0, 5)
+  if (coreMemories.length > 0) {
+    const coreHighlights = coreMemories.map(m => {
+      const date = m.date.split('T')[0]
+      const people = m.connections?.length ? ` (with: ${m.connections.join(', ')})` : ''
+      return `${date}${people}: ${m.text.slice(0, 60)}${m.text.length > 60 ? '...' : ''}`
+    })
+    parts.push(`[⭐ CORE MEMORIES — most defining moments]\n${coreHighlights.join('\n')}`)
   }
 
   const header = parts.join('\n')
