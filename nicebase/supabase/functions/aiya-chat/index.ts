@@ -13,6 +13,7 @@ const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || SUPABASE_SERVICE_RO
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || ''
 
 const MODEL = 'gpt-4o'
+const MODEL_MINI = 'gpt-4o-mini' // Used for classification tasks (16x cheaper input)
 const CHAT_MAX_TOKENS = 2000
 const CHAT_TEMPERATURE = 0.88
 const CHAT_FREQUENCY_PENALTY = 0.35
@@ -95,9 +96,10 @@ async function callOpenAI(params: {
   frequencyPenalty?: number
   presencePenalty?: number
   topP?: number
+  model?: string
 }) {
   const body: Record<string, unknown> = {
-    model: MODEL,
+    model: params.model || MODEL,
     messages: params.messages,
     max_tokens: params.maxTokens,
     temperature: params.temperature,
@@ -307,6 +309,7 @@ Reply with ONLY valid JSON, no other text: {"category":"<value>","lifeArea":"<va
         ],
         maxTokens: 100,
         temperature: 0.05,
+        model: MODEL_MINI,
       })
       
       // Log for debugging (remove in production if needed)
@@ -388,6 +391,7 @@ Memory: ${message}`
         ],
         maxTokens: 20,
         temperature: 0.1,
+        model: MODEL_MINI,
       })
       const normalized = content.trim().toLowerCase()
       const category = (ALLOWED_CATEGORIES.includes(normalized as AllowedCategory)

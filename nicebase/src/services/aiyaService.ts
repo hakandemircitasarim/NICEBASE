@@ -50,6 +50,111 @@ const MAX_CONTEXT_MEMORIES = 80
 const MAX_CONTEXT_CHARS = 16000
 const STATS_HEADER_BUDGET = 2000
 
+// ─── Message Router — "Gearbox" Architecture ──────────────
+// Determines how much context is needed based on message content
+
+export type MessageTier = 'casual' | 'normal' | 'deep' | 'crisis'
+
+type RouteResult = {
+  tier: MessageTier
+  memoryCount: number    // how many memories to include
+  includeStats: boolean  // whether to include stats header
+  includeFullPrompt: boolean // whether to use full system prompt
+}
+
+// Keywords for tier detection (Turkish + English)
+const CRISIS_WORDS = [
+  'intihar', 'suicide', 'ölmek istiyorum', 'kendime zarar', 'self-harm', 'self harm',
+  'yaşamak istemiyorum', 'hayatıma son', 'want to die', 'kill myself', 'ending it all',
+  'kendimi öldür', 'dayanamıyorum artık', 'can not take it anymore', 'hayatımı bitir',
+]
+
+const DEEP_WORDS = [
+  'çok kötüyüm', 'depresyon', 'depressed', 'kaybettim', 'ayrıldık', 'broke up',
+  'ölüm', 'death', 'kayıp', 'loss', 'boşanma', 'divorce', 'kanser', 'cancer',
+  'ihanet', 'betrayal', 'aldatma', 'cheated', 'travma', 'trauma', 'panik atak',
+  'anxiety', 'anksiyete', 'çok üzgünüm', 'çaresiz', 'hopeless', 'yalnızım',
+  'lonely', 'korku', 'afraid', 'terapi', 'therapy', 'psikoloj', 'psikiyatr',
+  'hayatımın anlamı', 'meaning of life', 'ne yapacağımı bilmiyorum', 'çıkmaz',
+  'anılarımı analiz', 'analyze my memories', 'beni tanı', 'beni anlat',
+  'hayatım hakkında', 'about my life', 'geçmişim', 'my past',
+]
+
+const CASUAL_WORDS = [
+  'naber', 'nasılsın', 'selam', 'merhaba', 'hey', 'hello', 'hi', 'nbr',
+  'günaydın', 'iyi geceler', 'good morning', 'good night', 'n\'aber',
+  'ne var ne yok', 'what\'s up', 'yo', 'sa', 'selamlar', 'heyy',
+]
+
+export function routeMessage(message: string, messageCountInChat: number): RouteResult {
+  const lower = message.toLowerCase().trim()
+  const length = message.length
+
+  // Always full context for first message in a chat session
+  if (messageCountInChat === 0) {
+    return { tier: 'deep', memoryCount: MAX_CONTEXT_MEMORIES, includeStats: true, includeFullPrompt: true }
+  }
+
+  // CRISIS: always full everything
+  if (CRISIS_WORDS.some(w => lower.includes(w))) {
+    return { tier: 'crisis', memoryCount: MAX_CONTEXT_MEMORIES, includeStats: true, includeFullPrompt: true }
+  }
+
+  // DEEP: significant context needed
+  if (DEEP_WORDS.some(w => lower.includes(w)) || length > 300) {
+    return { tier: 'deep', memoryCount: 40, includeStats: true, includeFullPrompt: false }
+  }
+
+  // CASUAL: minimal context
+  if ((CASUAL_WORDS.some(w => lower.includes(w)) || lower.match(/^.{0,2}$/)) && length < 60) {
+    return { tier: 'casual', memoryCount: 5, includeStats: false, includeFullPrompt: false }
+  }
+
+  // NORMAL: moderate context
+  return { tier: 'normal', memoryCount: 15, includeStats: true, includeFullPrompt: false }
+}
+
+// ─── Smart Memory Selector — find relevant memories ──────
+function findRelevantMemories(memories: Memory[], message: string, limit: number): Memory[] {
+  if (memories.length <= limit) return memories
+
+  const words = message.toLowerCase().split(/\s+/).filter(w => w.length > 3)
+
+  const scored = memories.map(m => {
+    let score = 0
+    const text = m.text.toLowerCase()
+
+    // Keyword overlap with message
+    for (const word of words) {
+      if (text.includes(word)) score += 2
+    }
+
+    // Connection name mentioned in message
+    if (m.connections?.some(c => message.toLowerCase().includes(c.toLowerCase()))) score += 5
+
+    // Core memory always important
+    if (m.isCore) score += 4
+
+    // Recency bonus
+    const daysSince = (Date.now() - new Date(m.date).getTime()) / (1000 * 60 * 60 * 24)
+    if (daysSince < 7) score += 3
+    else if (daysSince < 30) score += 2
+    else if (daysSince < 90) score += 1
+
+    // High intensity = important
+    if (m.intensity && m.intensity >= 8) score += 2
+    if (m.intensity && m.intensity >= 9) score += 1
+
+    return { memory: m, score }
+  })
+
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(s => s.memory)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()) // re-sort by date
+}
+
 let lastSessionCheckAt = 0
 let lastSessionOk = false
 
@@ -251,52 +356,87 @@ function buildMemoryStats(memories: Memory[]): string {
   return header.length <= STATS_HEADER_BUDGET ? header : header.slice(0, STATS_HEADER_BUDGET)
 }
 
+function formatMemoryLine(memory: Memory): string {
+  const parts: string[] = [memory.date.split('T')[0]]
+
+  const cats = memory.categories?.length ? memory.categories.filter(c => c !== 'uncategorized') : []
+  if (cats.length) {
+    parts.push(cats.join('+'))
+  } else if (memory.category && memory.category !== 'uncategorized') {
+    parts.push(memory.category)
+  }
+
+  if (memory.lifeArea && memory.lifeArea !== 'uncategorized') {
+    parts.push(`[${memory.lifeArea}]`)
+  }
+
+  if (memory.intensity) {
+    parts.push(`intensity:${memory.intensity}/10`)
+  }
+  if (memory.isCore) {
+    parts.push('⭐CORE')
+  }
+
+  if (memory.connections?.length) {
+    parts.push(`with:${memory.connections.join(',')}`)
+  }
+
+  parts.push(memory.text)
+  return `- ${parts.join(' | ')}`
+}
+
 function buildMemoryContext(memories: Memory[]): string {
   if (!memories.length) return ''
   const sorted = [...memories].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   )
 
-  // Build stats header
   const statsHeader = buildMemoryStats(sorted)
 
   let totalChars = statsHeader.length
   const lines: string[] = []
   for (const memory of sorted.slice(0, MAX_CONTEXT_MEMORIES)) {
-    const parts: string[] = [memory.date.split('T')[0]]
-
-    // Category (prefer multi-select if available)
-    const cats = memory.categories?.length ? memory.categories.filter(c => c !== 'uncategorized') : []
-    if (cats.length) {
-      parts.push(cats.join('+'))
-    } else if (memory.category && memory.category !== 'uncategorized') {
-      parts.push(memory.category)
-    }
-
-    // Life area
-    if (memory.lifeArea && memory.lifeArea !== 'uncategorized') {
-      parts.push(`[${memory.lifeArea}]`)
-    }
-
-    // Intensity & core flag
-    if (memory.intensity) {
-      parts.push(`intensity:${memory.intensity}/10`)
-    }
-    if (memory.isCore) {
-      parts.push('⭐CORE')
-    }
-
-    // Connections (people, places, etc.)
-    if (memory.connections?.length) {
-      parts.push(`with:${memory.connections.join(',')}`)
-    }
-
-    // Memory text
-    parts.push(memory.text)
-
-    const line = `- ${parts.join(' | ')}`
+    const line = formatMemoryLine(memory)
     totalChars += line.length
     if (totalChars > MAX_CONTEXT_CHARS) break
+    lines.push(line)
+  }
+
+  const memoriesBlock = lines.join('\n')
+  return statsHeader ? `${statsHeader}\n\n${memoriesBlock}` : memoriesBlock
+}
+
+// ─── Tiered Memory Context — the "gearbox" for memory ────
+export function buildTieredMemoryContext(
+  memories: Memory[],
+  message: string,
+  route: RouteResult
+): string {
+  if (!memories.length) return ''
+
+  const sorted = [...memories].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  )
+
+  // Stats header — only if route says so
+  const statsHeader = route.includeStats ? buildMemoryStats(sorted) : ''
+
+  // Select memories based on tier
+  const selected = route.memoryCount >= MAX_CONTEXT_MEMORIES
+    ? sorted.slice(0, MAX_CONTEXT_MEMORIES)
+    : findRelevantMemories(sorted, message, route.memoryCount)
+
+  // Build memory lines with char budget
+  const charBudget = route.tier === 'casual' ? 3000
+    : route.tier === 'normal' ? 8000
+    : MAX_CONTEXT_CHARS
+
+  let totalChars = statsHeader.length
+  const lines: string[] = []
+  for (const memory of selected) {
+    const line = formatMemoryLine(memory)
+    totalChars += line.length
+    if (totalChars > charBudget) break
     lines.push(line)
   }
 
@@ -413,16 +553,17 @@ export const aiyaService = {
     memories: Memory[]
     locale?: string
     systemPrompt?: string
+    memoryContext?: string // pre-built tiered context (if provided, skips default build)
   }): Promise<AiyaChatResponse> {
-    const { message, history, memories, locale, systemPrompt } = params
-    const memoryContext = buildMemoryContext(memories)
+    const { message, history, memories, locale, systemPrompt, memoryContext } = params
+    const ctx = memoryContext ?? buildMemoryContext(memories)
     return await invokeAiya<AiyaChatResponse>({
       action: 'chat' satisfies AiyaAction,
       message,
       history,
       locale,
       systemPrompt,
-      memoryContext,
+      memoryContext: ctx,
       countUsage: true,
     })
   },

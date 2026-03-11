@@ -13,7 +13,7 @@ import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ConfirmationDialog from '../components/ConfirmationDialog'
-import { aiyaService } from '../services/aiyaService'
+import { aiyaService, routeMessage, buildTieredMemoryContext } from '../services/aiyaService'
 import { hapticFeedback } from '../utils/haptic'
 import { generateUUID } from '../utils/uuid'
 import { useDebounce } from '../hooks/useDebounce'
@@ -430,8 +430,8 @@ export default function Aiya() {
     }
   }, [usage, user])
 
-  // System prompt — enrich with user identity + AI-generated profile
-  const systemPrompt = useMemo(() => {
+  // Build profile block (shared between full and compact prompts)
+  const profileBlock = useMemo(() => {
     const identityParts: string[] = []
     if (user?.displayName) identityParts.push(`Name: ${user.displayName}`)
     if (user?.birthday) identityParts.push(`Birthday: ${user.birthday}`)
@@ -442,9 +442,21 @@ export default function Aiya() {
       ? identityParts.join('\n') + '\n\n'
       : ''
 
-    const fullProfile = identityBlock + (profileSummary || '')
-    return t('aiyaSystemPrompt', { memories: '{{memories}}', profile: fullProfile })
-  }, [t, profileSummary, user?.displayName, user?.birthday, user?.location, user?.bio])
+    return identityBlock + (profileSummary || '')
+  }, [profileSummary, user?.displayName, user?.birthday, user?.location, user?.bio])
+
+  // Full system prompt — used for first message in a chat session
+  const systemPromptFull = useMemo(() => {
+    return t('aiyaSystemPrompt', { memories: '{{memories}}', profile: profileBlock })
+  }, [t, profileBlock])
+
+  // Compact system prompt — used for follow-up messages
+  const systemPromptCompact = useMemo(() => {
+    return t('aiyaSystemPromptCompact', { memories: '{{memories}}', profile: profileBlock })
+  }, [t, profileBlock])
+
+  // Keep backward compat alias for other uses (profile update etc.)
+  const systemPrompt = systemPromptFull
 
   // ─── Auto-scroll ───────────────────────────────────────
   const scrollToBottom = useCallback((smooth = true) => {
@@ -867,7 +879,26 @@ export default function Aiya() {
       // so the old approach of reading via setChats((prev) => ...) returned []
       const currentChat = chatsRef.current.find((c) => c.id === targetChatId)
       const history = currentChat ? trimMessages(currentChat.messages) : []
-      const res = await aiyaService.sendMessage({ message: text, history, memories, locale, systemPrompt })
+
+      // ─── GEARBOX: Route message to determine context tier ───
+      const messageCount = history.length
+      const route = routeMessage(text, messageCount)
+
+      // Select system prompt: full for first message or crisis, compact for follow-ups
+      const selectedPrompt = route.includeFullPrompt ? systemPromptFull : systemPromptCompact
+
+      // Build tiered memory context based on route
+      const tieredMemoryContext = buildTieredMemoryContext(memories, text, route)
+
+      if (import.meta.env.DEV) {
+        console.log(`[Aiya] Route: tier=${route.tier}, memories=${route.memoryCount}, fullPrompt=${route.includeFullPrompt}`)
+      }
+
+      const res = await aiyaService.sendMessage({
+        message: text, history, memories, locale,
+        systemPrompt: selectedPrompt,
+        memoryContext: tieredMemoryContext,
+      })
 
       // Guard against missing reply
       const replyText = res?.reply
@@ -903,7 +934,7 @@ export default function Aiya() {
     } finally {
       setSending(false)
     }
-  }, [input, sending, activeChatId, memories, locale, systemPrompt, t, maybeUpdateProfile, saveDraft, setUser])
+  }, [input, sending, activeChatId, memories, locale, systemPromptFull, systemPromptCompact, t, maybeUpdateProfile, saveDraft, setUser])
 
   // ─── Chip action ───────────────────────────────────────
   const handleChip = useCallback((text: string) => {
