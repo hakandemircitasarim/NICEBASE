@@ -48,7 +48,7 @@ const FUNCTION_NAME = 'aiya-chat'
 const REQUEST_TIMEOUT_MS = 30000
 const MAX_CONTEXT_MEMORIES = 80
 const MAX_CONTEXT_CHARS = 16000
-const STATS_HEADER_BUDGET = 1200
+const STATS_HEADER_BUDGET = 2000
 
 let lastSessionCheckAt = 0
 let lastSessionOk = false
@@ -189,6 +189,62 @@ function buildMemoryStats(memories: Memory[]): string {
       return `${date}${people}: ${m.text.slice(0, 60)}${m.text.length > 60 ? '...' : ''}`
     })
     parts.push(`[⭐ CORE MEMORIES — most defining moments]\n${coreHighlights.join('\n')}`)
+  }
+
+  // Relationship dynamics — who's trending up/down in recent memories
+  if (Object.keys(connectionCounts).length >= 2) {
+    const recentConns: Record<string, number> = {}
+    const olderConns: Record<string, number> = {}
+    for (const m of memories) {
+      const mDate = new Date(m.date)
+      if (m.connections?.length) {
+        for (const c of m.connections) {
+          if (mDate >= oneMonthAgo) {
+            recentConns[c] = (recentConns[c] || 0) + 1
+          } else {
+            olderConns[c] = (olderConns[c] || 0) + 1
+          }
+        }
+      }
+    }
+    const dynamics: string[] = []
+    const allNames = new Set([...Object.keys(recentConns), ...Object.keys(olderConns)])
+    for (const name of allNames) {
+      const recent = recentConns[name] || 0
+      const older = olderConns[name] || 0
+      if (recent > 0 && older === 0 && recent >= 2) dynamics.push(`${name}: NEW (${recent} recent)`)
+      else if (recent === 0 && older >= 2) dynamics.push(`${name}: FADING (was ${older}, now 0)`)
+      else if (recent >= older + 2) dynamics.push(`${name}: ↑ GROWING (${older}→${recent})`)
+    }
+    if (dynamics.length > 0) {
+      parts.push(`[RELATIONSHIP DYNAMICS] ${dynamics.slice(0, 4).join(' | ')}`)
+    }
+  }
+
+  // Thematic arc — what topics are emerging or fading
+  if (memories.length >= 10) {
+    const recentAreaCounts: Record<string, number> = {}
+    const olderAreaCounts: Record<string, number> = {}
+    for (const m of memories) {
+      const mDate = new Date(m.date)
+      const area = m.lifeArea && m.lifeArea !== 'uncategorized' ? m.lifeArea : null
+      if (area) {
+        if (mDate >= oneMonthAgo) recentAreaCounts[area] = (recentAreaCounts[area] || 0) + 1
+        else olderAreaCounts[area] = (olderAreaCounts[area] || 0) + 1
+      }
+    }
+    const shifts: string[] = []
+    const allThemes = new Set([...Object.keys(recentAreaCounts), ...Object.keys(olderAreaCounts)])
+    for (const theme of allThemes) {
+      const recent = recentAreaCounts[theme] || 0
+      const older = olderAreaCounts[theme] || 0
+      if (recent >= 3 && older === 0) shifts.push(`${theme}: EMERGING`)
+      else if (recent === 0 && older >= 3) shifts.push(`${theme}: DISAPPEARED`)
+      else if (recent >= older + 3) shifts.push(`${theme}: ↑ RISING`)
+    }
+    if (shifts.length > 0) {
+      parts.push(`[THEMATIC SHIFTS] ${shifts.slice(0, 3).join(' | ')}`)
+    }
   }
 
   const header = parts.join('\n')

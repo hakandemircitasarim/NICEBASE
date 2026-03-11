@@ -399,18 +399,18 @@ Memory: ${message}`
     if (action === 'analysis') {
       if (!memoryContext) return jsonResponse({ error: 'No memories for analysis' }, 400)
       const memoryBlock = systemPromptHasPlaceholder ? '' : `\n\nMemories:\n${memoryContext}`
-      const prompt = `You are a deeply insightful emotional intelligence analyst. Analyze this person's memories with extraordinary depth and nuance. Look for:
+      const prompt = `You are a deeply insightful emotional intelligence analyst with extraordinary perceptive abilities. Analyze this person's memories with depth no human could match. Look for:
 
-1. EMOTIONAL TRENDS: What's the emotional arc of their life recently? Are they on an upswing or downswing? What emotions dominate? What's missing? Be specific with dates and patterns.
+1. EMOTIONAL TRENDS: What's the emotional arc of their life recently? Are they on an upswing or downswing? What emotions dominate? What's missing? Be specific with dates and patterns. Identify the EMOTIONAL TRAJECTORY — where are they heading? What chapter of their life are they in right now?
 
-2. STANDOUT MEMORIES: Which memories are the most emotionally significant? Look at intensity scores, CORE flags, and the emotional weight of the text. Pick the ones that define who this person is.
+2. STANDOUT MEMORIES: Which memories are the most emotionally significant? Look at intensity scores, CORE flags, and the emotional weight of the text. Pick the ones that define who this person is. Identify TURNING POINTS — moments where the before and after are clearly different.
 
-3. PATTERNS: What recurring themes do you see? Same people appearing? Same life areas? Same emotional states? What time-based patterns exist (weekdays vs weekends, morning vs evening)? What life areas are over/under-represented?
+3. PATTERNS: What recurring themes do you see? Same people appearing? Same life areas? Same emotional states? What time-based patterns exist? What life areas are over/under-represented? Look for PARADOXES — do their memories contradict each other in interesting ways? Look for INVISIBLE CONNECTIONS between seemingly unrelated memories. Track RELATIONSHIP DYNAMICS — who's appearing more, who's fading?
 
-4. RECOMMENDATIONS: Based on everything, what specific, actionable insights would genuinely help this person? Don't give generic advice. Reference their actual memories and patterns. What should they do more of? Less of? Who should they spend more time with? What life areas need attention?
+4. RECOMMENDATIONS: Based on everything, what specific, actionable insights would genuinely help this person? Don't give generic advice. Reference their actual memories and patterns. What should they do more of? Less of? Who should they spend more time with? What life areas need attention? What personal GROWTH have they shown that they might not be aware of?
 
 Return JSON with keys: emotionalTrends (string, 2-3 paragraphs), standoutMemories (array of strings with dates and context), patterns (string, 2-3 paragraphs), recommendations (string, specific and actionable).
-Language: ${langHint}. Be warm, insightful, and genuinely helpful - not clinical.${memoryBlock}`
+Language: ${langHint}. Be warm, insightful, and genuinely helpful — speak like a wise friend, not a clinical analyst. Use their names and dates. Show them things about themselves they've never noticed.${memoryBlock}`
       const content = await callOpenAI({
         messages: [
           { role: 'system', content: system || `You are Aiya, a deeply perceptive emotional analyst. You see patterns others miss. Respond in ${langHint}.` },
@@ -461,28 +461,34 @@ MUST INCLUDE (if evidence exists):
    - Core traits (introvert/extrovert, optimist/realist, analytical/emotional)
    - How they express themselves (writing style, humor type, emotional openness)
    - What makes them unique as a person
+   - Their paradoxes and contradictions (what they say vs what they do)
 
 2. INNER CIRCLE (with specific names)
    - Romantic partner (name, relationship dynamics, how they talk about them)
    - Family members (names, relationships, dynamics)
    - Close friends (names, what they do together)
    - Colleagues/mentors (if mentioned)
+   - RELATIONSHIP TRENDS: Who's appearing more? Who's fading? Any new people?
 
 3. EMOTIONAL LANDSCAPE
    - What genuinely makes them happy (with memory references)
    - What causes stress/anxiety/sadness
    - How they handle difficult emotions
    - Their emotional growth trajectory
+   - Recurring emotional patterns (e.g. always stressed on Mondays, happy on weekends)
 
 4. VALUES & WORLDVIEW
    - What they care most deeply about
    - Their life philosophy (even if unstated — infer from patterns)
    - What motivates them
+   - Gap between stated values and actual behavior (if any)
 
-5. CURRENT CHAPTER
+5. CURRENT CHAPTER & NARRATIVE ARC
    - What's happening in their life RIGHT NOW
    - Recent mood trajectory (improving? declining? stable?)
    - What they might be struggling with but not saying directly
+   - What life chapter are they in? (new beginning, transition, peak, closing, quiet period)
+   - KEY TURNING POINTS from their memory timeline
 
 6. CONVERSATION PREFERENCES
    - Do they prefer deep or light conversations?
@@ -490,7 +496,18 @@ MUST INCLUDE (if evidence exists):
    - Are there sensitive topics to approach carefully?
    - Do they want advice or just to be heard?
 
-RULES: Be SPECIFIC — use names, dates, exact references. NEVER invent facts. If unknown, skip. Write in dense paragraph format, not bullet points. Keep under 2000 characters.
+7. COMMUNICATION STYLE
+   - Message length preference (short/medium/long)
+   - Formality level (casual slang vs measured tone)
+   - Emoji usage patterns
+   - How they express vulnerability (direct or indirect)
+
+8. GROWTH & CHANGE MARKERS
+   - How has this person changed over their memory timeline?
+   - What personal growth is visible but they might not realize?
+   - What patterns suggest upcoming changes or decisions?
+
+RULES: Be SPECIFIC — use names, dates, exact references. NEVER invent facts. If unknown, skip. Write in dense paragraph format, not bullet points. Keep under 2500 characters.
 Language: ${langHint}.` +
         (memoryContext ? `\n\nMemories:\n${memoryContext}` : '') +
         conversationBlock
@@ -499,9 +516,9 @@ Language: ${langHint}.` +
           { role: 'system', content: `You are building a psychological profile that will serve as persistent memory for an AI companion. Be extraordinarily perceptive — notice what's said AND what's not said. Write dense, insightful notes. Never invent facts. Respond in ${langHint}.` },
           { role: 'user', content: prompt },
         ],
-        maxTokens: 1000,
-        temperature: 0.35,
-        topP: 0.9,
+        maxTokens: 1500,
+        temperature: 0.4,
+        topP: 0.92,
       })
 
       if (countUsage !== false) {
