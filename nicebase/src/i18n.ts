@@ -515,7 +515,11 @@ const resources = {
       aiyaChipMood: 'Bugün nasılım?',
       aiyaChipMotivate: 'Beni motive et',
       aiyaChipWeek: 'Son haftamı özetle',
-      
+      aiyaChipGratitude: 'Minettarlık anılarımı göster',
+      aiyaChipLove: 'Sevgi anılarımı hatırlat',
+      aiyaChipConnection: '{{name}} ile anılarım',
+      aiyaPreviousChats: 'Önceki Konuşmalar',
+
       // Aiya Service
       openAIServiceUnavailable: 'OpenAI servisi şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.',
       aiyaSystemPrompt:
@@ -675,6 +679,84 @@ const resources = {
       exportIntensityLabel: 'Yoğunluk',
       exportCategoryLabel: 'Kategori',
       imageLoadError: 'Görsel yüklenemedi',
+
+      // Greetings
+      greetingMorning: 'Günaydın',
+      greetingAfternoon: 'İyi günler',
+      greetingEvening: 'İyi akşamlar',
+      greetingNight: 'İyi geceler',
+
+      // Home (missing keys)
+      answered: 'Cevaplandı',
+      answerAgain: 'Tekrar cevapla veya yeni anı ekle',
+      skip: 'Atla',
+
+      // Memory form (missing keys)
+      memoryTextHelper: 'Kısa ve net yaz. En az 10 karakter.',
+      looksGood: 'Tamam',
+      minChars: 'Min {{minChars}}',
+      aiSuggestion: 'AI',
+      low: 'Düşük',
+      high: 'Yüksek',
+      saved: 'Kaydedildi!',
+      uploading: 'Yükleniyor...',
+      lessDetail: 'Daha Az',
+      moreDetail: 'Daha Detaylı',
+      changeDate: 'Değiştir',
+      unsavedChanges: 'Kaydedilmemiş Değişiklikler',
+      unsavedChangesMessage: 'Kaydedilmemiş değişiklikleriniz var. Ne yapmak istersiniz?',
+      draftSaved: 'Taslak olarak kaydedildi',
+      draftSaveError: 'Taslak kaydedilemedi',
+      saveAsDraft: 'Taslak Olarak Kaydet',
+      discardChanges: 'Kaydetmeden Çık',
+      maxPhotosReached: 'Maksimum 5 fotoğraf ekleyebilirsiniz',
+
+      // Memory card (missing keys)
+      today: 'Bugün',
+      yesterday: 'Dün',
+      daysAgo: '{{count}} gün önce',
+      syncPending: 'Senkron bekliyor',
+      conflict: 'Çakışma',
+      aiyaLoginToClassify: 'Giriş yapın, Aiya sınıflandırsın',
+
+      // Conflict resolution (missing keys)
+      conflictResolvedLocal: 'Yerel versiyon korundu',
+      conflictResolvedCloud: 'Bulut versiyonu kullanıldı',
+      conflictDetected: 'Çakışma Tespit Edildi',
+      localVersion: 'Yerel Versiyon',
+      cloudVersion: 'Bulut Versiyonu',
+      keepLocal: 'Yerel Versiyonu Koru',
+      keepCloud: 'Bulut Versiyonunu Kullan',
+      conflictResolutionError: 'Çakışma çözülürken bir hata oluştu',
+      conflictDescription: 'Bu anı hem yerelde hem bulutta değiştirilmiş',
+
+      // Vault filters
+      filters: 'Filtreler',
+
+      // Photos (missing keys)
+      addPhoto: 'Fotoğraf ekle',
+      photoPickerHint: 'Kamera veya galeriden seçim yap.',
+      camera: 'Kamera',
+      cameraHint: 'Hemen çek ve ekle',
+      gallery: 'Galeri',
+      galleryHint: 'Fotoğraf seç ve ekle',
+      photoLimitReached: 'Fotoğraf limitine ulaştın.',
+      photoLimitHint: 'Yeni fotoğraf eklemek için mevcutlardan birini sil.',
+
+      // Migration (missing keys)
+      migrationPromptTitle: 'Anılarınızı Aktaralım mı?',
+      migrationAccept: 'Evet, Hesabıma Ekle',
+      migrationReject: 'Hayır, İstemiyorum',
+      migrationDeleteTitle: 'Emin misiniz?',
+      migrationKeep: 'Vazgeç, Anılarımı Aktar',
+      migrationConfirmDelete: 'Evet, Kalıcı Olarak Sil',
+      migrationPromptMessage: 'Giriş yapmadan önce eklediğiniz {{count}} anı bulunuyor. Bunları hesabınıza aktarmak ister misiniz?',
+      migrationDeleteMessage: 'Bu {{count}} anı sonsuza kadar silinecek ve bir daha geri getirilemeyecek.',
+
+      // Locale & misc
+      locale: 'tr-TR',
+      memories: 'anı',
+      syncTimeout: 'Senkronizasyon zaman aşımına uğradı',
     },
   },
   en: {
@@ -1167,7 +1249,11 @@ const resources = {
       aiyaChipMood: 'How am I doing today?',
       aiyaChipMotivate: 'Motivate me',
       aiyaChipWeek: 'Summarize my week',
-      
+      aiyaChipGratitude: 'Show my gratitude memories',
+      aiyaChipLove: 'Remind me of love memories',
+      aiyaChipConnection: 'My memories with {{name}}',
+      aiyaPreviousChats: 'Previous Chats',
+
       // Aiya Service
       openAIServiceUnavailable: 'OpenAI service is currently unavailable. Please try again later.',
       aiyaSystemPrompt:
@@ -1316,6 +1402,84 @@ const resources = {
       exportIntensityLabel: 'Intensity',
       exportCategoryLabel: 'Category',
       imageLoadError: 'Image failed to load',
+
+      // Greetings
+      greetingMorning: 'Good morning',
+      greetingAfternoon: 'Good afternoon',
+      greetingEvening: 'Good evening',
+      greetingNight: 'Good night',
+
+      // Home (missing keys)
+      answered: 'Answered',
+      answerAgain: 'Answer again or add a new memory',
+      skip: 'Skip',
+
+      // Memory form (missing keys)
+      memoryTextHelper: 'Keep it short and clear. At least 10 characters.',
+      looksGood: 'OK',
+      minChars: 'Min {{minChars}}',
+      aiSuggestion: 'AI',
+      low: 'Low',
+      high: 'High',
+      saved: 'Saved!',
+      uploading: 'Uploading...',
+      lessDetail: 'Less Detail',
+      moreDetail: 'More Detail',
+      changeDate: 'Change',
+      unsavedChanges: 'Unsaved Changes',
+      unsavedChangesMessage: 'You have unsaved changes. What would you like to do?',
+      draftSaved: 'Saved as draft',
+      draftSaveError: 'Failed to save draft',
+      saveAsDraft: 'Save as Draft',
+      discardChanges: 'Discard Changes',
+      maxPhotosReached: 'You can add up to 5 photos',
+
+      // Memory card (missing keys)
+      today: 'Today',
+      yesterday: 'Yesterday',
+      daysAgo: '{{count}} days ago',
+      syncPending: 'Sync pending',
+      conflict: 'Conflict',
+      aiyaLoginToClassify: 'Log in to let Aiya classify',
+
+      // Conflict resolution (missing keys)
+      conflictResolvedLocal: 'Local version kept',
+      conflictResolvedCloud: 'Cloud version used',
+      conflictDetected: 'Conflict Detected',
+      localVersion: 'Local Version',
+      cloudVersion: 'Cloud Version',
+      keepLocal: 'Keep Local Version',
+      keepCloud: 'Use Cloud Version',
+      conflictResolutionError: 'An error occurred while resolving the conflict',
+      conflictDescription: 'This memory was modified both locally and in the cloud',
+
+      // Vault filters
+      filters: 'Filters',
+
+      // Photos (missing keys)
+      addPhoto: 'Add photo',
+      photoPickerHint: 'Choose from camera or gallery.',
+      camera: 'Camera',
+      cameraHint: 'Take a photo now',
+      gallery: 'Gallery',
+      galleryHint: 'Choose a photo',
+      photoLimitReached: 'Photo limit reached.',
+      photoLimitHint: 'Delete an existing photo to add a new one.',
+
+      // Migration (missing keys)
+      migrationPromptTitle: 'Transfer Your Memories?',
+      migrationAccept: 'Yes, Add to My Account',
+      migrationReject: 'No, I Don\'t Want To',
+      migrationDeleteTitle: 'Are You Sure?',
+      migrationKeep: 'Cancel, Transfer My Memories',
+      migrationConfirmDelete: 'Yes, Permanently Delete',
+      migrationPromptMessage: 'You have {{count}} memories from before signing in. Would you like to transfer them to your account?',
+      migrationDeleteMessage: 'These {{count}} memories will be permanently deleted and cannot be recovered.',
+
+      // Locale & misc
+      locale: 'en-US',
+      memories: 'memories',
+      syncTimeout: 'Sync timed out',
 
       // Onboarding
       nextStep: 'Next',
