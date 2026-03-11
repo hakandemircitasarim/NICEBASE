@@ -226,47 +226,14 @@ serve(async (req) => {
   const system = normalizeSystemPrompt(systemPrompt, memoryContext)
   const langHint = locale?.startsWith('tr') ? 'Turkish' : 'English'
 
-  console.log('Edge function called with action:', action, 'type:', typeof action, 'message:', message?.substring(0, 50))
-  console.log('Full payload:', JSON.stringify({ action, hasMessage: !!message, messageLength: message?.length }))
-  
   // Normalize action to string for comparison
   const normalizedAction = String(action || '').toLowerCase().trim()
-  console.log('Normalized action:', normalizedAction)
 
   try {
     // New unified classify action: returns both category AND lifeArea
     // Check this FIRST before other actions - use normalized comparison
     if (normalizedAction === 'classify') {
-      console.log('✅ CLASSIFY ACTION MATCHED!')
-      console.log('Classify action called with message:', message?.substring(0, 100))
       if (!message) return jsonResponse({ error: 'Message required' }, 400)
-      
-      // Build category descriptions
-      const categoryDescriptions = {
-        success: 'Achievements, accomplishments, goals reached, victories, milestones, winning, completing something meaningful',
-        peace: 'Calm moments, tranquility, serenity, relaxation, inner peace, quiet contentment, stress relief, mindfulness',
-        fun: 'Joyful moments, laughter, entertainment, playfulness, humor, having a good time, lighthearted experiences',
-        love: 'Romantic moments, deep affection, caring for someone, emotional connections, expressions of love, heartwarming experiences',
-        gratitude: 'Thankfulness, appreciation, recognizing blessings, being grateful for something or someone, feeling blessed',
-        inspiration: 'Motivational moments, being inspired, creative sparks, uplifting experiences, finding motivation, feeling energized',
-        growth: 'Learning experiences, personal development, overcoming challenges, self-improvement, gaining wisdom, maturing',
-        adventure: 'Exciting experiences, trying new things, exploration, travel, taking risks, novel experiences, stepping out of comfort zone'
-      }
-      
-      // Build life area descriptions
-      const lifeAreaDescriptions = {
-        personal: 'Individual experiences, self-reflection, personal thoughts, solo activities, self-care, personal development',
-        work: 'Job-related, career, professional achievements, workplace, business, professional relationships, work projects',
-        relationship: 'Romantic partner, dating, significant other, intimate relationships, couple activities',
-        family: 'Family members, parents, siblings, children, family gatherings, family traditions, family relationships',
-        friends: 'Friendships, social activities with friends, friend groups, peer relationships, social connections',
-        hobby: 'Hobbies, creative pursuits, leisure activities, interests, pastimes, recreational activities',
-        travel: 'Trips, vacations, visiting places, exploring locations, travel experiences, tourism, journeys',
-        health: 'Physical health, mental health, fitness, wellness, medical, exercise, self-care related to health'
-      }
-      
-      const categoryList = ALLOWED_CATEGORIES.map(cat => `- ${cat}: ${categoryDescriptions[cat as keyof typeof categoryDescriptions]}`).join('\n')
-      const lifeAreaList = ALLOWED_LIFE_AREAS.map(area => `- ${area}: ${lifeAreaDescriptions[area as keyof typeof lifeAreaDescriptions]}`).join('\n')
       
       // Extract keywords from message for better classification
       const lowerMessage = message.toLowerCase()
@@ -274,33 +241,25 @@ serve(async (req) => {
       const hasWorkKeywords = /iş|work|arkadaş|colleague|ofis|office|proje|project|meslek|job|çalış|workplace/.test(lowerMessage)
       const hasSuccessKeywords = /başarı|success|kazandım|tamamladım|başardım|won|achieved|completed/.test(lowerMessage)
       const hasGratitudeKeywords = /şükür|gratitude|minnettar|teşekkür|thankful|blessed|şükret/.test(lowerMessage)
-      
-      const prompt = `Classify this memory into ONE category and ONE life area. Be precise and match the ACTUAL content.
 
-CRITICAL: If the text contains words like "eğlence", "eğlendim", "eğlenceli", "keyifli", "zevk" → you MUST use category "fun"
-CRITICAL: If the text mentions "iş", "arkadaş", "work", "colleague", "ofis" → you MUST use lifeArea "work" (not "personal")
-CRITICAL: Do NOT use "gratitude" unless the text explicitly mentions being thankful or grateful
-CRITICAL: Do NOT use "personal" for work-related memories - use "work" instead
+      const prompt = `Classify this memory. Return ONLY JSON: {"category":"<val>","lifeArea":"<val>"}
 
-CATEGORIES:
-${categoryList}
+Categories: success(achievements,wins) | peace(calm,relaxation) | fun(joy,laughter,entertainment) | love(romance,affection) | gratitude(thankfulness) | inspiration(motivation,creative spark) | growth(learning,self-improvement) | adventure(exploration,travel,new experiences)
 
-LIFE AREAS:
-${lifeAreaList}
+Life areas: personal(solo,self) | work(job,career,colleagues) | relationship(romantic partner) | family | friends | hobby(creative,leisure) | travel(trips) | health(fitness,wellness)
 
-EXAMPLES (follow these EXACTLY):
-- "bugün iş arkadaşlarımla çok eğlendim" → {"category":"fun","lifeArea":"work"}
-- "bu eğlendiğim bir anı örneğidir ve iş ile ilgilidir" → {"category":"fun","lifeArea":"work"}
-- "Bu bir eğlence anısıdır" → {"category":"fun","lifeArea":"personal"}
-- "anı eğlence zart zurt" → {"category":"fun","lifeArea":"personal"}
-- "bugün çok sıkıntılı bir gündü ama yapay zeka ile yaptıklarım beni mutlu etti" → {"category":"fun","lifeArea":"personal"}
-- "İş yerinde büyük bir projeyi tamamladım" → {"category":"success","lifeArea":"work"}
-- "Ailemle güzel bir akşam geçirdik" → {"category":"fun","lifeArea":"family"}
-- "Bugün neye şükrettim" → {"category":"gratitude","lifeArea":"personal"}
+RULES:
+- eğlence/eğlendim/keyifli/zevk → "fun"
+- iş/arkadaş/work/colleague/ofis → lifeArea "work" not "personal"
+- Only use "gratitude" if explicitly thankful
+- Only use "personal" if no other area fits
 
-Memory to classify: "${message}"
+Examples:
+"iş arkadaşlarımla eğlendim" → {"category":"fun","lifeArea":"work"}
+"İş yerinde projeyi tamamladım" → {"category":"success","lifeArea":"work"}
+"Ailemle güzel akşam" → {"category":"fun","lifeArea":"family"}
 
-Reply with ONLY valid JSON, no other text: {"category":"<value>","lifeArea":"<value>"}`
+Memory: "${message}"`
       
       const content = await callOpenAI({
         messages: [
@@ -311,9 +270,6 @@ Reply with ONLY valid JSON, no other text: {"category":"<value>","lifeArea":"<va
         temperature: 0.05,
         model: MODEL_MINI,
       })
-      
-      // Log for debugging (remove in production if needed)
-      console.log('AI Response:', content)
       
       const parsed = safeJsonParse(content)
       
@@ -352,37 +308,13 @@ Reply with ONLY valid JSON, no other text: {"category":"<value>","lifeArea":"<va
         if (hasWorkKeywords && lifeArea === 'personal') lifeArea = 'work'
       }
       
-      console.log('Final classification:', { category, lifeArea, original: content })
-      
       return jsonResponse({ category, lifeArea })
     }
 
     if (action === 'category') {
       if (!message) return jsonResponse({ error: 'Message required' }, 400)
-      
-      const categoryDescriptions = {
-        success: 'Achievements, accomplishments, goals reached, victories, milestones',
-        peace: 'Calm moments, tranquility, serenity, relaxation, inner peace',
-        fun: 'Joyful moments, laughter, entertainment, playfulness, having a good time',
-        love: 'Romantic moments, deep affection, caring for someone, emotional connections',
-        gratitude: 'Thankfulness, appreciation, recognizing blessings, being grateful',
-        inspiration: 'Motivational moments, being inspired, creative sparks, uplifting experiences',
-        growth: 'Learning experiences, personal development, overcoming challenges, self-improvement',
-        adventure: 'Exciting experiences, trying new things, exploration, travel, novel experiences'
-      }
-      
-      const categoryList = ALLOWED_CATEGORIES.map(cat => `- ${cat}: ${categoryDescriptions[cat as keyof typeof categoryDescriptions]}`).join('\n')
-      
-      const prompt = `Analyze the following memory and classify it into the most appropriate category.
 
-CATEGORIES:
-${categoryList}
-
-Carefully read the memory content and select the category that BEST matches the memory's actual emotional theme. Do not default to "gratitude" unless it truly fits.
-
-Reply with ONLY the category name (one word, lowercase).
-
-Memory: ${message}`
+      const prompt = `Classify into ONE category: success|peace|fun|love|gratitude|inspiration|growth|adventure. Reply with ONLY the category name. Do not default to gratitude. Memory: ${message}`
       
       const content = await callOpenAI({
         messages: [

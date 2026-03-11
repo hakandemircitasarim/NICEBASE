@@ -58,8 +58,10 @@ export type MessageTier = 'casual' | 'normal' | 'deep' | 'crisis'
 type RouteResult = {
   tier: MessageTier
   memoryCount: number    // how many memories to include
+  historyLimit: number   // how many history messages to send
   includeStats: boolean  // whether to include stats header
   includeFullPrompt: boolean // whether to use full system prompt
+  includeProfile: boolean // whether to include profile in prompt
 }
 
 // Keywords for tier detection (Turkish + English)
@@ -92,26 +94,26 @@ export function routeMessage(message: string, messageCountInChat: number): Route
 
   // Always full context for first message in a chat session
   if (messageCountInChat === 0) {
-    return { tier: 'deep', memoryCount: MAX_CONTEXT_MEMORIES, includeStats: true, includeFullPrompt: true }
+    return { tier: 'deep', memoryCount: MAX_CONTEXT_MEMORIES, historyLimit: 50, includeStats: true, includeFullPrompt: true, includeProfile: true }
   }
 
   // CRISIS: always full everything
   if (CRISIS_WORDS.some(w => lower.includes(w))) {
-    return { tier: 'crisis', memoryCount: MAX_CONTEXT_MEMORIES, includeStats: true, includeFullPrompt: true }
+    return { tier: 'crisis', memoryCount: MAX_CONTEXT_MEMORIES, historyLimit: 50, includeStats: true, includeFullPrompt: true, includeProfile: true }
   }
 
   // DEEP: significant context needed
   if (DEEP_WORDS.some(w => lower.includes(w)) || length > 300) {
-    return { tier: 'deep', memoryCount: 40, includeStats: true, includeFullPrompt: false }
+    return { tier: 'deep', memoryCount: 40, historyLimit: 30, includeStats: true, includeFullPrompt: false, includeProfile: true }
   }
 
-  // CASUAL: minimal context
+  // CASUAL: minimal context, no profile needed
   if ((CASUAL_WORDS.some(w => lower.includes(w)) || lower.match(/^.{0,2}$/)) && length < 60) {
-    return { tier: 'casual', memoryCount: 5, includeStats: false, includeFullPrompt: false }
+    return { tier: 'casual', memoryCount: 5, historyLimit: 6, includeStats: false, includeFullPrompt: false, includeProfile: false }
   }
 
   // NORMAL: moderate context
-  return { tier: 'normal', memoryCount: 15, includeStats: true, includeFullPrompt: false }
+  return { tier: 'normal', memoryCount: 15, historyLimit: 15, includeStats: true, includeFullPrompt: false, includeProfile: true }
 }
 
 // ─── Smart Memory Selector — find relevant memories ──────
@@ -285,16 +287,7 @@ function buildMemoryStats(memories: Memory[]): string {
     parts.push(`[EMOTIONAL TRAJECTORY] ${trend} (last 2wk avg: ${recentAvg.toFixed(1)}, prev 2wk avg: ${olderAvg.toFixed(1)}) | Recent mood: ${recentTopMood} → Was: ${olderTopMood}`)
   }
 
-  // Core memories highlight
-  const coreMemories = memories.filter(m => m.isCore).slice(0, 5)
-  if (coreMemories.length > 0) {
-    const coreHighlights = coreMemories.map(m => {
-      const date = m.date.split('T')[0]
-      const people = m.connections?.length ? ` (with: ${m.connections.join(', ')})` : ''
-      return `${date}${people}: ${m.text.slice(0, 60)}${m.text.length > 60 ? '...' : ''}`
-    })
-    parts.push(`[⭐ CORE MEMORIES — most defining moments]\n${coreHighlights.join('\n')}`)
-  }
+  // Core memories are already marked with ⭐ in the memory list below — no need to duplicate here
 
   // Relationship dynamics — who's trending up/down in recent memories
   if (Object.keys(connectionCounts).length >= 2) {
@@ -357,32 +350,25 @@ function buildMemoryStats(memories: Memory[]): string {
 }
 
 function formatMemoryLine(memory: Memory): string {
-  const parts: string[] = [memory.date.split('T')[0]]
+  // Compact format: date cat area i:N ⭐ @people — text
+  const meta: string[] = [memory.date.split('T')[0]]
 
   const cats = memory.categories?.length ? memory.categories.filter(c => c !== 'uncategorized') : []
   if (cats.length) {
-    parts.push(cats.join('+'))
+    meta.push(cats.join('+'))
   } else if (memory.category && memory.category !== 'uncategorized') {
-    parts.push(memory.category)
+    meta.push(memory.category)
   }
 
   if (memory.lifeArea && memory.lifeArea !== 'uncategorized') {
-    parts.push(`[${memory.lifeArea}]`)
+    meta.push(memory.lifeArea)
   }
 
-  if (memory.intensity) {
-    parts.push(`intensity:${memory.intensity}/10`)
-  }
-  if (memory.isCore) {
-    parts.push('⭐CORE')
-  }
+  if (memory.intensity) meta.push(`i:${memory.intensity}`)
+  if (memory.isCore) meta.push('⭐')
+  if (memory.connections?.length) meta.push(`@${memory.connections.join(',')}`)
 
-  if (memory.connections?.length) {
-    parts.push(`with:${memory.connections.join(',')}`)
-  }
-
-  parts.push(memory.text)
-  return `- ${parts.join(' | ')}`
+  return `- ${meta.join(' ')} — ${memory.text}`
 }
 
 function buildMemoryContext(memories: Memory[]): string {

@@ -884,18 +884,31 @@ export default function Aiya() {
       const messageCount = history.length
       const route = routeMessage(text, messageCount)
 
+      // Trim history to tier-appropriate limit
+      const trimmedHistory = history.slice(-route.historyLimit)
+
       // Select system prompt: full for first message or crisis, compact for follow-ups
-      const selectedPrompt = route.includeFullPrompt ? systemPromptFull : systemPromptCompact
+      // For casual tier, strip profile from prompt to save tokens
+      let selectedPrompt: string
+      if (route.includeFullPrompt) {
+        selectedPrompt = route.includeProfile
+          ? systemPromptFull
+          : t('aiyaSystemPrompt', { memories: '{{memories}}', profile: '' })
+      } else {
+        selectedPrompt = route.includeProfile
+          ? systemPromptCompact
+          : t('aiyaSystemPromptCompact', { memories: '{{memories}}', profile: '' })
+      }
 
       // Build tiered memory context based on route
       const tieredMemoryContext = buildTieredMemoryContext(memories, text, route)
 
       if (import.meta.env.DEV) {
-        console.log(`[Aiya] Route: tier=${route.tier}, memories=${route.memoryCount}, fullPrompt=${route.includeFullPrompt}`)
+        console.log(`[Aiya] Route: tier=${route.tier}, memories=${route.memoryCount}, history=${trimmedHistory.length}/${history.length}, profile=${route.includeProfile}`)
       }
 
       const res = await aiyaService.sendMessage({
-        message: text, history, memories, locale,
+        message: text, history: trimmedHistory, memories, locale,
         systemPrompt: selectedPrompt,
         memoryContext: tieredMemoryContext,
       })
