@@ -13,6 +13,10 @@ const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || SUPABASE_SERVICE_RO
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || ''
 
 const MODEL = 'gpt-4o'
+const CHAT_MAX_TOKENS = 1200
+const CHAT_TEMPERATURE = 0.85
+const CHAT_FREQUENCY_PENALTY = 0.3
+const CHAT_PRESENCE_PENALTY = 0.4
 const DEFAULT_LIMIT = 50
 const ALLOWED_CATEGORIES = [
   'success',
@@ -87,19 +91,25 @@ async function callOpenAI(params: {
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
   maxTokens: number
   temperature: number
+  frequencyPenalty?: number
+  presencePenalty?: number
 }) {
+  const body: Record<string, unknown> = {
+    model: MODEL,
+    messages: params.messages,
+    max_tokens: params.maxTokens,
+    temperature: params.temperature,
+  }
+  if (params.frequencyPenalty !== undefined) body.frequency_penalty = params.frequencyPenalty
+  if (params.presencePenalty !== undefined) body.presence_penalty = params.presencePenalty
+
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${OPENAI_API_KEY}`,
     },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: params.messages,
-      max_tokens: params.maxTokens,
-      temperature: params.temperature,
-    }),
+    body: JSON.stringify(body),
   })
 
   if (!res.ok) {
@@ -420,7 +430,7 @@ Language: ${langHint}.${memoryBlock}`
     }
 
     if (action === 'profile') {
-      const trimmedHistory = history.slice(-20)
+      const trimmedHistory = history.slice(-30)
       if (!memoryContext && trimmedHistory.length === 0) {
         return jsonResponse({ error: 'No context for profile' }, 400)
       }
@@ -430,17 +440,27 @@ Language: ${langHint}.${memoryBlock}`
               .map((item) => `${item.role.toUpperCase()}: ${item.content}`)
               .join('\n')}`
           : ''
-      const prompt = `Summarize the user into a concise profile based on memories and conversation. Return plain text only with 6-8 bullet points.
-If a detail is unknown, skip it. Do not invent personal facts. Keep it under 1200 characters.
+      const prompt = `Build a deep psychological profile of this user based on their memories and conversations. This profile will be used to make future conversations deeply personal. Include:
+
+1. Core personality traits (from how they write, what they share)
+2. Key people in their life (names, relationships, recurring mentions)
+3. Emotional patterns (what makes them happy/sad/anxious, recurring themes)
+4. Values and priorities (what they care most about)
+5. Communication style (humor level, openness, depth preference)
+6. Current life situation (what's going on lately, mood trends)
+7. Interests and passions
+8. Sensitive topics (things to approach carefully)
+
+Be specific — use names, dates, exact references from memories. Do NOT make up facts. If something is unknown, skip it. Keep under 1500 characters.
 Language: ${langHint}.` +
         (memoryContext ? `\n\nMemories:\n${memoryContext}` : '') +
         conversationBlock
       const content = await callOpenAI({
         messages: [
-          { role: 'system', content: `You are Aiya. Be precise and safe. Respond in ${langHint}.` },
+          { role: 'system', content: `You are a psychologically astute profile builder. Analyze deeply but never invent facts. Respond in ${langHint}.` },
           { role: 'user', content: prompt },
         ],
-        maxTokens: 500,
+        maxTokens: 800,
         temperature: 0.3,
       })
 
@@ -468,8 +488,10 @@ Language: ${langHint}.` +
     ]
     const reply = await callOpenAI({
       messages,
-      maxTokens: 800,
-      temperature: 0.75,
+      maxTokens: CHAT_MAX_TOKENS,
+      temperature: CHAT_TEMPERATURE,
+      frequencyPenalty: CHAT_FREQUENCY_PENALTY,
+      presencePenalty: CHAT_PRESENCE_PENALTY,
     })
 
     if (countUsage !== false) {

@@ -369,10 +369,21 @@ export default function Aiya() {
     }
   }, [usage, user])
 
-  // System prompt
+  // System prompt — enrich with user identity + AI-generated profile
   const systemPrompt = useMemo(() => {
-    return t('aiyaSystemPrompt', { memories: '{{memories}}', profile: profileSummary || '' })
-  }, [t, profileSummary])
+    const identityParts: string[] = []
+    if (user?.displayName) identityParts.push(`Name: ${user.displayName}`)
+    if (user?.birthday) identityParts.push(`Birthday: ${user.birthday}`)
+    if (user?.location) identityParts.push(`Location: ${user.location}`)
+    if (user?.bio) identityParts.push(`Bio: ${user.bio}`)
+
+    const identityBlock = identityParts.length
+      ? identityParts.join('\n') + '\n\n'
+      : ''
+
+    const fullProfile = identityBlock + (profileSummary || '')
+    return t('aiyaSystemPrompt', { memories: '{{memories}}', profile: fullProfile })
+  }, [t, profileSummary, user?.displayName, user?.birthday, user?.location, user?.bio])
 
   // ─── Auto-scroll ───────────────────────────────────────
   const scrollToBottom = useCallback((smooth = true) => {

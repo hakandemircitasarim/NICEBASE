@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase'
 import { Memory, MemoryCategory, LifeArea } from '../types'
 import { withTimeout } from '../utils/timeout'
 
-type AiyaAction = 'chat' | 'category' | 'classify' | 'analysis'
+type AiyaAction = 'chat' | 'category' | 'classify' | 'analysis' | 'profile'
 
 type AiyaMessage = {
   role: 'user' | 'assistant'
@@ -46,8 +46,8 @@ type AiyaProfileResponse = {
 
 const FUNCTION_NAME = 'aiya-chat'
 const REQUEST_TIMEOUT_MS = 30000
-const MAX_CONTEXT_MEMORIES = 40
-const MAX_CONTEXT_CHARS = 6000
+const MAX_CONTEXT_MEMORIES = 60
+const MAX_CONTEXT_CHARS = 12000
 
 let lastSessionCheckAt = 0
 let lastSessionOk = false
@@ -74,7 +74,38 @@ function buildMemoryContext(memories: Memory[]): string {
   let totalChars = 0
   const lines: string[] = []
   for (const memory of sorted.slice(0, MAX_CONTEXT_MEMORIES)) {
-    const line = `- ${memory.date.split('T')[0]} | ${memory.category} | ${memory.text}`
+    const parts: string[] = [memory.date.split('T')[0]]
+
+    // Category (prefer multi-select if available)
+    const cats = memory.categories?.length ? memory.categories.filter(c => c !== 'uncategorized') : []
+    if (cats.length) {
+      parts.push(cats.join('+'))
+    } else if (memory.category && memory.category !== 'uncategorized') {
+      parts.push(memory.category)
+    }
+
+    // Life area
+    if (memory.lifeArea && memory.lifeArea !== 'uncategorized') {
+      parts.push(`[${memory.lifeArea}]`)
+    }
+
+    // Intensity & core flag
+    if (memory.intensity) {
+      parts.push(`intensity:${memory.intensity}/10`)
+    }
+    if (memory.isCore) {
+      parts.push('⭐CORE')
+    }
+
+    // Connections (people, places, etc.)
+    if (memory.connections?.length) {
+      parts.push(`with:${memory.connections.join(',')}`)
+    }
+
+    // Memory text
+    parts.push(memory.text)
+
+    const line = `- ${parts.join(' | ')}`
     totalChars += line.length
     if (totalChars > MAX_CONTEXT_CHARS) break
     lines.push(line)
@@ -345,13 +376,11 @@ export const aiyaService = {
     const { memories, history, locale } = params
     const memoryContext = buildMemoryContext(memories)
     return await invokeAiya<AiyaProfileResponse>({
-      action: 'chat' satisfies AiyaAction,
-      message: 'Build a user profile based on the memories and conversation history.',
+      action: 'profile' satisfies AiyaAction,
       history,
       locale,
       memoryContext,
-      systemPrompt: 'You are a profile builder. Analyze the user\'s memories and conversation history to create a concise profile summary.',
-      countUsage: true,
+      countUsage: false,
     })
   },
 }
