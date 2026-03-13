@@ -105,7 +105,7 @@ export const memoryService = {
     // Auto-categorize via Aiya if category is uncategorized
     if (memory.category === 'uncategorized' && memory.text.trim()) {
       memoryService._autoCategorize(memory.id, memory.text, data.userId).catch((err) => {
-        console.warn('[memoryService] Auto-categorize failed:', err)
+        if (import.meta.env.DEV) console.warn('[memoryService] Auto-categorize failed:', err)
       })
     }
 
@@ -157,7 +157,7 @@ export const memoryService = {
         }
       }
     } catch (err) {
-      console.warn('[memoryService] Auto-categorize failed:', err)
+      if (import.meta.env.DEV) console.warn('[memoryService] Auto-categorize failed:', err)
     }
   },
 
@@ -229,7 +229,7 @@ export const memoryService = {
     for (const item of pendingItems) {
       // Give up after 10 attempts — mark as done to stop retrying forever
       if (item.attemptCount >= 10) {
-        console.warn(`[sync] Giving up on item ${item.id} after ${item.attemptCount} attempts: ${item.lastError}`)
+        if (import.meta.env.DEV) console.warn(`[sync] Giving up on item ${item.id} after ${item.attemptCount} attempts: ${item.lastError}`)
         await db.syncQueueV2.update(item.id, { status: 'done', lastError: `Gave up after ${item.attemptCount} attempts` })
         continue
       }
@@ -251,7 +251,7 @@ export const memoryService = {
           const extracted = extractUpdatesFromPayload(item.payload)
           if (!extracted) {
             // Corrupt payload — can't recover, skip it
-            console.warn('[sync] Corrupt update payload, skipping:', item.payload)
+            if (import.meta.env.DEV) console.warn('[sync] Corrupt update payload, skipping:', item.payload)
             await db.syncQueueV2.update(item.id, { status: 'done', lastError: 'Corrupt payload — skipped' })
             continue
           }
@@ -303,7 +303,7 @@ export const memoryService = {
         const attemptCount = item.attemptCount + 1
         const backoffMs = Math.min(1000 * Math.pow(2, attemptCount), 300000) // Max 5 minutes
         const errorMsg = error instanceof Error ? error.message : String(error)
-        console.warn(`[sync] Item ${item.id} (${item.op}) failed attempt ${attemptCount}:`, errorMsg)
+        if (import.meta.env.DEV) console.warn(`[sync] Item ${item.id} (${item.op}) failed attempt ${attemptCount}:`, errorMsg)
         await db.syncQueueV2.update(item.id, {
           status: 'failed',
           attemptCount,
@@ -408,7 +408,7 @@ export const memoryService = {
         }
       }
     } catch (error) {
-      console.warn('[memoryService] Failed to pull from Supabase:', error)
+      if (import.meta.env.DEV) console.warn('[memoryService] Failed to pull from Supabase:', error)
     }
   },
 

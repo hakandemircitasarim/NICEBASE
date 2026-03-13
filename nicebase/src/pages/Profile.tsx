@@ -131,8 +131,8 @@ export default function Profile() {
     <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-8">
       {/* Profile Header */}
       <div className="relative pt-8 pb-6">
-        {/* Background gradient */}
-        <div className="absolute inset-0 -mx-4 sm:-mx-6 bg-gradient-to-b from-primary/10 via-primary/5 to-transparent rounded-b-3xl" />
+        {/* Background gradient — extends above parent to cover status bar area */}
+        <div className="absolute inset-0 -top-20 -mx-4 sm:-mx-6 bg-gradient-to-b from-primary/10 via-primary/5 to-transparent rounded-b-3xl" />
 
         <div className="relative flex flex-col items-center">
           {/* Avatar */}

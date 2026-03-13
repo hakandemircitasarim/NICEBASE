@@ -1,6 +1,6 @@
 import type React from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useModalPresence } from '../hooks/useModalPresence'
 
@@ -20,9 +20,63 @@ interface ModalShellProps {
 }
 
 /**
- * Web-first modal shell with a stable inner-scroll layout:
- * - Backdrop is fixed and does NOT intercept wheel/scroll beyond click-to-dismiss.
- * - Panel is height-constrained; body uses flex + min-h-0 so overflow-y works reliably.
+ * Track the real visible viewport height via the VisualViewport API
+ * and detect whether the on-screen keyboard is open.
+ *
+ * On Android WebView with adjustResize, CSS vh/dvh units may NOT update
+ * when the keyboard opens, but visualViewport.height always reflects
+ * the true visible area. Falls back to window.innerHeight.
+ *
+ * keyboardOpen is true when the viewport has shrunk by more than 100px
+ * compared to its maximum observed height (i.e. the keyboard appeared).
+ */
+function useVisualViewport(): { height: number; keyboardOpen: boolean } {
+  const [height, setHeight] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.visualViewport?.height ?? window.innerHeight
+    }
+    return 800
+  })
+  // Track the largest viewport height we've ever seen.
+  // This is the "full" height without keyboard.
+  const maxHeightRef = useRef(height)
+
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) {
+      const onResize = () => {
+        const h = window.innerHeight
+        if (h > maxHeightRef.current) maxHeightRef.current = h
+        setHeight(h)
+      }
+      window.addEventListener('resize', onResize)
+      return () => window.removeEventListener('resize', onResize)
+    }
+
+    const onUpdate = () => {
+      const h = vv.height
+      if (h > maxHeightRef.current) maxHeightRef.current = h
+      setHeight(h)
+    }
+    onUpdate()
+    vv.addEventListener('resize', onUpdate)
+    vv.addEventListener('scroll', onUpdate)
+    return () => {
+      vv.removeEventListener('resize', onUpdate)
+      vv.removeEventListener('scroll', onUpdate)
+    }
+  }, [])
+
+  const keyboardOpen = maxHeightRef.current - height > 100
+  return { height, keyboardOpen }
+}
+
+/**
+ * Web-first modal shell with a stable inner-scroll layout.
+ *
+ * On mobile it renders as a bottom-sheet that extends to the very bottom
+ * of the screen. The panel height is driven by the VisualViewport API so
+ * it reacts correctly when the Android keyboard opens/closes.
  */
 export default function ModalShell({
   isOpen,
@@ -41,6 +95,7 @@ export default function ModalShell({
   useBodyScrollLock(isOpen)
   useModalPresence(isOpen)
   const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+  const { height: vpHeight, keyboardOpen } = useVisualViewport()
 
   // Escape closes (web convenience + accessibility)
   useEffect(() => {
@@ -114,6 +169,10 @@ export default function ModalShell({
     }
   }, [isOpen])
 
+  // Panel height driven by real visual-viewport pixels.
+  // Reserve a small gap at the top so the backdrop peeks through.
+  const panelMaxPx = Math.floor(vpHeight * 0.92)
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -122,29 +181,27 @@ export default function ModalShell({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className={[
-            'fixed inset-0 bg-black/60 backdrop-blur-sm z-50 safe-area overflow-hidden',
+            'fixed inset-0 bg-black/60 backdrop-blur-sm z-50 overflow-hidden',
             'flex items-end sm:items-center justify-center',
-            // Keep padding off mobile bottom-sheet feel, add padding on desktop.
             'sm:p-4',
             className,
           ].join(' ')}
           data-modal="true"
           onMouseDown={(e) => {
-            // Close only when pressing backdrop itself (prevents scroll/drag from closing).
             if (e.target === e.currentTarget) onClose()
           }}
           onTouchStart={(e) => {
             if (e.target === e.currentTarget) {
               // Let iOS register touch but don't interfere with inner scroll.
-              // Close happens on click/tap end by mouseDown analogue above on desktop; on mobile, we keep click.
             }
           }}
           onClick={(e) => {
             if (e.target === e.currentTarget) onClose()
           }}
           style={{
-            paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))',
-            paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0px))',
+            // On desktop (sm+), keep safe-area padding. On mobile the panel
+            // extends to the bottom edge so we only need top padding.
+            paddingTop: 'max(0.5rem, var(--safe-area-inset-top, 0px))',
           }}
         >
           <motion.div
@@ -164,20 +221,16 @@ export default function ModalShell({
               'bg-white dark:bg-gray-800',
               'rounded-t-3xl sm:rounded-3xl',
               'w-full max-w-2xl shadow-2xl border border-gray-200 dark:border-gray-700',
-              'safe-area-inset flex flex-col overflow-hidden min-h-0',
+              'flex flex-col overflow-hidden min-h-0',
               panelClassName,
             ].join(' ')}
             style={{
-              // Height constraint is required for inner scroll to work reliably.
-              // autoHeight: panel sizes to content; only maxHeight is set.
+              // Use JS-driven pixel values so the panel reacts instantly
+              // when the Android keyboard opens/closes.
               ...(autoHeight
                 ? {}
-                : {
-                    height:
-                      'min(calc(100dvh - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)), 92vh)',
-                  }),
-              maxHeight:
-                'min(calc(100dvh - 1rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)), 92vh)',
+                : { height: `${panelMaxPx}px` }),
+              maxHeight: `${panelMaxPx}px`,
             }}
           >
             {header && <div className="flex-shrink-0">{header}</div>}
@@ -193,12 +246,21 @@ export default function ModalShell({
                 {children}
               </div>
             )}
-            {footer && <div className="flex-shrink-0">{footer}</div>}
+            {footer && (
+              <div
+                className="flex-shrink-0"
+                style={{
+                  // Only add safe-area bottom padding when keyboard is CLOSED.
+                  // When keyboard is open, nav bar is behind the keyboard so no padding needed.
+                  paddingBottom: keyboardOpen ? 0 : 'var(--safe-area-inset-bottom, 0px)',
+                }}
+              >
+                {footer}
+              </div>
+            )}
           </motion.div>
         </motion.div>
       )}
     </AnimatePresence>
   )
 }
-
-

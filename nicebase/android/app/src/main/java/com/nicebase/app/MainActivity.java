@@ -4,6 +4,10 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
 import ee.forgr.capacitor.social.login.ModifiedMainActivityForSocialLoginPlugin;
 
@@ -12,24 +16,34 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
     public void IHaveModifiedTheMainActivityForTheUseWithSocialLoginPlugin() {
         // Required by @capgo/capacitor-social-login to enable Google Sign-In with scopes
     }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
+
+        // Android 15 (API 35) enforces edge-to-edge. Apply only the status bar
+        // inset as top padding so content doesn't render behind it. Bottom is not
+        // padded — the app's fixed bottom nav already sits above the system nav bar.
+        View contentView = findViewById(android.R.id.content);
+        ViewCompat.setOnApplyWindowInsetsListener(contentView, (view, windowInsets) -> {
+            Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.statusBars());
+            view.setPadding(0, insets.top, 0, 0);
+            return windowInsets;
+        });
+
         // Create notification channels for Android 8.0+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             createNotificationChannels();
         }
     }
-    
+
     private void createNotificationChannels() {
         NotificationManager notificationManager = getSystemService(NotificationManager.class);
-        
+
         if (notificationManager == null) {
             return;
         }
-        
-        // Daily Reminder Channel
+
         NotificationChannel dailyReminderChannel = new NotificationChannel(
             "daily-reminder",
             "Günlük Hatırlatmalar",
@@ -38,8 +52,7 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         dailyReminderChannel.setDescription("Günlük anı hatırlatmaları");
         dailyReminderChannel.enableVibration(true);
         notificationManager.createNotificationChannel(dailyReminderChannel);
-        
-        // Streak Protection Channel
+
         NotificationChannel streakProtectionChannel = new NotificationChannel(
             "streak-protection",
             "Streak Koruma",
@@ -48,8 +61,7 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         streakProtectionChannel.setDescription("Streak kırılma riski bildirimleri");
         streakProtectionChannel.enableVibration(true);
         notificationManager.createNotificationChannel(streakProtectionChannel);
-        
-        // Random Memory Channel
+
         NotificationChannel randomMemoryChannel = new NotificationChannel(
             "random-memory",
             "Rastgele Anı Hatırlatmaları",
@@ -58,8 +70,7 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         randomMemoryChannel.setDescription("Rastgele anı hatırlatmaları");
         randomMemoryChannel.enableVibration(false);
         notificationManager.createNotificationChannel(randomMemoryChannel);
-        
-        // Default Channel (for other notifications)
+
         NotificationChannel defaultChannel = new NotificationChannel(
             "default",
             "Varsayılan",

@@ -5,7 +5,7 @@ export default function Toaster() {
     <HotToaster
       position="top-center"
       containerStyle={{
-        top: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)',
+        top: 'calc(var(--safe-area-inset-top, 0px) + 0.75rem)',
       }}
       toastOptions={{
         duration: 3000,

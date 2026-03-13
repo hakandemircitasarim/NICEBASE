@@ -413,6 +413,11 @@ export default function RelationshipSaver() {
                               alt={t('memory')}
                               className="w-full h-96 object-cover rounded-2xl"
                               loading="lazy"
+                              onError={(e) => {
+                                const target = e.currentTarget
+                                target.onerror = null
+                                target.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="384" fill="%23e5e7eb"><rect width="400" height="384"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="14">📷</text></svg>')
+                              }}
                             />
                           </div>
                         )}

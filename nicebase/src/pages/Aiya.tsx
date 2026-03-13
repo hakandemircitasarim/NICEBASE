@@ -13,7 +13,7 @@ import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ConfirmationDialog from '../components/ConfirmationDialog'
-import { aiyaService } from '../services/aiyaService'
+import { aiyaService, routeMessage, buildTieredMemoryContext } from '../services/aiyaService'
 import { hapticFeedback } from '../utils/haptic'
 import { generateUUID } from '../utils/uuid'
 import { useDebounce } from '../hooks/useDebounce'
@@ -44,10 +44,10 @@ type ViewMode = 'list' | 'chat'
 
 // ─── Constants ───────────────────────────────────────────
 
-const HISTORY_LIMIT = 40
-const PROFILE_MIN_MESSAGE_COUNT = 4
-const PROFILE_UPDATE_MESSAGE_INTERVAL = 6
-const PROFILE_UPDATE_COOLDOWN_MS = 6 * 60 * 60 * 1000
+const HISTORY_LIMIT = 50
+const PROFILE_MIN_MESSAGE_COUNT = 3
+const PROFILE_UPDATE_MESSAGE_INTERVAL = 5
+const PROFILE_UPDATE_COOLDOWN_MS = 4 * 60 * 60 * 1000
 const DRAFT_SAVE_KEY_PREFIX = 'aiya_draft_'
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -164,15 +164,16 @@ function TypingDots() {
 
 // ─── Suggestion Chips ────────────────────────────────────
 
-function SuggestionChips({ 
-  onSelect, 
-  memories 
-}: { 
+function SuggestionChips({
+  onSelect,
+  memories
+}: {
   onSelect: (text: string) => void
   memories: Memory[]
 }) {
-  const { t } = useTranslation()
-  
+  const { t, i18n } = useTranslation()
+  const isTr = i18n.language?.startsWith('tr')
+
   const chips = useMemo(() => {
     const baseChips = [
       { key: 'analyze', label: t('aiyaChipAnalyze', { defaultValue: 'Anılarımı analiz et' }) },
@@ -180,38 +181,98 @@ function SuggestionChips({
       { key: 'motivate', label: t('aiyaChipMotivate', { defaultValue: 'Beni motive et' }) },
       { key: 'week', label: t('aiyaChipWeek', { defaultValue: 'Son haftamı özetle' }) },
     ]
-    
+
     if (memories.length === 0) return baseChips
-    
-    const recentMemories = memories.slice(0, 10)
-    const categories = new Set(recentMemories.map(m => m.category))
-    const connections = new Set(recentMemories.flatMap(m => m.connections))
-    
+
+    const now = new Date()
+    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const recentMemories = memories.filter(m => new Date(m.date) >= oneWeekAgo)
+    const allCategories = new Set(memories.slice(0, 30).map(m => m.category))
+
+    // Count connections across all memories
+    const connectionCounts: Record<string, number> = {}
+    for (const m of memories.slice(0, 40)) {
+      if (m.connections?.length) {
+        for (const c of m.connections) {
+          connectionCounts[c] = (connectionCounts[c] || 0) + 1
+        }
+      }
+    }
+
     const personalized: Array<{ key: string; label: string }> = []
-    
-    if (categories.has('gratitude')) {
-      personalized.push({ 
-        key: 'gratitude', 
-        label: t('aiyaChipGratitude', { defaultValue: 'Minettarlık anılarımı göster' }) 
+
+    // Time-of-day aware chips
+    const hour = now.getHours()
+    if (hour >= 20 || hour < 5) {
+      personalized.push({
+        key: 'reflect',
+        label: isTr ? 'Bugünü değerlendir' : 'Reflect on today'
+      })
+    } else if (hour >= 6 && hour < 11) {
+      personalized.push({
+        key: 'morning',
+        label: isTr ? 'Bugün için motivasyon ver' : 'Motivate me for today'
       })
     }
-    if (categories.has('love')) {
-      personalized.push({ 
-        key: 'love', 
-        label: t('aiyaChipLove', { defaultValue: 'Sevgi anılarımı hatırlat' }) 
+
+    // Core memories chip
+    const coreMemories = memories.filter(m => m.isCore)
+    if (coreMemories.length > 0) {
+      personalized.push({
+        key: 'core',
+        label: isTr ? 'En önemli anılarımı hatırlat' : 'Remind me of my key moments'
       })
     }
-    
-    if (connections.size > 0) {
-      const topConnection = Array.from(connections)[0]
-      personalized.push({ 
-        key: 'connection', 
-        label: t('aiyaChipConnection', { defaultValue: `${topConnection} ile anılarım` }) 
+
+    // Category-based chips
+    if (allCategories.has('gratitude')) {
+      personalized.push({
+        key: 'gratitude',
+        label: t('aiyaChipGratitude', { defaultValue: 'Minettarlık anılarımı göster' })
       })
     }
-    
-    return [...baseChips, ...personalized].slice(0, 6)
-  }, [memories, t])
+    if (allCategories.has('love')) {
+      personalized.push({
+        key: 'love',
+        label: t('aiyaChipLove', { defaultValue: 'Sevgi anılarımı hatırlat' })
+      })
+    }
+    if (allCategories.has('growth')) {
+      personalized.push({
+        key: 'growth',
+        label: isTr ? 'Gelişim sürecimi göster' : 'Show my growth journey'
+      })
+    }
+
+    // Top connection chip
+    const topConnection = Object.entries(connectionCounts).sort((a, b) => b[1] - a[1])[0]
+    if (topConnection && topConnection[1] >= 2) {
+      personalized.push({
+        key: 'connection',
+        label: t('aiyaChipConnection', { name: topConnection[0], defaultValue: `${topConnection[0]} ile anılarım` })
+      })
+    }
+
+    // Pattern/insight chips
+    if (memories.length >= 10) {
+      personalized.push({
+        key: 'pattern',
+        label: isTr ? 'Hayatımdaki kalıpları göster' : 'Show me patterns in my life'
+      })
+    }
+
+    // Emotional check if no recent memories
+    if (recentMemories.length === 0 && memories.length > 0) {
+      personalized.push({
+        key: 'checkin',
+        label: isTr ? 'Süredir anı eklemedim, ne oldu?' : 'I haven\'t added memories lately'
+      })
+    }
+
+    // Shuffle personalized to add variety, but keep baseChips first
+    const shuffled = [...personalized].sort(() => Math.random() - 0.5)
+    return [...baseChips, ...shuffled].slice(0, 6)
+  }, [memories, t, isTr])
 
   return (
     <div className="flex gap-2.5 overflow-x-auto scrollbar-hide pb-1.5 -mx-1 px-1 snap-x snap-mandatory">
@@ -369,10 +430,33 @@ export default function Aiya() {
     }
   }, [usage, user])
 
-  // System prompt
-  const systemPrompt = useMemo(() => {
-    return t('aiyaSystemPrompt', { memories: '{{memories}}', profile: profileSummary || '' })
-  }, [t, profileSummary])
+  // Build profile block (shared between full and compact prompts)
+  const profileBlock = useMemo(() => {
+    const identityParts: string[] = []
+    if (user?.displayName) identityParts.push(`Name: ${user.displayName}`)
+    if (user?.birthday) identityParts.push(`Birthday: ${user.birthday}`)
+    if (user?.location) identityParts.push(`Location: ${user.location}`)
+    if (user?.bio) identityParts.push(`Bio: ${user.bio}`)
+
+    const identityBlock = identityParts.length
+      ? identityParts.join('\n') + '\n\n'
+      : ''
+
+    return identityBlock + (profileSummary || '')
+  }, [profileSummary, user?.displayName, user?.birthday, user?.location, user?.bio])
+
+  // Full system prompt — used for first message in a chat session
+  const systemPromptFull = useMemo(() => {
+    return t('aiyaSystemPrompt', { memories: '{{memories}}', profile: profileBlock })
+  }, [t, profileBlock])
+
+  // Compact system prompt — used for follow-up messages
+  const systemPromptCompact = useMemo(() => {
+    return t('aiyaSystemPromptCompact', { memories: '{{memories}}', profile: profileBlock })
+  }, [t, profileBlock])
+
+  // Keep backward compat alias for other uses (profile update etc.)
+  const systemPrompt = systemPromptFull
 
   // ─── Auto-scroll ───────────────────────────────────────
   const scrollToBottom = useCallback((smooth = true) => {
@@ -773,8 +857,6 @@ export default function Aiya() {
     // Use overrideChatId if provided (from handleChip), otherwise use activeChatId from closure
     const targetChatId = overrideChatId ?? activeChatId
 
-    console.warn('[Aiya] handleSend START — targetChatId:', targetChatId, '| activeChatId:', activeChatId, '| text:', text.slice(0, 30))
-
     setInput('')
     // Clear draft on send
     if (targetChatId) saveDraft(targetChatId, '')
@@ -783,8 +865,6 @@ export default function Aiya() {
     const userMsg: AiyaMessage = { role: 'user', content: text, ts: Date.now() }
 
     setChats((prev) => {
-      const found = prev.some((c) => c.id === targetChatId)
-      console.warn('[Aiya] Adding USER msg — chatFound:', found, '| targetChatId:', targetChatId, '| chats:', prev.length, '| chatIds:', prev.map(c => c.id.slice(0, 8)).join(','))
       return prev.map((c) => {
         if (c.id !== targetChatId) return c
         const updated = trimMessages([...c.messages, userMsg])
@@ -799,25 +879,49 @@ export default function Aiya() {
       // so the old approach of reading via setChats((prev) => ...) returned []
       const currentChat = chatsRef.current.find((c) => c.id === targetChatId)
       const history = currentChat ? trimMessages(currentChat.messages) : []
-      console.warn('[Aiya] Calling sendMessage — history length:', history.length, '| memories:', memories.length)
-      const res = await aiyaService.sendMessage({ message: text, history, memories, locale, systemPrompt })
+
+      // ─── GEARBOX: Route message to determine context tier ───
+      const messageCount = history.length
+      const route = routeMessage(text, messageCount)
+
+      // Trim history to tier-appropriate limit
+      const trimmedHistory = history.slice(-route.historyLimit)
+
+      // Select system prompt: full for first message or crisis, compact for follow-ups
+      // For casual tier, strip profile from prompt to save tokens
+      let selectedPrompt: string
+      if (route.includeFullPrompt) {
+        selectedPrompt = route.includeProfile
+          ? systemPromptFull
+          : t('aiyaSystemPrompt', { memories: '{{memories}}', profile: '' })
+      } else {
+        selectedPrompt = route.includeProfile
+          ? systemPromptCompact
+          : t('aiyaSystemPromptCompact', { memories: '{{memories}}', profile: '' })
+      }
+
+      // Build tiered memory context based on route
+      const tieredMemoryContext = buildTieredMemoryContext(memories, text, route)
+
+      if (import.meta.env.DEV) {
+        console.log(`[Aiya] Route: tier=${route.tier}, memories=${route.memoryCount}, history=${trimmedHistory.length}/${history.length}, profile=${route.includeProfile}`)
+      }
+
+      const res = await aiyaService.sendMessage({
+        message: text, history: trimmedHistory, memories, locale,
+        systemPrompt: selectedPrompt,
+        memoryContext: tieredMemoryContext,
+      })
 
       // Guard against missing reply
       const replyText = res?.reply
-      console.warn('[Aiya] Got reply — type:', typeof replyText, '| length:', typeof replyText === 'string' ? replyText.length : 'N/A', '| preview:', typeof replyText === 'string' ? replyText.slice(0, 50) : String(replyText))
       if (!replyText || typeof replyText !== 'string') {
-        console.error('[Aiya] Invalid response - no reply field:', JSON.stringify(res).slice(0, 200))
         throw new Error(t('aiyaError', { defaultValue: 'Aiya yanıt veremedi, tekrar dene.' }))
       }
 
       const aiyaMsg: AiyaMessage = { role: 'assistant', content: cleanMarkdown(replyText), ts: Date.now() }
 
       setChats((prev) => {
-        const found = prev.some((c) => c.id === targetChatId)
-        console.warn('[Aiya] Adding AI msg — chatFound:', found, '| targetChatId:', targetChatId, '| chats:', prev.length, '| chatIds:', prev.map(c => c.id.slice(0, 8)).join(','))
-        if (!found) {
-          console.error('[Aiya] CRITICAL: Chat not found in state! AI message will be LOST. targetChatId:', targetChatId)
-        }
         return prev.map((c) => {
           if (c.id !== targetChatId) return c
           const updated = trimMessages([...c.messages, aiyaMsg])
@@ -838,12 +942,12 @@ export default function Aiya() {
       void maybeUpdateProfile([...history, aiyaMsg])
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      console.error('[Aiya] sendMessage failed:', msg, err)
+      if (import.meta.env.DEV) console.error('[Aiya] sendMessage failed:', msg, err)
       setErrorMessage(msg || t('aiyaError'))
     } finally {
       setSending(false)
     }
-  }, [input, sending, activeChatId, memories, locale, systemPrompt, t, maybeUpdateProfile, saveDraft, setUser])
+  }, [input, sending, activeChatId, memories, locale, systemPromptFull, systemPromptCompact, t, maybeUpdateProfile, saveDraft, setUser])
 
   // ─── Chip action ───────────────────────────────────────
   const handleChip = useCallback((text: string) => {
@@ -895,9 +999,16 @@ export default function Aiya() {
       {/* Header */}
       <div
         className="flex items-center justify-between container-padding py-4 sm:py-5 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 shadow-sm"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}
+        style={{ paddingTop: 'calc(var(--safe-area-inset-top, 0px) + 1rem)' }}
       >
-        <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+          <button
+            onClick={() => navigate('/')}
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors touch-manipulation touch-target flex-shrink-0"
+            aria-label={t('back', { defaultValue: 'Geri' })}
+          >
+            <ChevronLeft size={24} />
+          </button>
           <AiyaAvatar size={40} />
           <div className="min-w-0 flex-1">
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 leading-tight">Aiya</h1>
@@ -927,7 +1038,7 @@ export default function Aiya() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch', paddingBottom: 'env(safe-area-inset-bottom, 0px)' } as React.CSSProperties}>
+      <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch', paddingBottom: 'var(--safe-area-inset-bottom, 0px)' } as React.CSSProperties}>
         {/* Hero / Start Chat section */}
         <div className={`flex flex-col items-center container-padding text-center ${chats.length === 0 ? 'justify-center h-full min-h-[400px]' : 'pt-8 sm:pt-10 pb-6'}`}>
           <motion.div
@@ -1033,7 +1144,7 @@ export default function Aiya() {
       {/* Chat header - Fixed top */}
       <div
         className="flex items-center justify-between gap-2 container-padding py-3.5 sm:py-4 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 z-30 shadow-sm"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.875rem)' }}
+        style={{ paddingTop: 'calc(var(--safe-area-inset-top, 0px) + 0.875rem)' }}
       >
         <button
           onClick={goToList}
@@ -1195,7 +1306,7 @@ export default function Aiya() {
       {/* Bottom: Input container - Fixed above navbar, z-50 */}
       <div
         className="flex-shrink-0 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-50 shadow-lg"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        style={{ paddingBottom: 'var(--safe-area-inset-bottom, 0px)' }}
       >
         {/* Suggestion chips */}
         <AnimatePresence>

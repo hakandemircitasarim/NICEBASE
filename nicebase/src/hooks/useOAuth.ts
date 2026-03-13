@@ -23,7 +23,7 @@ async function initSocialLogin() {
     const webClientId = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID || ''
 
     if (!webClientId) {
-      console.warn('[OAuth] VITE_GOOGLE_WEB_CLIENT_ID is not set — native Google Sign-In will fail')
+      if (import.meta.env.DEV) console.warn('[OAuth] VITE_GOOGLE_WEB_CLIENT_ID is not set')
       return
     }
 
@@ -34,7 +34,7 @@ async function initSocialLogin() {
     })
     _socialLoginInitialized = true
   } catch (error) {
-    console.error('[OAuth] SocialLogin.initialize failed:', error)
+    errorLoggingService.logError(error instanceof Error ? error : new Error('SocialLogin.initialize failed'), 'error')
   }
 }
 
@@ -113,7 +113,7 @@ export function useOAuth() {
             const errorParam = searchParams.get('error') || hashParams.get('error')
             if (errorParam) {
               const desc = searchParams.get('error_description') || hashParams.get('error_description') || errorParam
-              console.error('[OAuth] Provider error:', desc)
+              errorLoggingService.logError(new Error(`OAuth provider error: ${desc}`), 'error')
               toast.error(desc)
               loadingRef.current = false
               setLoading(false)
@@ -125,7 +125,7 @@ export function useOAuth() {
             if (code) {
               const { error } = await supabase.auth.exchangeCodeForSession(code)
               if (error) {
-                console.error('[OAuth] Code exchange failed:', error.message)
+                errorLoggingService.logError(new Error(`OAuth code exchange failed: ${error.message}`), 'error')
                 toast.error(t('oauthError'))
               }
               loadingRef.current = false
@@ -142,7 +142,7 @@ export function useOAuth() {
                 refresh_token: refreshToken || '',
               })
               if (error) {
-                console.error('[OAuth] setSession failed:', error.message)
+                errorLoggingService.logError(new Error(`OAuth setSession failed: ${error.message}`), 'error')
                 toast.error(t('oauthError'))
               }
               loadingRef.current = false
@@ -150,7 +150,7 @@ export function useOAuth() {
               return
             }
           } catch (error) {
-            console.error('[OAuth] Callback error:', error)
+            errorLoggingService.logError(error instanceof Error ? error : new Error('OAuth callback error'), 'error')
             loadingRef.current = false
             setLoading(false)
           }
@@ -171,7 +171,7 @@ export function useOAuth() {
             : null
         }
       } catch (error) {
-        console.error('[OAuth] Failed to setup listener:', error)
+        errorLoggingService.logError(error instanceof Error ? error : new Error('OAuth listener setup failed'), 'error')
       }
     }
 
@@ -211,16 +211,14 @@ export function useOAuth() {
 
         // Ensure initialized
         if (!_socialLoginInitialized) {
-          console.log('[OAuth] Initializing SocialLogin...')
           await initSocialLogin()
-          console.log('[OAuth] SocialLogin initialized:', _socialLoginInitialized)
         }
 
         if (!_socialLoginInitialized) {
           // Initialization failed (probably missing VITE_GOOGLE_WEB_CLIENT_ID)
           // Show error as toast, do NOT silently fall back to browser
           const msg = 'Native Google Sign-In init failed. Check VITE_GOOGLE_WEB_CLIENT_ID.'
-          console.error('[OAuth]', msg)
+          errorLoggingService.logError(new Error(msg), 'error')
           toast.error(msg)
           loadingRef.current = false
           setLoading(false)
@@ -228,15 +226,12 @@ export function useOAuth() {
         }
 
         try {
-          console.log('[OAuth] Calling SocialLogin.login()...')
           const res = await SocialLogin.login({
             provider: 'google',
             options: {
               scopes: ['email', 'profile'],
             },
           })
-          console.log('[OAuth] SocialLogin.login() result:', JSON.stringify(res, null, 2))
-
           const googleResult = res?.result
           // The response can be 'online' (has idToken) or 'offline' (has serverAuthCode)
           if (!googleResult || !('idToken' in googleResult) || !googleResult.idToken) {
@@ -244,7 +239,6 @@ export function useOAuth() {
           }
 
           // Exchange the native idToken with Supabase
-          console.log('[OAuth] Exchanging idToken with Supabase...')
           const { error } = await supabase.auth.signInWithIdToken({
             provider: 'google',
             token: googleResult.idToken,
@@ -252,18 +246,17 @@ export function useOAuth() {
           })
 
           if (error) {
-            console.error('[OAuth] signInWithIdToken failed:', error.message)
+            errorLoggingService.logError(new Error(`signInWithIdToken failed: ${error.message}`), 'error')
             throw error
           }
 
           // Done! onAuthStateChange in App.tsx will handle the rest
-          console.log('[OAuth] Native Google Sign-In successful!')
           loadingRef.current = false
           setLoading(false)
           return
         } catch (nativeError: unknown) {
           const errMsg = nativeError instanceof Error ? nativeError.message : String(nativeError)
-          console.error('[OAuth] Native Google Sign-In error:', errMsg, nativeError)
+          errorLoggingService.logError(new Error(`Native Google Sign-In error: ${errMsg}`), 'error')
 
           // User cancelled the native picker — not an error
           if (errMsg.includes('cancel') || errMsg.includes('Cancel') || errMsg.includes('dismissed')) {

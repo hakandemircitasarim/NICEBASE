@@ -77,6 +77,8 @@ function MemoryCard({
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
   const [isLongPressing, setIsLongPressing] = useState(false)
 
+  const isLocalUser = memory.userId?.startsWith('local-')
+
   const catMeta = CATEGORY_META[memory.category] || CATEGORY_META.uncategorized
   const CatIcon = catMeta.icon
 
@@ -228,11 +230,15 @@ function MemoryCard({
         <div className="flex flex-wrap gap-1.5 mb-4">
           {/* Category badge with icon */}
           <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full ${catMeta.color} ${
-            memory.category === 'uncategorized' && !isSyncStale ? 'animate-pulse' : ''
+            memory.category === 'uncategorized' && !isSyncStale && !isLocalUser ? 'animate-pulse' : ''
           }`}>
             <CatIcon size={12} />
-            {memory.category === 'uncategorized' && !isSyncStale
-              ? t('aiyaClassifying', { defaultValue: 'Aiya kategorize ediyor...' })
+            {memory.category === 'uncategorized'
+              ? (isLocalUser
+                ? t('aiyaLoginToClassify', { defaultValue: 'Giriş yapın, Aiya sınıflandırsın' })
+                : (!isSyncStale
+                  ? t('aiyaClassifying', { defaultValue: 'Aiya kategorize ediyor...' })
+                  : t(`categories.${memory.category}`)))
               : t(`categories.${memory.category}`)}
           </span>
 

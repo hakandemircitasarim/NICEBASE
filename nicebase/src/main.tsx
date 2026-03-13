@@ -7,6 +7,12 @@ import { registerServiceWorker } from './utils/registerSW'
 import './i18n'
 import './index.css'
 
+// Synchronously mark platform on <html> BEFORE first render so CSS can
+// skip body safe-area padding on Android (native content-view padding handles it).
+if (typeof window !== 'undefined' && (window as any).Capacitor?.getPlatform?.() === 'android') {
+  document.documentElement.classList.add('native-android')
+}
+
 if (import.meta.env.DEV && typeof window !== 'undefined') {
   const { protocol, hostname, host, pathname, search, hash } = window.location
   const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1'

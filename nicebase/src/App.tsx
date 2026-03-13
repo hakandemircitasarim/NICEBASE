@@ -1,4 +1,4 @@
-import { useEffect, lazy, Suspense, useRef } from 'react'
+import { useEffect, lazy, Suspense, useRef, useState, useCallback } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useStore } from './store/useStore'
 import Layout from './components/Layout'
@@ -8,10 +8,11 @@ import { fetchUserData, ensureUserExists } from './lib/userService'
 import { withTimeout } from './utils/timeout'
 import { initializeNativeApp, updateStatusBar } from './utils/capacitor'
 import { memorySyncService } from './services/memorySyncService'
-import { migrateLocalMemories } from './utils/localUserId'
+import { countLocalMemories, migrateLocalMemories, deleteLocalMemories } from './utils/localUserId'
 import Toaster from './components/Toaster'
 import OfflineIndicator from './components/OfflineIndicator'
 import LoadingSpinner from './components/LoadingSpinner'
+import MigrationPrompt from './components/MigrationPrompt'
 
 // Lazy load pages for code splitting
 const Home = lazy(() => import('./pages/Home'))
@@ -31,6 +32,36 @@ function App() {
   const subscriptionRef = useRef<{ unsubscribe: () => void } | null>(null)
   const themeRef = useRef(theme)
   themeRef.current = theme
+
+  // Migration prompt state
+  const [migrationPrompt, setMigrationPrompt] = useState<{
+    show: boolean
+    count: number
+    userId: string
+    confirmDelete: boolean
+  }>({ show: false, count: 0, userId: '', confirmDelete: false })
+
+  const handleMigrationAccept = useCallback(async () => {
+    const { userId } = migrationPrompt
+    setMigrationPrompt((p) => ({ ...p, show: false }))
+    const count = await migrateLocalMemories(userId)
+    if (count > 0) {
+      memorySyncService.start(userId)
+    }
+  }, [migrationPrompt])
+
+  const handleMigrationReject = useCallback(() => {
+    setMigrationPrompt((p) => ({ ...p, confirmDelete: true }))
+  }, [])
+
+  const handleMigrationConfirmDelete = useCallback(async () => {
+    setMigrationPrompt({ show: false, count: 0, userId: '', confirmDelete: false })
+    await deleteLocalMemories()
+  }, [])
+
+  const handleMigrationCancelDelete = useCallback(() => {
+    setMigrationPrompt((p) => ({ ...p, confirmDelete: false }))
+  }, [])
 
   // Update status bar when theme changes (separate from main init)
   useEffect(() => {
@@ -121,8 +152,12 @@ function App() {
 
             if (user) {
               setUser(user)
-              // Migrate any offline-created memories to this cloud user (best-effort)
-              migrateLocalMemories(user.id).catch(() => {})
+              // Check if there are local memories to migrate — prompt the user
+              countLocalMemories().then((count) => {
+                if (count > 0) {
+                  setMigrationPrompt({ show: true, count, userId: user.id, confirmDelete: false })
+                }
+              }).catch(() => {})
               // Start background sync for this user (service handles duplicate calls)
               if (syncStartedForRef.current !== user.id) {
                 memorySyncService.start(user.id)
@@ -175,8 +210,17 @@ function App() {
 
   return (
     <>
-<OfflineIndicator />
+      <OfflineIndicator />
       <Toaster />
+      <MigrationPrompt
+        show={migrationPrompt.show}
+        count={migrationPrompt.count}
+        confirmDelete={migrationPrompt.confirmDelete}
+        onAccept={handleMigrationAccept}
+        onReject={handleMigrationReject}
+        onConfirmDelete={handleMigrationConfirmDelete}
+        onCancelDelete={handleMigrationCancelDelete}
+      />
       <Suspense fallback={
         <div className="min-h-screen flex items-center justify-center">
           <LoadingSpinner size="lg" />

@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase'
 import { Memory, MemoryCategory, LifeArea } from '../types'
 import { withTimeout } from '../utils/timeout'
 
-type AiyaAction = 'chat' | 'category' | 'classify' | 'analysis'
+type AiyaAction = 'chat' | 'category' | 'classify' | 'analysis' | 'profile'
 
 type AiyaMessage = {
   role: 'user' | 'assistant'
@@ -46,8 +46,116 @@ type AiyaProfileResponse = {
 
 const FUNCTION_NAME = 'aiya-chat'
 const REQUEST_TIMEOUT_MS = 30000
-const MAX_CONTEXT_MEMORIES = 40
-const MAX_CONTEXT_CHARS = 6000
+const MAX_CONTEXT_MEMORIES = 80
+const MAX_CONTEXT_CHARS = 16000
+const STATS_HEADER_BUDGET = 2000
+
+// ─── Message Router — "Gearbox" Architecture ──────────────
+// Determines how much context is needed based on message content
+
+export type MessageTier = 'casual' | 'normal' | 'deep' | 'crisis'
+
+type RouteResult = {
+  tier: MessageTier
+  memoryCount: number    // how many memories to include
+  historyLimit: number   // how many history messages to send
+  includeStats: boolean  // whether to include stats header
+  includeFullPrompt: boolean // whether to use full system prompt
+  includeProfile: boolean // whether to include profile in prompt
+}
+
+// Keywords for tier detection (Turkish + English)
+const CRISIS_WORDS = [
+  'intihar', 'suicide', 'ölmek istiyorum', 'kendime zarar', 'self-harm', 'self harm',
+  'yaşamak istemiyorum', 'hayatıma son', 'want to die', 'kill myself', 'ending it all',
+  'kendimi öldür', 'dayanamıyorum artık', 'can not take it anymore', 'hayatımı bitir',
+]
+
+const DEEP_WORDS = [
+  'çok kötüyüm', 'depresyon', 'depressed', 'kaybettim', 'ayrıldık', 'broke up',
+  'ölüm', 'death', 'kayıp', 'loss', 'boşanma', 'divorce', 'kanser', 'cancer',
+  'ihanet', 'betrayal', 'aldatma', 'cheated', 'travma', 'trauma', 'panik atak',
+  'anxiety', 'anksiyete', 'çok üzgünüm', 'çaresiz', 'hopeless', 'yalnızım',
+  'lonely', 'korku', 'afraid', 'terapi', 'therapy', 'psikoloj', 'psikiyatr',
+  'hayatımın anlamı', 'meaning of life', 'ne yapacağımı bilmiyorum', 'çıkmaz',
+  'anılarımı analiz', 'analyze my memories', 'beni tanı', 'beni anlat',
+  'hayatım hakkında', 'about my life', 'geçmişim', 'my past',
+]
+
+const CASUAL_WORDS = [
+  'naber', 'nasılsın', 'selam', 'merhaba', 'hey', 'hello', 'hi', 'nbr',
+  'günaydın', 'iyi geceler', 'good morning', 'good night', 'n\'aber',
+  'ne var ne yok', 'what\'s up', 'yo', 'sa', 'selamlar', 'heyy',
+]
+
+export function routeMessage(message: string, messageCountInChat: number): RouteResult {
+  const lower = message.toLowerCase().trim()
+  const length = message.length
+
+  // Always full context for first message in a chat session
+  if (messageCountInChat === 0) {
+    return { tier: 'deep', memoryCount: MAX_CONTEXT_MEMORIES, historyLimit: 50, includeStats: true, includeFullPrompt: true, includeProfile: true }
+  }
+
+  // CRISIS: always full everything
+  if (CRISIS_WORDS.some(w => lower.includes(w))) {
+    return { tier: 'crisis', memoryCount: MAX_CONTEXT_MEMORIES, historyLimit: 50, includeStats: true, includeFullPrompt: true, includeProfile: true }
+  }
+
+  // DEEP: significant context needed
+  if (DEEP_WORDS.some(w => lower.includes(w)) || length > 300) {
+    return { tier: 'deep', memoryCount: 40, historyLimit: 30, includeStats: true, includeFullPrompt: false, includeProfile: true }
+  }
+
+  // CASUAL: minimal context, no profile needed
+  if ((CASUAL_WORDS.some(w => lower.includes(w)) || lower.match(/^.{0,2}$/)) && length < 60) {
+    return { tier: 'casual', memoryCount: 5, historyLimit: 6, includeStats: false, includeFullPrompt: false, includeProfile: false }
+  }
+
+  // NORMAL: moderate context
+  return { tier: 'normal', memoryCount: 15, historyLimit: 15, includeStats: true, includeFullPrompt: false, includeProfile: true }
+}
+
+// ─── Smart Memory Selector — find relevant memories ──────
+function findRelevantMemories(memories: Memory[], message: string, limit: number): Memory[] {
+  if (memories.length <= limit) return memories
+
+  const words = message.toLowerCase().split(/\s+/).filter(w => w.length > 3)
+
+  const scored = memories.map(m => {
+    let score = 0
+    const text = m.text.toLowerCase()
+
+    // Keyword overlap with message
+    for (const word of words) {
+      if (text.includes(word)) score += 2
+    }
+
+    // Connection name mentioned in message
+    if (m.connections?.some(c => message.toLowerCase().includes(c.toLowerCase()))) score += 5
+
+    // Core memory always important
+    if (m.isCore) score += 4
+
+    // Recency bonus
+    const daysSince = (Date.now() - new Date(m.date).getTime()) / (1000 * 60 * 60 * 24)
+    if (daysSince < 7) score += 3
+    else if (daysSince < 30) score += 2
+    else if (daysSince < 90) score += 1
+
+    // High intensity = important
+    if (m.intensity && m.intensity >= 8) score += 2
+    if (m.intensity && m.intensity >= 9) score += 1
+
+    return { memory: m, score }
+  })
+
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(s => s.memory)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()) // re-sort by date
+}
 
 let lastSessionCheckAt = 0
 let lastSessionOk = false
@@ -66,20 +174,260 @@ async function hasActiveSessionCached(): Promise<boolean> {
   }
 }
 
+function buildMemoryStats(memories: Memory[]): string {
+  if (memories.length < 3) return ''
+
+  const now = new Date()
+  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+  // Category distribution
+  const catCounts: Record<string, number> = {}
+  const areaCounts: Record<string, number> = {}
+  const connectionCounts: Record<string, number> = {}
+  let coreCount = 0
+  let recentCount = 0
+  let thisMonthCount = 0
+  let totalIntensity = 0
+  let intensityCount = 0
+  const recentMoods: string[] = []
+
+  for (const m of memories) {
+    const mDate = new Date(m.date)
+
+    // Categories
+    const cat = m.category && m.category !== 'uncategorized' ? m.category : null
+    if (cat) catCounts[cat] = (catCounts[cat] || 0) + 1
+
+    // Life areas
+    const area = m.lifeArea && m.lifeArea !== 'uncategorized' ? m.lifeArea : null
+    if (area) areaCounts[area] = (areaCounts[area] || 0) + 1
+
+    // Connections
+    if (m.connections?.length) {
+      for (const c of m.connections) {
+        connectionCounts[c] = (connectionCounts[c] || 0) + 1
+      }
+    }
+
+    // Core & intensity
+    if (m.isCore) coreCount++
+    if (m.intensity) {
+      totalIntensity += m.intensity
+      intensityCount++
+    }
+
+    // Recent
+    if (mDate >= oneWeekAgo) {
+      recentCount++
+      if (cat) recentMoods.push(cat)
+    }
+    if (mDate >= oneMonthAgo) thisMonthCount++
+  }
+
+  const parts: string[] = [`[STATS] Total: ${memories.length} memories`]
+
+  if (coreCount > 0) parts[0] += `, ${coreCount} CORE`
+  if (intensityCount > 0) parts[0] += `, avg intensity: ${(totalIntensity / intensityCount).toFixed(1)}/10`
+
+  // Top categories
+  const topCats = Object.entries(catCounts).sort((a, b) => b[1] - a[1]).slice(0, 4)
+  if (topCats.length) {
+    parts.push(`[TOP EMOTIONS] ${topCats.map(([c, n]) => `${c}(${n})`).join(', ')}`)
+  }
+
+  // Life area balance
+  const allAreas = ['personal', 'work', 'relationship', 'family', 'friends', 'hobby', 'travel', 'health']
+  const activeAreas = Object.entries(areaCounts).sort((a, b) => b[1] - a[1])
+  const missingAreas = allAreas.filter(a => !areaCounts[a])
+  if (activeAreas.length) {
+    parts.push(`[LIFE AREAS] Active: ${activeAreas.map(([a, n]) => `${a}(${n})`).join(', ')}${missingAreas.length ? ` | Empty: ${missingAreas.join(', ')}` : ''}`)
+  }
+
+  // Top connections
+  const topConns = Object.entries(connectionCounts).sort((a, b) => b[1] - a[1]).slice(0, 5)
+  if (topConns.length) {
+    parts.push(`[KEY PEOPLE] ${topConns.map(([name, n]) => `${name}(${n})`).join(', ')}`)
+  }
+
+  // Recent activity
+  if (recentCount > 0) {
+    const recentMoodStr = recentMoods.length ? ` — mood: ${[...new Set(recentMoods)].join(', ')}` : ''
+    parts.push(`[RECENT] ${recentCount} in last 7 days, ${thisMonthCount} in last 30 days${recentMoodStr}`)
+  } else {
+    parts.push(`[RECENT] No memories in last 7 days (last 30 days: ${thisMonthCount})`)
+  }
+
+  // Emotional trajectory — compare last 2 weeks vs previous 2 weeks
+  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
+  const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000)
+  let recentIntensitySum = 0, recentIntensityN = 0
+  let olderIntensitySum = 0, olderIntensityN = 0
+  const recentCats: string[] = []
+  const olderCats: string[] = []
+
+  for (const m of memories) {
+    const mDate = new Date(m.date)
+    if (mDate >= twoWeeksAgo) {
+      if (m.intensity) { recentIntensitySum += m.intensity; recentIntensityN++ }
+      if (m.category && m.category !== 'uncategorized') recentCats.push(m.category)
+    } else if (mDate >= fourWeeksAgo) {
+      if (m.intensity) { olderIntensitySum += m.intensity; olderIntensityN++ }
+      if (m.category && m.category !== 'uncategorized') olderCats.push(m.category)
+    }
+  }
+
+  if (recentIntensityN >= 2 && olderIntensityN >= 2) {
+    const recentAvg = recentIntensitySum / recentIntensityN
+    const olderAvg = olderIntensitySum / olderIntensityN
+    const diff = recentAvg - olderAvg
+    const trend = diff > 0.5 ? 'RISING' : diff < -0.5 ? 'DECLINING' : 'STABLE'
+    const recentTopMood = recentCats.length ? [...new Set(recentCats)].slice(0, 3).join(', ') : 'mixed'
+    const olderTopMood = olderCats.length ? [...new Set(olderCats)].slice(0, 3).join(', ') : 'mixed'
+    parts.push(`[EMOTIONAL TRAJECTORY] ${trend} (last 2wk avg: ${recentAvg.toFixed(1)}, prev 2wk avg: ${olderAvg.toFixed(1)}) | Recent mood: ${recentTopMood} → Was: ${olderTopMood}`)
+  }
+
+  // Core memories are already marked with ⭐ in the memory list below — no need to duplicate here
+
+  // Relationship dynamics — who's trending up/down in recent memories
+  if (Object.keys(connectionCounts).length >= 2) {
+    const recentConns: Record<string, number> = {}
+    const olderConns: Record<string, number> = {}
+    for (const m of memories) {
+      const mDate = new Date(m.date)
+      if (m.connections?.length) {
+        for (const c of m.connections) {
+          if (mDate >= oneMonthAgo) {
+            recentConns[c] = (recentConns[c] || 0) + 1
+          } else {
+            olderConns[c] = (olderConns[c] || 0) + 1
+          }
+        }
+      }
+    }
+    const dynamics: string[] = []
+    const allNames = new Set([...Object.keys(recentConns), ...Object.keys(olderConns)])
+    for (const name of allNames) {
+      const recent = recentConns[name] || 0
+      const older = olderConns[name] || 0
+      if (recent > 0 && older === 0 && recent >= 2) dynamics.push(`${name}: NEW (${recent} recent)`)
+      else if (recent === 0 && older >= 2) dynamics.push(`${name}: FADING (was ${older}, now 0)`)
+      else if (recent >= older + 2) dynamics.push(`${name}: ↑ GROWING (${older}→${recent})`)
+    }
+    if (dynamics.length > 0) {
+      parts.push(`[RELATIONSHIP DYNAMICS] ${dynamics.slice(0, 4).join(' | ')}`)
+    }
+  }
+
+  // Thematic arc — what topics are emerging or fading
+  if (memories.length >= 10) {
+    const recentAreaCounts: Record<string, number> = {}
+    const olderAreaCounts: Record<string, number> = {}
+    for (const m of memories) {
+      const mDate = new Date(m.date)
+      const area = m.lifeArea && m.lifeArea !== 'uncategorized' ? m.lifeArea : null
+      if (area) {
+        if (mDate >= oneMonthAgo) recentAreaCounts[area] = (recentAreaCounts[area] || 0) + 1
+        else olderAreaCounts[area] = (olderAreaCounts[area] || 0) + 1
+      }
+    }
+    const shifts: string[] = []
+    const allThemes = new Set([...Object.keys(recentAreaCounts), ...Object.keys(olderAreaCounts)])
+    for (const theme of allThemes) {
+      const recent = recentAreaCounts[theme] || 0
+      const older = olderAreaCounts[theme] || 0
+      if (recent >= 3 && older === 0) shifts.push(`${theme}: EMERGING`)
+      else if (recent === 0 && older >= 3) shifts.push(`${theme}: DISAPPEARED`)
+      else if (recent >= older + 3) shifts.push(`${theme}: ↑ RISING`)
+    }
+    if (shifts.length > 0) {
+      parts.push(`[THEMATIC SHIFTS] ${shifts.slice(0, 3).join(' | ')}`)
+    }
+  }
+
+  const header = parts.join('\n')
+  return header.length <= STATS_HEADER_BUDGET ? header : header.slice(0, STATS_HEADER_BUDGET)
+}
+
+function formatMemoryLine(memory: Memory): string {
+  // Compact format: date cat area i:N ⭐ @people — text
+  const meta: string[] = [memory.date.split('T')[0]]
+
+  const cats = memory.categories?.length ? memory.categories.filter(c => c !== 'uncategorized') : []
+  if (cats.length) {
+    meta.push(cats.join('+'))
+  } else if (memory.category && memory.category !== 'uncategorized') {
+    meta.push(memory.category)
+  }
+
+  if (memory.lifeArea && memory.lifeArea !== 'uncategorized') {
+    meta.push(memory.lifeArea)
+  }
+
+  if (memory.intensity) meta.push(`i:${memory.intensity}`)
+  if (memory.isCore) meta.push('⭐')
+  if (memory.connections?.length) meta.push(`@${memory.connections.join(',')}`)
+
+  return `- ${meta.join(' ')} — ${memory.text}`
+}
+
 function buildMemoryContext(memories: Memory[]): string {
   if (!memories.length) return ''
   const sorted = [...memories].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   )
-  let totalChars = 0
+
+  const statsHeader = buildMemoryStats(sorted)
+
+  let totalChars = statsHeader.length
   const lines: string[] = []
   for (const memory of sorted.slice(0, MAX_CONTEXT_MEMORIES)) {
-    const line = `- ${memory.date.split('T')[0]} | ${memory.category} | ${memory.text}`
+    const line = formatMemoryLine(memory)
     totalChars += line.length
     if (totalChars > MAX_CONTEXT_CHARS) break
     lines.push(line)
   }
-  return lines.join('\n')
+
+  const memoriesBlock = lines.join('\n')
+  return statsHeader ? `${statsHeader}\n\n${memoriesBlock}` : memoriesBlock
+}
+
+// ─── Tiered Memory Context — the "gearbox" for memory ────
+export function buildTieredMemoryContext(
+  memories: Memory[],
+  message: string,
+  route: RouteResult
+): string {
+  if (!memories.length) return ''
+
+  const sorted = [...memories].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  )
+
+  // Stats header — only if route says so
+  const statsHeader = route.includeStats ? buildMemoryStats(sorted) : ''
+
+  // Select memories based on tier
+  const selected = route.memoryCount >= MAX_CONTEXT_MEMORIES
+    ? sorted.slice(0, MAX_CONTEXT_MEMORIES)
+    : findRelevantMemories(sorted, message, route.memoryCount)
+
+  // Build memory lines with char budget
+  const charBudget = route.tier === 'casual' ? 3000
+    : route.tier === 'normal' ? 8000
+    : MAX_CONTEXT_CHARS
+
+  let totalChars = statsHeader.length
+  const lines: string[] = []
+  for (const memory of selected) {
+    const line = formatMemoryLine(memory)
+    totalChars += line.length
+    if (totalChars > charBudget) break
+    lines.push(line)
+  }
+
+  const memoriesBlock = lines.join('\n')
+  return statsHeader ? `${statsHeader}\n\n${memoriesBlock}` : memoriesBlock
 }
 
 async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
@@ -111,13 +459,13 @@ async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
     }
 
     const message = detail || err.message || 'Edge Function error'
-    console.error('[aiyaService] Function error:', message)
+    if (import.meta.env.DEV) console.error('[aiyaService] Function error:', message)
     throw new Error(message)
   }
 
   // Handle case where data might be null/undefined
   if (!response.data) {
-    console.error('[aiyaService] Function returned empty data')
+    if (import.meta.env.DEV) console.error('[aiyaService] Function returned empty data')
     throw new Error('Aiya yanıt vermedi')
   }
 
@@ -126,10 +474,10 @@ async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
   if (data instanceof Blob) {
     try {
       const text = await data.text()
-      console.warn('[aiyaService] Response was Blob, converting. Size:', data.size, 'Preview:', text.slice(0, 100))
+      if (import.meta.env.DEV) console.warn('[aiyaService] Response was Blob, converting. Size:', data.size, 'Preview:', text.slice(0, 100))
       data = JSON.parse(text)
     } catch (blobErr) {
-      console.error('[aiyaService] Failed to parse Blob response:', blobErr)
+      if (import.meta.env.DEV) console.error('[aiyaService] Failed to parse Blob response:', blobErr)
       throw new Error('Aiya yanıtı okunamadı (Blob)')
     }
   }
@@ -139,7 +487,7 @@ async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
     try {
       data = JSON.parse(data)
     } catch {
-      console.error('[aiyaService] Failed to parse response string:', data)
+      if (import.meta.env.DEV) console.error('[aiyaService] Failed to parse response string:', data)
       throw new Error('Aiya yanıtı okunamadı')
     }
   }
@@ -162,21 +510,18 @@ async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
         offset += chunk.length
       }
       const streamText = new TextDecoder().decode(merged)
-      console.warn('[aiyaService] Response was ReadableStream, converted. Preview:', streamText.slice(0, 100))
+      if (import.meta.env.DEV) console.warn('[aiyaService] Response was ReadableStream, converted. Preview:', streamText.slice(0, 100))
       data = JSON.parse(streamText)
     } catch (streamErr) {
-      console.error('[aiyaService] Failed to parse ReadableStream response:', streamErr)
+      if (import.meta.env.DEV) console.error('[aiyaService] Failed to parse ReadableStream response:', streamErr)
       throw new Error('Aiya yanıtı okunamadı (Stream)')
     }
   }
 
-  // Log the actual data type for debugging
-  console.warn('[aiyaService] Data type:', typeof data, '| constructor:', data?.constructor?.name, '| keys:', data && typeof data === 'object' ? Object.keys(data as Record<string, unknown>).join(',') : 'N/A')
-
   // Check if the function returned an error in the body (e.g. 429 usage limit)
   if (data && typeof data === 'object' && 'error' in data && !('reply' in data) && !('category' in data) && !('analysis' in data) && !('profile' in data)) {
     const errorMsg = (data as { error: string }).error
-    console.error('[aiyaService] Function returned error in body:', errorMsg)
+    if (import.meta.env.DEV) console.error('[aiyaService] Function returned error in body:', errorMsg)
     throw new Error(errorMsg || 'Aiya hatası')
   }
 
@@ -194,16 +539,17 @@ export const aiyaService = {
     memories: Memory[]
     locale?: string
     systemPrompt?: string
+    memoryContext?: string // pre-built tiered context (if provided, skips default build)
   }): Promise<AiyaChatResponse> {
-    const { message, history, memories, locale, systemPrompt } = params
-    const memoryContext = buildMemoryContext(memories)
+    const { message, history, memories, locale, systemPrompt, memoryContext } = params
+    const ctx = memoryContext ?? buildMemoryContext(memories)
     return await invokeAiya<AiyaChatResponse>({
       action: 'chat' satisfies AiyaAction,
       message,
       history,
       locale,
       systemPrompt,
-      memoryContext,
+      memoryContext: ctx,
       countUsage: true,
     })
   },
@@ -348,13 +694,11 @@ export const aiyaService = {
     const { memories, history, locale } = params
     const memoryContext = buildMemoryContext(memories)
     return await invokeAiya<AiyaProfileResponse>({
-      action: 'chat' satisfies AiyaAction,
-      message: 'Build a user profile based on the memories and conversation history.',
+      action: 'profile' satisfies AiyaAction,
       history,
       locale,
       memoryContext,
-      systemPrompt: 'You are a profile builder. Analyze the user\'s memories and conversation history to create a concise profile summary.',
-      countUsage: true,
+      countUsage: false,
     })
   },
 }

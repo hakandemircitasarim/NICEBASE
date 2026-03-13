@@ -55,7 +55,7 @@ export default function Layout() {
           isModalOpen || hideNavForRoutes ? 'translate-y-full' : 'translate-y-0'
         }`}
         style={{
-          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          paddingBottom: 'var(--safe-area-inset-bottom, 0px)',
         }}
       >
         <div className="flex justify-around items-center h-16 px-1 sm:px-2 overflow-x-auto scrollbar-hide snap-x snap-mandatory">

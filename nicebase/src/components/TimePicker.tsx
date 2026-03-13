@@ -187,7 +187,7 @@ export default function TimePicker({
             <div
               className="fixed left-1/2 z-50 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 safe-area-bottom w-full sm:w-[calc(100vw-2rem)] max-w-sm"
               style={{
-                maxHeight: 'min(85vh, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)))',
+                maxHeight: 'min(85vh, calc(100dvh - var(--safe-area-inset-top, 0px) - var(--safe-area-inset-bottom, 0px)))',
               }}
             >
               <motion.div
