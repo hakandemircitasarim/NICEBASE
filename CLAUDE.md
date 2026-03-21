@@ -787,3 +787,122 @@ Her commit'ten önce bu listeyi zihinsel olarak geç:
 - [ ] Build başarılı mı? (`npm run build`)
 - [ ] Testler geçiyor mu? (`npm run test`)
 - [ ] Değişiklik sayısı makul mü? (5+ dosya ise kullanıcıya sor)
+
+---
+
+## BÖLÜM 5: AI ÇALIŞMA PRENSİPLERİ
+
+Bu kurallar AI asistanın (Claude Code) çalışma biçimini tanımlar.
+Daha verimli, daha az hatalı, daha kaliteli sonuç üretmek için.
+
+---
+
+### 5.1 — Varsayılan Plan Modu
+
+**Kural:** Basit olmayan HER görev için önce plan yap (3+ adım veya
+mimari kararlar içeren işler).
+
+1. Bir şey ters giderse DUR ve yeniden planla — körü körüne devam etme
+2. Plan modunu sadece inşa için değil, doğrulama adımları için de kullan
+3. Belirsizliği azaltmak için baştan detaylı spesifikasyon yaz
+4. Planı `tasks/todo.md`'ye işaretlenebilir maddeler olarak kaydet
+
+> Neden: Harita olmadan yola çıkmak gibi. Yolda kaybolunca geri
+> dönmek, baştan haritaya bakmaktan çok daha pahalıdır.
+
+---
+
+### 5.2 — Alt-Ajan Stratejisi
+
+**Kural:** Ana bağlam penceresini temiz tutmak için alt-ajanları
+(Agent tool) bol bol kullan.
+
+1. Araştırma, keşif ve paralel analizi alt-ajanlara yükle
+2. Karmaşık problemlerde alt-ajanlarla daha fazla işlem gücü harca
+3. Odaklı yürütme için her alt-ajana tek bir görev ver
+4. Alt-ajan sonuçlarını ana bağlamda özetle, ham veriyi taşıma
+
+> Neden: Bir şef her işi kendisi yapmaz — sous chef'lere dağıtır.
+> Ana bağlam penceresi şefin masasıdır, temiz kalmalıdır.
+
+---
+
+### 5.3 — Kendini Geliştirme Döngüsü
+
+**Kural:** Kullanıcıdan HERHANGİ bir düzeltme sonrası dersi kaydet.
+
+1. `tasks/lessons.md` dosyasını güncelle (tarih + hata + ders formatında)
+2. Aynı hatanın tekrarını önleyen kurallar yaz
+3. Hata oranı düşene kadar bu dersleri acımasızca geliştir
+4. Her oturum başında `tasks/lessons.md`'yi gözden geçir
+
+> Neden: Aynı taşa iki kez takılmamak için. Bir hata yapıldıysa
+> not al, bir daha aynı hatayı tekrarlama.
+
+---
+
+### 5.4 — Tamamlanmadan Önce Doğrulama
+
+**Kural:** Çalıştığını kanıtlamadan bir görevi asla tamamlandı olarak
+işaretleme.
+
+1. Gerektiğinde ana dal ile değişikliklerin arasındaki farkı kontrol et
+2. Kendine sor: "Kıdemli bir mühendis bunu onaylar mıydı?"
+3. Testleri çalıştır, logları kontrol et, doğruluğu kanıtla
+4. `npm run build` ve `npm run test` başarılı olmadan commit yapma
+
+> Neden: Ressamın tabloyu bitirmeden "bitti" demesi gibi.
+> Yarım iş teslim etmek, hiç yapmamaktan kötüdür.
+
+---
+
+### 5.5 — Zarafet Talep Et (Dengeli)
+
+**Kural:** Basit olmayan değişikliklerde dur ve sor: "Daha zarif bir
+yol var mı?"
+
+1. Çözüm yamalı hissediyorsa: "Şu an bildiklerimle zarif çözümü uygula"
+2. Basit, bariz düzeltmelerde bunu atla — aşırı mühendislik yapma
+3. Sunmadan önce kendi işini sorgula
+4. Ama 1.7 kuralını unutma: istenmeyen "iyileştirme" ekleme
+
+> Neden: Hem temiz hem pratik kod yaz. Ama altın kaplama yapma —
+> çalışan, okunabilir, bakımı kolay kod en iyi koddur.
+
+---
+
+### 5.6 — Otonom Hata Düzeltme
+
+**Kural:** Hata raporu verildiğinde direkt düzelt, el tutulmasını
+bekleme.
+
+1. Loglara, hatalara, başarısız testlere bak — sonra çöz
+2. Kullanıcıdan sıfır bağlam değişikliği gereksin
+3. CI testleri başarısız olunca nasıl yapılacağı söylenmeden git düzelt
+4. Düzeltme sonrası dersi `tasks/lessons.md`'ye kaydet
+
+> Neden: Tamirci "musluk akıyor" denince musluğu tamir eder,
+> "hangi anahtar kullanayım?" diye sormaz.
+
+---
+
+## BÖLÜM 6: GÖREV YÖNETİMİ
+
+Her görev için şu adımları izle:
+
+1. **Plan Önce:** `tasks/todo.md`'ye işaretlenebilir maddelerle plan yaz
+2. **Planı Doğrula:** Uygulamaya başlamadan önce onayla
+3. **İlerlemeyi Takip Et:** İlerledikçe maddeleri tamamlandı işaretle
+4. **Değişiklikleri Açıkla:** Her adımda üst düzey özet sun
+5. **Sonuçları Belgele:** `tasks/todo.md`'ye inceleme bölümü ekle
+6. **Dersleri Kaydet:** Düzeltmelerden sonra `tasks/lessons.md`'yi güncelle
+
+---
+
+## BÖLÜM 7: TEMEL İLKELER
+
+- **Önce Sadelik:** Her değişikliği olabildiğince basit yap. Minimal kod etkisi.
+- **Tembellik Yok:** Kök nedeni bul. Geçici çözüm yok. Kıdemli standartlar.
+- **Kanıtla, İddia Etme:** "Çalışıyor" demek yetmez — test, build, log ile göster.
+- **Bağlamı Koru:** Ana pencereyi temiz tut, ağır işleri alt-ajanlara ver.
+- **Sürekli Öğren:** Her hatadan ders çıkar, `tasks/lessons.md`'ye yaz.
