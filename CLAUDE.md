@@ -7,6 +7,271 @@ Kuralları çiğnemek = production'da patlama. Kurallar tartışılmaz.
 
 ---
 
+## PROJE HAKKINDA
+
+**NICEBASE** — Duygu ve anı takip uygulaması. Kullanıcılar günlük
+anılarını (memory) kaydeder, AI ile analiz eder, bağlantılarını (kişi, yer,
+nesne) yönetir ve istatistiklerini görüntüler. Offline-first mimari ile
+internet olmadan da çalışır.
+
+**Uygulama türü:** React SPA + Capacitor (Web, Android, iOS)
+
+---
+
+## TEKNOLOJİ STACK'İ
+
+| Katman | Teknoloji | Versiyon |
+|--------|-----------|----------|
+| **Frontend** | React + TypeScript | React 19, TS 5.9 |
+| **Build** | Vite | 7.2 |
+| **Stil** | Tailwind CSS | 3.4 |
+| **State** | Zustand | 5.0 |
+| **Data Fetching** | TanStack React Query | 5.90 |
+| **Animasyon** | Framer Motion | 12.x |
+| **i18n** | i18next + react-i18next | 25.x |
+| **Backend** | Supabase (Auth, DB, Storage) | 2.87 |
+| **Local DB** | Dexie.js (IndexedDB) | 4.2 |
+| **Mobil** | Capacitor | 8.0 |
+| **AI** | OpenAI API | 6.10 |
+| **Charts** | Recharts | 3.5 |
+| **Icons** | Lucide React | 0.561 |
+| **Toast** | react-hot-toast | 2.6 |
+| **PDF** | jsPDF + jspdf-autotable | 3.0 |
+| **Test** | Vitest + Testing Library | 4.0 |
+| **PWA** | vite-plugin-pwa + Workbox | 1.2 |
+
+---
+
+## TEMEL KOMUTLAR
+
+```bash
+# Geliştirme
+cd nicebase && npm run dev          # Vite dev server (port 5173)
+
+# Build & Test
+npm run build                       # TypeScript + Vite production build
+npm run test                        # Vitest unit tests
+npm run test:watch                  # Vitest watch mode
+
+# Mobil
+npm run cap:sync                    # Capacitor sync (Android)
+npm run cap:open:android            # Android Studio aç
+npm run cap:run:android             # Android'de çalıştır
+
+# Supabase (Local)
+npm run supabase:start              # Local Supabase Docker
+npm run supabase:stop               # Docker durdur
+npm run supabase:status             # Durum kontrolü
+npm run db:publish                  # Migration çalıştır
+
+# Yardımcı
+npm run doctor                      # Ortam doğrulama
+npm run generate:icons              # İkon üretimi
+```
+
+> **Not:** Tüm komutlar `nicebase/` dizininde çalıştırılmalıdır.
+
+---
+
+## DİZİN YAPISI
+
+```
+nicebase/
+├── src/
+│   ├── pages/                  # Sayfa component'leri (11 route, lazy-loaded)
+│   │   ├── Home.tsx            # Ana sayfa / dashboard
+│   │   ├── Vault.tsx           # Anı kasası (arama, filtre)
+│   │   ├── AddMemory.tsx       # Yeni anı oluşturma
+│   │   ├── RelationshipSaver.tsx # Bağlantı bazlı anı slaytları
+│   │   ├── Aiya.tsx            # AI sohbet arayüzü
+│   │   ├── Statistics.tsx      # İstatistikler ve grafikler
+│   │   ├── Achievements.tsx    # Rozetler ve başarılar
+│   │   ├── Profile.tsx         # Kullanıcı profili ve ayarlar
+│   │   ├── Connections.tsx     # Bağlantı yönetimi (kişi/yer/nesne/proje)
+│   │   ├── Login.tsx           # Giriş sayfası
+│   │   └── ResetPassword.tsx   # Şifre sıfırlama
+│   │
+│   ├── components/             # Tekrar kullanılan UI (43 dosya)
+│   │   ├── Layout.tsx          # Ana layout wrapper
+│   │   ├── MemoryForm.tsx      # Anı formu (ana)
+│   │   ├── MemoryCard.tsx      # Anı kartı
+│   │   ├── ErrorBoundary.tsx   # Hata yakalama
+│   │   ├── OfflineIndicator.tsx # Çevrimdışı göstergesi
+│   │   └── ...                 # Diğer UI bileşenleri
+│   │
+│   ├── services/               # İş mantığı katmanı (15 dosya)
+│   │   ├── memoryService.ts    # Anı CRUD (IndexedDB + sync queue)
+│   │   ├── memorySyncService.ts # Offline-first senkronizasyon (5dk aralık)
+│   │   ├── photoStorageService.ts # Fotoğraf upload/download (Supabase Storage)
+│   │   ├── aiyaService.ts      # AI sohbet (OpenAI via Edge Function)
+│   │   ├── gamificationService.ts # Rozet ve başarı hesaplama
+│   │   ├── streakService.ts    # Seri hesaplama
+│   │   ├── dailyQuestionService.ts # Günlük soru
+│   │   ├── notificationService.ts # Push/local bildirimler
+│   │   ├── exportService.ts    # PDF export
+│   │   ├── errorLoggingService.ts # Hata loglama
+│   │   ├── performanceService.ts # Performans izleme
+│   │   ├── syncQueueHelper.ts  # Sync queue yönetimi (v2, dedup, retry)
+│   │   └── __tests__/          # Servis testleri
+│   │
+│   ├── hooks/                  # Custom React hook'lar (14 dosya)
+│   │   ├── useMemories.ts      # Anı yükleme
+│   │   ├── useOAuth.ts         # Google OAuth (native + web)
+│   │   ├── useMemoryFilters.ts # Filtreleme state'i
+│   │   ├── useVoiceInput.ts    # Sesle yazma (Web Speech API)
+│   │   ├── useLongPress.ts     # Uzun basma jest'i
+│   │   ├── useSwipe.ts         # Kaydırma jest'i
+│   │   ├── usePullToRefresh.ts # Çekerek yenileme
+│   │   └── ...                 # Diğer hook'lar
+│   │
+│   ├── lib/                    # Core kütüphaneler (5 dosya)
+│   │   ├── supabase.ts         # Supabase client init
+│   │   ├── db.ts               # Dexie IndexedDB şeması (v3)
+│   │   ├── userService.ts      # Kullanıcı profil yönetimi
+│   │   ├── memoryMapper.ts     # snake_case ↔ camelCase (memory)
+│   │   └── userMapper.ts       # snake_case ↔ camelCase (user)
+│   │
+│   ├── store/
+│   │   └── useStore.ts         # Zustand global state (user, theme, lang, online)
+│   │
+│   ├── types/                  # TypeScript tipleri
+│   │   ├── index.ts            # Memory, User, Connection, vb.
+│   │   ├── supabase.ts         # Supabase şema tipleri
+│   │   └── capacitor.ts        # Capacitor plugin arayüzleri
+│   │
+│   ├── utils/                  # Yardımcı fonksiyonlar (20 dosya)
+│   │   ├── capacitor.ts        # Platform algılama
+│   │   ├── retry.ts            # Exponential backoff retry
+│   │   ├── sanitize.ts         # XSS önleme
+│   │   ├── formValidation.ts   # Form doğrulama kuralları
+│   │   ├── imageUtils.ts       # Resim sıkıştırma
+│   │   ├── rateLimiter.ts      # Token bucket rate limiter
+│   │   ├── mutex.ts            # Mutual exclusion lock
+│   │   └── ...                 # Diğer utility'ler
+│   │
+│   ├── App.tsx                 # Router + auth + lazy routes
+│   ├── main.tsx                # React root + SW registration
+│   ├── i18n.ts                 # i18next config (TR + EN çevirileri)
+│   └── index.css               # Tailwind directives + tema CSS vars
+│
+├── supabase/
+│   └── migrations/             # 7 SQL migration dosyası
+│       ├── 20251220..._remote_schema.sql    # Ana şema (users, memories, connections, ai_analyses)
+│       ├── 20251221..._expand_categories.sql # Kategori genişletme
+│       ├── 20260206..._profile_fields.sql    # Profil alanları
+│       ├── 20260206..._memory_overhaul.sql   # Çoklu kategori desteği
+│       ├── 20260207..._aiya_chats.sql        # AI sohbet geçmişi
+│       ├── 20260207..._aiya_limit.sql        # AI limit güncelleme (50)
+│       └── 20260228..._categories_array.sql  # Kategori array optimizasyonu
+│
+├── android/                    # Android native proje
+├── ios/                        # iOS native proje
+├── public/                     # Statik dosyalar
+├── scripts/                    # Build ve yardımcı script'ler
+├── .github/workflows/          # CI/CD (build-apk.yml)
+├── capacitor.config.ts         # Capacitor ayarları (appId: com.nicebase.app)
+├── vite.config.ts              # Vite + PWA + code splitting
+├── tailwind.config.js          # Tema renkleri (primary: #FF6B35)
+├── vitest.config.ts            # Test ayarları (jsdom)
+└── package.json                # Bağımlılıklar ve script'ler
+```
+
+---
+
+## MİMARİ GENEL BAKIŞ
+
+### Offline-First Senkronizasyon Akışı
+
+```
+Kullanıcı Aksiyonu
+       ↓
+  IndexedDB (Dexie) ← Önce local kaydet
+       ↓
+  Sync Queue V2 ← Queue'ya ekle (dedup + retry)
+       ↓
+  [Online?] → Evet → Supabase'e gönder
+       ↓                    ↓
+     Hayır            Çakışma var mı?
+       ↓                    ↓
+  Bekleme         ConflictResolutionDialog
+  (5dk aralık       (kullanıcı seçer)
+   + online event)
+```
+
+### Veri Akışı
+
+```
+Component → Hook (useMemories) → Service (memoryService) → Dexie DB
+                                                            ↕
+                                              memorySyncService ↔ Supabase
+```
+
+### Kimlik Doğrulama
+
+- Supabase Auth (email/password + Google OAuth)
+- Native: Google Credential Manager (`@capgo/capacitor-social-login`)
+- Web: Browser OAuth redirect akışı
+- Session-based route koruması (App.tsx'te kontrol)
+
+---
+
+## VERİTABANI ŞEMASI (ÖZETİ)
+
+### Tablolar
+
+| Tablo | Amaç | Anahtar Alanlar |
+|-------|-------|-----------------|
+| `users` | Kullanıcı profili | email, displayName, isPremium, language, theme |
+| `memories` | Anılar | text, category, categories[], intensity (1-10), date, connections[], lifeArea, isCore, photos[] |
+| `connections` | Bağlantılar | name, type (person\|place\|thing\|project) |
+| `ai_analyses` | AI analizleri | emotional trends, patterns, recommendations |
+| `weekly_summaries` | Haftalık özetler | summary text |
+| `aiya_chats` | AI sohbet geçmişi | conversation data |
+
+### Enum Değerleri
+
+- **MemoryCategory:** uncategorized, success, peace, fun, love, gratitude, inspiration, growth, adventure
+- **LifeArea:** personal, work, relationship, family, friends, hobby, travel, health, uncategorized
+- **ConnectionType:** person, place, thing, project
+
+### IndexedDB (Dexie v3) Tabloları
+
+- `memories` — local anı cache (id, userId, date, category, lifeArea, isCore, synced indeksleri)
+- `connections` — local bağlantı cache
+- `syncQueueV2` — sync operasyonları (id, userId, entityId, op, status, nextAttemptAt, dedupeKey)
+
+---
+
+## ROUTING (App.tsx)
+
+| Path | Component | Açıklama |
+|------|-----------|----------|
+| `/login` | Login | Giriş (email/password/OAuth) |
+| `/reset-password` | ResetPassword | Şifre sıfırlama |
+| `/` | Home | Ana sayfa / dashboard |
+| `/vault` | Vault | Anı kasası (arama/filtre) |
+| `/add-memory` | AddMemory | Yeni anı oluşturma |
+| `/relationship-saver` | RelationshipSaver | Bağlantı slaytları |
+| `/aiya` | Aiya | AI sohbet |
+| `/statistics` | Statistics | İstatistikler |
+| `/achievements` | Achievements | Rozetler |
+| `/profile` | Profile | Profil/ayarlar |
+| `/profile/connections` | Connections | Bağlantı yönetimi |
+
+Tüm sayfalar `React.lazy()` ile yüklenir, `<Suspense>` ile sarılır.
+
+---
+
+## CI/CD
+
+**GitHub Actions** (`.github/workflows/build-apk.yml`):
+- Tetikleme: `main` veya `claude/**` branch'lerine push, manual dispatch
+- İşlem: Checkout → Node 20 → Java 17 → npm ci → build → cap sync → Gradle APK
+- Artifact: `nicebase-debug-{run_number}` (7 gün tutulur)
+- Gerekli secret'lar: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_GOOGLE_WEB_CLIENT_ID`, `VITE_OPENAI_API_KEY`
+
+---
+
 ## BÖLÜM 1: GENEL KURALLAR (Her Projede Geçerli)
 
 Bu kurallar proje bağımsızdır. Hangi repo olursa olsun bunlara uy.
@@ -522,3 +787,122 @@ Her commit'ten önce bu listeyi zihinsel olarak geç:
 - [ ] Build başarılı mı? (`npm run build`)
 - [ ] Testler geçiyor mu? (`npm run test`)
 - [ ] Değişiklik sayısı makul mü? (5+ dosya ise kullanıcıya sor)
+
+---
+
+## BÖLÜM 5: AI ÇALIŞMA PRENSİPLERİ
+
+Bu kurallar AI asistanın (Claude Code) çalışma biçimini tanımlar.
+Daha verimli, daha az hatalı, daha kaliteli sonuç üretmek için.
+
+---
+
+### 5.1 — Varsayılan Plan Modu
+
+**Kural:** Basit olmayan HER görev için önce plan yap (3+ adım veya
+mimari kararlar içeren işler).
+
+1. Bir şey ters giderse DUR ve yeniden planla — körü körüne devam etme
+2. Plan modunu sadece inşa için değil, doğrulama adımları için de kullan
+3. Belirsizliği azaltmak için baştan detaylı spesifikasyon yaz
+4. Planı `tasks/todo.md`'ye işaretlenebilir maddeler olarak kaydet
+
+> Neden: Harita olmadan yola çıkmak gibi. Yolda kaybolunca geri
+> dönmek, baştan haritaya bakmaktan çok daha pahalıdır.
+
+---
+
+### 5.2 — Alt-Ajan Stratejisi
+
+**Kural:** Ana bağlam penceresini temiz tutmak için alt-ajanları
+(Agent tool) bol bol kullan.
+
+1. Araştırma, keşif ve paralel analizi alt-ajanlara yükle
+2. Karmaşık problemlerde alt-ajanlarla daha fazla işlem gücü harca
+3. Odaklı yürütme için her alt-ajana tek bir görev ver
+4. Alt-ajan sonuçlarını ana bağlamda özetle, ham veriyi taşıma
+
+> Neden: Bir şef her işi kendisi yapmaz — sous chef'lere dağıtır.
+> Ana bağlam penceresi şefin masasıdır, temiz kalmalıdır.
+
+---
+
+### 5.3 — Kendini Geliştirme Döngüsü
+
+**Kural:** Kullanıcıdan HERHANGİ bir düzeltme sonrası dersi kaydet.
+
+1. `tasks/lessons.md` dosyasını güncelle (tarih + hata + ders formatında)
+2. Aynı hatanın tekrarını önleyen kurallar yaz
+3. Hata oranı düşene kadar bu dersleri acımasızca geliştir
+4. Her oturum başında `tasks/lessons.md`'yi gözden geçir
+
+> Neden: Aynı taşa iki kez takılmamak için. Bir hata yapıldıysa
+> not al, bir daha aynı hatayı tekrarlama.
+
+---
+
+### 5.4 — Tamamlanmadan Önce Doğrulama
+
+**Kural:** Çalıştığını kanıtlamadan bir görevi asla tamamlandı olarak
+işaretleme.
+
+1. Gerektiğinde ana dal ile değişikliklerin arasındaki farkı kontrol et
+2. Kendine sor: "Kıdemli bir mühendis bunu onaylar mıydı?"
+3. Testleri çalıştır, logları kontrol et, doğruluğu kanıtla
+4. `npm run build` ve `npm run test` başarılı olmadan commit yapma
+
+> Neden: Ressamın tabloyu bitirmeden "bitti" demesi gibi.
+> Yarım iş teslim etmek, hiç yapmamaktan kötüdür.
+
+---
+
+### 5.5 — Zarafet Talep Et (Dengeli)
+
+**Kural:** Basit olmayan değişikliklerde dur ve sor: "Daha zarif bir
+yol var mı?"
+
+1. Çözüm yamalı hissediyorsa: "Şu an bildiklerimle zarif çözümü uygula"
+2. Basit, bariz düzeltmelerde bunu atla — aşırı mühendislik yapma
+3. Sunmadan önce kendi işini sorgula
+4. Ama 1.7 kuralını unutma: istenmeyen "iyileştirme" ekleme
+
+> Neden: Hem temiz hem pratik kod yaz. Ama altın kaplama yapma —
+> çalışan, okunabilir, bakımı kolay kod en iyi koddur.
+
+---
+
+### 5.6 — Otonom Hata Düzeltme
+
+**Kural:** Hata raporu verildiğinde direkt düzelt, el tutulmasını
+bekleme.
+
+1. Loglara, hatalara, başarısız testlere bak — sonra çöz
+2. Kullanıcıdan sıfır bağlam değişikliği gereksin
+3. CI testleri başarısız olunca nasıl yapılacağı söylenmeden git düzelt
+4. Düzeltme sonrası dersi `tasks/lessons.md`'ye kaydet
+
+> Neden: Tamirci "musluk akıyor" denince musluğu tamir eder,
+> "hangi anahtar kullanayım?" diye sormaz.
+
+---
+
+## BÖLÜM 6: GÖREV YÖNETİMİ
+
+Her görev için şu adımları izle:
+
+1. **Plan Önce:** `tasks/todo.md`'ye işaretlenebilir maddelerle plan yaz
+2. **Planı Doğrula:** Uygulamaya başlamadan önce onayla
+3. **İlerlemeyi Takip Et:** İlerledikçe maddeleri tamamlandı işaretle
+4. **Değişiklikleri Açıkla:** Her adımda üst düzey özet sun
+5. **Sonuçları Belgele:** `tasks/todo.md`'ye inceleme bölümü ekle
+6. **Dersleri Kaydet:** Düzeltmelerden sonra `tasks/lessons.md`'yi güncelle
+
+---
+
+## BÖLÜM 7: TEMEL İLKELER
+
+- **Önce Sadelik:** Her değişikliği olabildiğince basit yap. Minimal kod etkisi.
+- **Tembellik Yok:** Kök nedeni bul. Geçici çözüm yok. Kıdemli standartlar.
+- **Kanıtla, İddia Etme:** "Çalışıyor" demek yetmez — test, build, log ile göster.
+- **Bağlamı Koru:** Ana pencereyi temiz tut, ağır işleri alt-ajanlara ver.
+- **Sürekli Öğren:** Her hatadan ders çıkar, `tasks/lessons.md`'ye yaz.
