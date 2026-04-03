@@ -369,6 +369,10 @@ export default function Aiya() {
   const [showMenu, setShowMenu] = useState(false)
   const [showScrollDown, setShowScrollDown] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; chatId: string | null }>({ isOpen: false, chatId: null })
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window !== 'undefined' ? (window.visualViewport?.height ?? window.innerHeight) : 800
+  )
+  const maxViewportRef = useRef(viewportHeight)
 
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
@@ -463,68 +467,69 @@ export default function Aiya() {
     chatEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' })
   }, [])
 
+  // ─── Viewport height tracking (keyboard detection — same as ModalShell) ───
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) {
+      const onResize = () => {
+        const h = window.innerHeight
+        if (h > maxViewportRef.current) maxViewportRef.current = h
+        setViewportHeight(h)
+      }
+      window.addEventListener('resize', onResize)
+      return () => window.removeEventListener('resize', onResize)
+    }
+
+    const onUpdate = () => {
+      const h = vv.height
+      if (h > maxViewportRef.current) maxViewportRef.current = h
+      setViewportHeight(h)
+    }
+    onUpdate()
+    vv.addEventListener('resize', onUpdate)
+    vv.addEventListener('scroll', onUpdate)
+    return () => {
+      vv.removeEventListener('resize', onUpdate)
+      vv.removeEventListener('scroll', onUpdate)
+    }
+  }, [])
+
+  // Keyboard is open when viewport shrank by more than 100px from max
+  const isKeyboardOpen = maxViewportRef.current - viewportHeight > 100
+
   // ─── Auto-resize textarea ──────────────────────────────
   useEffect(() => {
     const textarea = textareaRef.current
     if (!textarea) return
-    
+
     textarea.style.height = 'auto'
     const newHeight = Math.min(textarea.scrollHeight, 120) // Max 120px
     textarea.style.height = `${newHeight}px`
   }, [input])
 
-  // ─── Keyboard handling ────────────────────────────────────
+  // ─── Keyboard handling (focus/blur for scroll) ────────────
   useEffect(() => {
     const textarea = textareaRef.current
     if (!textarea || view !== 'chat') return
 
     const handleFocus = () => {
-      // Scroll input into view when keyboard opens
       setTimeout(() => {
         textarea.scrollIntoView({ behavior: 'smooth', block: 'end' })
-      }, 300) // Delay to allow keyboard animation
+      }, 300)
     }
 
     const handleBlur = () => {
-      // Scroll to bottom of messages when keyboard closes
       setTimeout(() => {
         scrollToBottom(false)
       }, 100)
     }
 
-    // Visual Viewport API for better keyboard handling
-    let viewport: VisualViewport | null = null
-    if (window.visualViewport) {
-      viewport = window.visualViewport
-      const handleResize = () => {
-        // Ensure input stays visible when keyboard opens/closes
-        if (document.activeElement === textarea) {
-          setTimeout(() => {
-            textarea.scrollIntoView({ behavior: 'smooth', block: 'end' })
-          }, 100)
-        }
-      }
-      viewport.addEventListener('resize', handleResize)
-      
-      textarea.addEventListener('focus', handleFocus)
-      textarea.addEventListener('blur', handleBlur)
+    textarea.addEventListener('focus', handleFocus)
+    textarea.addEventListener('blur', handleBlur)
 
-      return () => {
-        if (viewport) {
-          viewport.removeEventListener('resize', handleResize)
-        }
-        textarea.removeEventListener('focus', handleFocus)
-        textarea.removeEventListener('blur', handleBlur)
-      }
-    } else {
-      // Fallback for browsers without Visual Viewport API
-      textarea.addEventListener('focus', handleFocus)
-      textarea.addEventListener('blur', handleBlur)
-
-      return () => {
-        textarea.removeEventListener('focus', handleFocus)
-        textarea.removeEventListener('blur', handleBlur)
-      }
+    return () => {
+      textarea.removeEventListener('focus', handleFocus)
+      textarea.removeEventListener('blur', handleBlur)
     }
   }, [view, scrollToBottom])
 
@@ -998,8 +1003,7 @@ export default function Aiya() {
     <div className="flex flex-col w-full h-full bg-gray-50 dark:bg-gray-900">
       {/* Header */}
       <div
-        className="flex items-center justify-between container-padding py-4 sm:py-5 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 shadow-sm"
-        style={{ paddingTop: 'calc(var(--safe-area-inset-top, 0px) + 1rem)' }}
+        className="flex items-center justify-between container-padding pb-3 sm:pb-4 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 shadow-sm pt-1"
       >
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <button
@@ -1038,7 +1042,7 @@ export default function Aiya() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch', paddingBottom: 'var(--safe-area-inset-bottom, 0px)' } as React.CSSProperties}>
+      <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
         {/* Hero / Start Chat section */}
         <div className={`flex flex-col items-center container-padding text-center ${chats.length === 0 ? 'justify-center h-full min-h-[400px]' : 'pt-8 sm:pt-10 pb-6'}`}>
           <motion.div
@@ -1143,8 +1147,7 @@ export default function Aiya() {
     <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 overflow-hidden">
       {/* Chat header - Fixed top */}
       <div
-        className="flex items-center justify-between gap-2 container-padding py-3.5 sm:py-4 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 z-30 shadow-sm"
-        style={{ paddingTop: 'calc(var(--safe-area-inset-top, 0px) + 0.875rem)' }}
+        className="flex items-center justify-between gap-2 container-padding pb-2.5 sm:pb-3 border-b border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl flex-shrink-0 z-30 shadow-sm pt-1"
       >
         <button
           onClick={goToList}
@@ -1306,7 +1309,7 @@ export default function Aiya() {
       {/* Bottom: Input container - Fixed above navbar, z-50 */}
       <div
         className="flex-shrink-0 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-50 shadow-lg"
-        style={{ paddingBottom: 'var(--safe-area-inset-bottom, 0px)' }}
+        style={{ paddingBottom: isKeyboardOpen ? '0px' : 'var(--safe-area-inset-bottom, 0px)' }}
       >
         {/* Suggestion chips */}
         <AnimatePresence>
@@ -1364,7 +1367,7 @@ export default function Aiya() {
   // ═════════════════════════════════════════════════════════
 
   return (
-    <div className="relative bg-white dark:bg-gray-900 overflow-hidden h-[100dvh]">
+    <div className="relative bg-white dark:bg-gray-900 overflow-hidden" style={{ height: '100vh' }}>
       <AnimatePresence mode="wait" initial={false}>
         {view === 'list' ? (
           <motion.div

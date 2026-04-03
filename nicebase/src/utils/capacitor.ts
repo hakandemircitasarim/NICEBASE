@@ -256,12 +256,13 @@ export const initializeStatusBar = async (isDarkMode: boolean = false) => {
     ensureSafeAreaTopVariable()
   }
 
-  // On Android, native content view padding handles safe areas.
-  // Zero out CSS variables to prevent double padding.
+  // On Android, native content view padding handles the STATUS BAR (top only).
+  // Zero only the top variable. Keep bottom alive — the navigation bar still
+  // overlays content and pages need env(safe-area-inset-bottom) to clear it.
   if (isAndroid()) {
     const root = document.documentElement
     root.style.setProperty('--safe-area-inset-top', '0px')
-    root.style.setProperty('--safe-area-inset-bottom', '0px')
+    // bottom intentionally NOT zeroed — needed for nav bar clearance
     root.style.setProperty('--safe-area-inset-left', '0px')
     root.style.setProperty('--safe-area-inset-right', '0px')
   }

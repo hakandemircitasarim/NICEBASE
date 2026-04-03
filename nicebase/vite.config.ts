@@ -41,7 +41,7 @@ export default defineConfig({
         name: 'NICEBASE - Kişisel Duygusal Çapan',
         short_name: 'NICEBASE',
         description: 'Güzel anılarınızı kaydedin ve hatırlayın',
-        theme_color: '#FF6B35',
+        theme_color: '#CC5018',
         background_color: '#ffffff',
         display: 'standalone',
         orientation: 'portrait',
@@ -69,6 +69,8 @@ export default defineConfig({
         ]
       },
       workbox: {
+        cacheId: 'nicebase-v3',
+        cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/_/, /\/[^/?]+\.[^/]+$/],
