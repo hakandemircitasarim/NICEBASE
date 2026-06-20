@@ -20,6 +20,18 @@ const CHAT_FREQUENCY_PENALTY = 0.35
 const CHAT_PRESENCE_PENALTY = 0.5
 const CHAT_TOP_P = 0.92
 const DEFAULT_LIMIT = 50
+
+// Server-side burst rate limits (independent of the daily message quota).
+// chat/analysis/profile share the 'chat' bucket; classify/category share
+// the cheaper-but-unmetered 'classify' bucket.
+const RATE_CHAT_MAX = 20
+const RATE_CHAT_WINDOW_S = 60
+const RATE_CLASSIFY_MAX = 40
+const RATE_CLASSIFY_WINDOW_S = 60
+
+// Actions whose OpenAI call counts against the user's message quota.
+const COUNTED_ACTIONS = new Set(['chat', 'analysis', 'profile'])
+
 const ALLOWED_CATEGORIES = [
   'success',
   'peace',
@@ -52,7 +64,9 @@ type AiyaRequest = {
   memoryContext?: string
   locale?: string
   systemPrompt?: string
-  countUsage?: boolean
+  // countUsage is intentionally NOT trusted from the client — the server
+  // decides which actions are billed (see COUNTED_ACTIONS).
+  crisis?: boolean
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -70,6 +84,36 @@ function normalizeSystemPrompt(systemPrompt: string | undefined, memoryContext: 
   return systemPrompt.includes('{{memories}}')
     ? systemPrompt.replace('{{memories}}', memoryContext)
     : `${systemPrompt}\n\n${memoryContext}`
+}
+
+// High-priority safety system message layered ON TOP of the persona when a
+// crisis disclosure is detected. It never replaces the persona — it only adds
+// care + real-world resources, so a borderline false-positive keyword match
+// degrades gracefully.
+function crisisSafetyMessage(locale: string | undefined): string {
+  if (locale?.startsWith('tr')) {
+    return [
+      'GÜVENLİK UYARISI: Kullanıcı kendine zarar verme veya intihar düşüncesi ifade ediyor olabilir.',
+      'Bu mesaja en yüksek öncelikle, sıcak ve yargılamadan yaklaş.',
+      'Yapman gerekenler: duygularını ciddiye al ve onayla; yalnız olmadığını hissettir;',
+      'bunun gerçekten zor bir an olduğunu kabul et; acil bir tehlike varsa hemen 112 Acil',
+      "Servisi'ni aramasını, güvendiği birine ulaşmasını ve bir ruh sağlığı uzmanından destek",
+      "almasını nazikçe ama net biçimde öner. Bu durumda 'ben bir yapay zekayım' veya 'her zaman",
+      "buradayım' gibi kalıpları KULLANMA; bunun yerine gerçek, insani destek kaynaklarına yönlendir.",
+      'Asla yargılama, küçümseme ya da konuyu geçiştirme.',
+    ].join(' ')
+  }
+  return [
+    'SAFETY ALERT: The user may be expressing thoughts of self-harm or suicide.',
+    'Treat this with the highest priority, with warmth and without judgment.',
+    'You must: take their feelings seriously and validate them; help them feel they are not alone;',
+    'acknowledge how hard this moment is; gently but clearly encourage them to contact emergency',
+    'services immediately if they are in danger (call your local emergency number, e.g. 112 or 911),',
+    'to reach out to someone they trust, and to seek support from a mental-health professional',
+    '(a helpline can be found at findahelpline.com).',
+    "In this situation do NOT use phrases like 'I am an AI' or 'I am always here'; instead point them",
+    'to real human support. Never judge, minimize, or dismiss what they share.',
+  ].join(' ')
 }
 
 function safeJsonParse(text: string) {
@@ -210,10 +254,6 @@ serve(async (req) => {
     usageLimit = userRow.aiya_messages_limit ?? DEFAULT_LIMIT
   }
 
-  if (usageUsed >= usageLimit) {
-    return jsonResponse({ error: 'Usage limit exceeded' }, 429)
-  }
-
   let payload: AiyaRequest
   try {
     payload = (await req.json()) as AiyaRequest
@@ -221,26 +261,109 @@ serve(async (req) => {
     return jsonResponse({ error: 'Invalid JSON payload' }, 400)
   }
 
-  const { action, message, history = [], memoryContext, locale, systemPrompt, countUsage } = payload
+  const { action, message, history = [], memoryContext, locale, systemPrompt, crisis } = payload
   const systemPromptHasPlaceholder = Boolean(systemPrompt?.includes('{{memories}}'))
   const system = normalizeSystemPrompt(systemPrompt, memoryContext)
   const langHint = locale?.startsWith('tr') ? 'Turkish' : 'English'
 
-  // Normalize action to string for comparison
+  // Normalize action once and dispatch EVERY branch on it, so stray casing
+  // or whitespace cannot let e.g. a 'category' request fall through to the
+  // billed free-form chat handler.
   const normalizedAction = String(action || '').toLowerCase().trim()
+  const isCounted = COUNTED_ACTIONS.has(normalizedAction)
+
+  // ── Server-side rate limiting + atomic metering ──────────────
+  async function enforceRateLimit(bucket: string, max: number, windowSeconds: number): Promise<boolean> {
+    try {
+      const { data, error } = await supabaseAdmin.rpc('check_aiya_rate_limit', {
+        p_user: userId,
+        p_bucket: bucket,
+        p_max: max,
+        p_window_seconds: windowSeconds,
+      })
+      if (error) {
+        // Fail-open on infra error so a missing/old RPC doesn't break Aiya.
+        console.error('Aiya rate-limit RPC failed', error)
+        return true
+      }
+      return data !== false
+    } catch (err) {
+      console.error('Aiya rate-limit RPC threw', err)
+      return true
+    }
+  }
+
+  // Atomically reserve one usage slot. Returns the new {used, limit}, or null
+  // if the user is already at/over their cap.
+  async function meterUsage(): Promise<{ used: number; limit: number } | null> {
+    try {
+      const { data, error } = await supabaseAdmin.rpc('increment_aiya_usage', { p_user: userId })
+      if (error) throw error
+      const row = Array.isArray(data) ? data[0] : data
+      if (!row) return null
+      return { used: row.used ?? usageUsed + 1, limit: row.lim ?? usageLimit }
+    } catch (err) {
+      // Fallback for the (rare) case the RPC isn't deployed yet: non-atomic
+      // read-then-write using the snapshot loaded above.
+      console.error('Aiya increment_aiya_usage RPC unavailable, falling back', err)
+      if (usageUsed >= usageLimit) return null
+      const { data: updated } = await supabaseAdmin
+        .from('users')
+        .update({ aiya_messages_used: usageUsed + 1 })
+        .eq('id', userId)
+        .select('aiya_messages_used, aiya_messages_limit')
+        .maybeSingle()
+      return {
+        used: updated?.aiya_messages_used ?? usageUsed + 1,
+        limit: updated?.aiya_messages_limit ?? usageLimit,
+      }
+    }
+  }
+
+  // Best-effort refund if the OpenAI call fails AFTER we reserved a slot.
+  async function refundUsage(): Promise<void> {
+    try {
+      await supabaseAdmin
+        .from('users')
+        .update({ aiya_messages_used: Math.max(0, usageUsed) })
+        .eq('id', userId)
+    } catch (err) {
+      console.error('Aiya usage refund failed', err)
+    }
+  }
+
+  // Apply the burst limiter up front.
+  if (isCounted) {
+    if (!(await enforceRateLimit('chat', RATE_CHAT_MAX, RATE_CHAT_WINDOW_S))) {
+      return jsonResponse({ error: 'Rate limit exceeded' }, 429)
+    }
+  } else if (normalizedAction === 'classify' || normalizedAction === 'category') {
+    if (!(await enforceRateLimit('classify', RATE_CLASSIFY_MAX, RATE_CLASSIFY_WINDOW_S))) {
+      return jsonResponse({ error: 'Rate limit exceeded' }, 429)
+    }
+  }
+
+  // Reserve a usage slot for counted actions BEFORE spending on OpenAI.
+  let metered = false
+  let usage = { used: usageUsed, limit: usageLimit }
+  if (isCounted) {
+    const reserved = await meterUsage()
+    if (!reserved) {
+      return jsonResponse({ error: 'Usage limit exceeded' }, 429)
+    }
+    metered = true
+    usage = reserved
+  }
 
   try {
-    // New unified classify action: returns both category AND lifeArea
-    // Check this FIRST before other actions - use normalized comparison
     if (normalizedAction === 'classify') {
       if (!message) return jsonResponse({ error: 'Message required' }, 400)
-      
+
       // Extract keywords from message for better classification
       const lowerMessage = message.toLowerCase()
       const hasFunKeywords = /eğlence|eğlendim|eğlenceli|keyifli|zevk|fun|eğlen|güldüm|kahkaha|neşe/.test(lowerMessage)
       const hasWorkKeywords = /iş|work|arkadaş|colleague|ofis|office|proje|project|meslek|job|çalış|workplace/.test(lowerMessage)
       const hasSuccessKeywords = /başarı|success|kazandım|tamamladım|başardım|won|achieved|completed/.test(lowerMessage)
-      const hasGratitudeKeywords = /şükür|gratitude|minnettar|teşekkür|thankful|blessed|şükret/.test(lowerMessage)
 
       const prompt = `Classify this memory. Return ONLY JSON: {"category":"<val>","lifeArea":"<val>"}
 
@@ -260,7 +383,7 @@ Examples:
 "Ailemle güzel akşam" → {"category":"fun","lifeArea":"family"}
 
 Memory: "${message}"`
-      
+
       const content = await callOpenAI({
         messages: [
           { role: 'system', content: `You are a strict JSON classifier. You MUST analyze the memory text and return ONLY valid JSON with category and lifeArea. Follow the examples exactly. Never default to gratitude/personal unless the text explicitly matches them.` },
@@ -270,17 +393,19 @@ Memory: "${message}"`
         temperature: 0.05,
         model: MODEL_MINI,
       })
-      
+
       const parsed = safeJsonParse(content)
-      
-      // Better fallback logic - try to extract from response even if JSON is malformed
-      let category: AllowedCategory = 'gratitude'
-      let lifeArea: AllowedLifeArea = 'personal'
-      
+
+      // Determine category. If the model gave us a valid one, use it.
+      // Otherwise try to recover from the raw text, then keyword hints, then
+      // fall back to null/'uncategorized' (NOT a hard 'gratitude' default —
+      // the client treats null as "leave unset").
+      let category: AllowedCategory | null = null
+      let lifeArea: AllowedLifeArea | null = null
+
       if (parsed?.category && ALLOWED_CATEGORIES.includes(parsed.category as AllowedCategory)) {
         category = parsed.category as AllowedCategory
       } else {
-        // Try to find category in response text
         const responseLower = content.toLowerCase()
         for (const cat of ALLOWED_CATEGORIES) {
           if (responseLower.includes(`"category":"${cat}"`) || responseLower.includes(`category: "${cat}"`) || responseLower.includes(`'category': '${cat}'`)) {
@@ -288,34 +413,36 @@ Memory: "${message}"`
             break
           }
         }
-        // Keyword-based fallback
-        if (hasFunKeywords && category === 'gratitude') category = 'fun'
-        if (hasSuccessKeywords && category === 'gratitude') category = 'success'
+        if (!category) {
+          if (hasFunKeywords) category = 'fun'
+          else if (hasSuccessKeywords) category = 'success'
+        }
       }
-      
+
       if (parsed?.lifeArea && ALLOWED_LIFE_AREAS.includes(parsed.lifeArea as AllowedLifeArea)) {
         lifeArea = parsed.lifeArea as AllowedLifeArea
       } else {
-        // Try to find lifeArea in response text
         const responseLower = content.toLowerCase()
         for (const area of ALLOWED_LIFE_AREAS) {
-          if (responseLower.includes(`"lifearea":"${area}"`) || responseLower.includes(`lifeArea": "${area}"`) || responseLower.includes(`'lifeArea': '${area}'`)) {
+          if (responseLower.includes(`"lifearea":"${area}"`) || responseLower.includes(`lifearea": "${area}"`) || responseLower.includes(`'lifearea': '${area}'`)) {
             lifeArea = area as AllowedLifeArea
             break
           }
         }
-        // Keyword-based fallback
-        if (hasWorkKeywords && lifeArea === 'personal') lifeArea = 'work'
+        if (!lifeArea && hasWorkKeywords) lifeArea = 'work'
       }
-      
-      return jsonResponse({ category, lifeArea })
+
+      return jsonResponse({
+        category: category ?? 'uncategorized',
+        lifeArea: lifeArea ?? 'uncategorized',
+      })
     }
 
-    if (action === 'category') {
+    if (normalizedAction === 'category') {
       if (!message) return jsonResponse({ error: 'Message required' }, 400)
 
       const prompt = `Classify into ONE category: success|peace|fun|love|gratitude|inspiration|growth|adventure. Reply with ONLY the category name. Do not default to gratitude. Memory: ${message}`
-      
+
       const content = await callOpenAI({
         messages: [
           { role: 'system', content: `You are a precise memory classifier. Analyze the memory content carefully and select the most appropriate category. Reply with only the category name, no explanation.` },
@@ -326,13 +453,15 @@ Memory: "${message}"`
         model: MODEL_MINI,
       })
       const normalized = content.trim().toLowerCase()
+      // Return null/'uncategorized' on an unrecognized reply instead of
+      // silently defaulting to gratitude.
       const category = (ALLOWED_CATEGORIES.includes(normalized as AllowedCategory)
         ? normalized
-        : 'gratitude') as AllowedCategory
+        : 'uncategorized') as AllowedCategory | 'uncategorized'
       return jsonResponse({ category })
     }
 
-    if (action === 'analysis') {
+    if (normalizedAction === 'analysis') {
       if (!memoryContext) return jsonResponse({ error: 'No memories for analysis' }, 400)
       const memoryBlock = systemPromptHasPlaceholder ? '' : `\n\nMemories:\n${memoryContext}`
       const prompt = `You are a deeply insightful emotional intelligence analyst with extraordinary perceptive abilities. Analyze this person's memories with depth no human could match. Look for:
@@ -362,23 +491,10 @@ Language: ${langHint}. Be warm, insightful, and genuinely helpful — speak like
         analysis = { emotionalTrends: content, standoutMemories: [], patterns: '', recommendations: '' }
       }
 
-      if (countUsage !== false) {
-        const { data: updated } = await supabaseAdmin
-          .from('users')
-          .update({ aiya_messages_used: usageUsed + 1 })
-          .eq('id', userId)
-          .select('aiya_messages_used, aiya_messages_limit')
-          .maybeSingle()
-        if (updated) {
-          usageUsed = updated.aiya_messages_used ?? usageUsed + 1
-          usageLimit = updated.aiya_messages_limit ?? usageLimit
-        }
-      }
-
-      return jsonResponse({ analysis, usage: { used: usageUsed, limit: usageLimit } })
+      return jsonResponse({ analysis, usage })
     }
 
-    if (action === 'profile') {
+    if (normalizedAction === 'profile') {
       const trimmedHistory = history.slice(-30)
       if (!memoryContext && trimmedHistory.length === 0) {
         return jsonResponse({ error: 'No context for profile' }, 400)
@@ -457,57 +573,38 @@ Language: ${langHint}.` +
         topP: 0.92,
       })
 
-      if (countUsage !== false) {
-        const { data: updated } = await supabaseAdmin
-          .from('users')
-          .update({ aiya_messages_used: usageUsed + 1 })
-          .eq('id', userId)
-          .select('aiya_messages_used, aiya_messages_limit')
-          .maybeSingle()
-        if (updated) {
-          usageUsed = updated.aiya_messages_used ?? usageUsed + 1
-          usageLimit = updated.aiya_messages_limit ?? usageLimit
-        }
-      }
-
-      return jsonResponse({ profile: content, usage: { used: usageUsed, limit: usageLimit } })
+      return jsonResponse({ profile: content, usage })
     }
 
-    if (!message) return jsonResponse({ error: 'Message required' }, 400)
-    const messages = [
-      ...(system ? [{ role: 'system' as const, content: system }] : []),
-      ...history.map((h) => ({ role: h.role, content: h.content })),
-      { role: 'user' as const, content: message },
-    ]
-    const reply = await callOpenAI({
-      messages,
-      maxTokens: CHAT_MAX_TOKENS,
-      temperature: CHAT_TEMPERATURE,
-      frequencyPenalty: CHAT_FREQUENCY_PENALTY,
-      presencePenalty: CHAT_PRESENCE_PENALTY,
-      topP: CHAT_TOP_P,
-    })
+    if (normalizedAction === 'chat') {
+      if (!message) return jsonResponse({ error: 'Message required' }, 400)
+      const messages = [
+        ...(crisis === true ? [{ role: 'system' as const, content: crisisSafetyMessage(locale) }] : []),
+        ...(system ? [{ role: 'system' as const, content: system }] : []),
+        ...history.map((h) => ({ role: h.role, content: h.content })),
+        { role: 'user' as const, content: message },
+      ]
+      const reply = await callOpenAI({
+        messages,
+        maxTokens: CHAT_MAX_TOKENS,
+        temperature: CHAT_TEMPERATURE,
+        frequencyPenalty: CHAT_FREQUENCY_PENALTY,
+        presencePenalty: CHAT_PRESENCE_PENALTY,
+        topP: CHAT_TOP_P,
+      })
 
-    if (countUsage !== false) {
-      const { data: updated } = await supabaseAdmin
-        .from('users')
-        .update({ aiya_messages_used: usageUsed + 1 })
-        .eq('id', userId)
-        .select('aiya_messages_used, aiya_messages_limit')
-        .maybeSingle()
-      if (updated) {
-        usageUsed = updated.aiya_messages_used ?? usageUsed + 1
-        usageLimit = updated.aiya_messages_limit ?? usageLimit
-      }
+      return jsonResponse({ reply, usage })
     }
 
-    return jsonResponse({ reply, usage: { used: usageUsed, limit: usageLimit } })
+    // Unknown action — do NOT silently bill it as a chat.
+    return jsonResponse({ error: `Unknown action: ${normalizedAction || '(empty)'}` }, 400)
   } catch (error) {
     console.error('Aiya function error', error)
+    // We reserved a usage slot before calling OpenAI — refund it on failure.
+    if (metered) await refundUsage()
     return jsonResponse(
       { error: error instanceof Error ? error.message : 'Unexpected error' },
       500
     )
   }
 })
-

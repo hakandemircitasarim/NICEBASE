@@ -92,14 +92,16 @@ export function routeMessage(message: string, messageCountInChat: number): Route
   const lower = message.toLowerCase().trim()
   const length = message.length
 
+  // CRISIS: always full everything — checked FIRST so a first-message crisis
+  // disclosure is routed to 'crisis' (which triggers safety handling), not
+  // merely 'deep'.
+  if (CRISIS_WORDS.some(w => lower.includes(w))) {
+    return { tier: 'crisis', memoryCount: MAX_CONTEXT_MEMORIES, historyLimit: 50, includeStats: true, includeFullPrompt: true, includeProfile: true }
+  }
+
   // Always full context for first message in a chat session
   if (messageCountInChat === 0) {
     return { tier: 'deep', memoryCount: MAX_CONTEXT_MEMORIES, historyLimit: 50, includeStats: true, includeFullPrompt: true, includeProfile: true }
-  }
-
-  // CRISIS: always full everything
-  if (CRISIS_WORDS.some(w => lower.includes(w))) {
-    return { tier: 'crisis', memoryCount: MAX_CONTEXT_MEMORIES, historyLimit: 50, includeStats: true, includeFullPrompt: true, includeProfile: true }
   }
 
   // DEEP: significant context needed
@@ -540,8 +542,9 @@ export const aiyaService = {
     locale?: string
     systemPrompt?: string
     memoryContext?: string // pre-built tiered context (if provided, skips default build)
+    crisis?: boolean // when true, the edge function layers a safety system message on top of the persona
   }): Promise<AiyaChatResponse> {
-    const { message, history, memories, locale, systemPrompt, memoryContext } = params
+    const { message, history, memories, locale, systemPrompt, memoryContext, crisis } = params
     const ctx = memoryContext ?? buildMemoryContext(memories)
     return await invokeAiya<AiyaChatResponse>({
       action: 'chat' satisfies AiyaAction,
@@ -551,6 +554,7 @@ export const aiyaService = {
       systemPrompt,
       memoryContext: ctx,
       countUsage: true,
+      crisis: crisis === true,
     })
   },
 

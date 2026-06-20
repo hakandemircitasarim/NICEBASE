@@ -6,7 +6,7 @@ import { Memory } from '../types'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Send, Sparkles, ChevronLeft, Plus, Trash2, ChevronDown,
-  MessageCircle, MoreVertical, X,
+  MessageCircle, MoreVertical, X, LifeBuoy,
 } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { useUserId } from '../hooks/useUserId'
@@ -45,6 +45,7 @@ type ViewMode = 'list' | 'chat'
 // ─── Constants ───────────────────────────────────────────
 
 const HISTORY_LIMIT = 50
+const DEFAULT_AIYA_LIMIT = 50
 const PROFILE_MIN_MESSAGE_COUNT = 3
 const PROFILE_UPDATE_MESSAGE_INTERVAL = 5
 const PROFILE_UPDATE_COOLDOWN_MS = 4 * 60 * 60 * 1000
@@ -368,6 +369,9 @@ export default function Aiya() {
   const [loaded, setLoaded] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [showScrollDown, setShowScrollDown] = useState(false)
+  // Set when a crisis-tier message is detected so the chat shows real-world
+  // support resources alongside Aiya's reply.
+  const [crisisActive, setCrisisActive] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; chatId: string | null }>({ isOpen: false, chatId: null })
   const [viewportHeight, setViewportHeight] = useState(() =>
     typeof window !== 'undefined' ? (window.visualViewport?.height ?? window.innerHeight) : 800
@@ -406,31 +410,31 @@ export default function Aiya() {
     setLoaded(false)
     setShowMenu(false)
     setShowScrollDown(false)
+    setCrisisActive(false)
   }, [userId])
 
   const activeChat = useMemo(() => chats.find((c) => c.id === activeChatId) ?? null, [chats, activeChatId])
   const messages = activeChat?.messages ?? []
 
-  // Usage info - always use 50 as limit, use API used count if available
+  // Usage info — trust the server-returned limit (it reflects premium tiers),
+  // falling back to the user's stored limit, then the default.
   const usageInfo = useMemo(() => {
     if (!user) return null
-    
-    // Always use 50 as limit (override any API or user value that might be 30)
-    const limit = 50
-    const userUsed = user.aiyaMessagesUsed || 0
-    
-    // If API provided usage, use its used count but always use 50 as limit
+
+    const fallbackLimit = user.aiyaMessagesLimit || DEFAULT_AIYA_LIMIT
+
+    // If the API provided usage, prefer its authoritative used + limit.
     if (usage) {
       return {
         used: usage.used,
-        limit: limit // Always 50, never use API's limit
+        limit: usage.limit || fallbackLimit,
       }
     }
-    
-    // Fallback to user data
+
+    // Fallback to stored user data.
     return {
-      used: userUsed,
-      limit: limit // Always 50
+      used: user.aiyaMessagesUsed || 0,
+      limit: fallbackLimit,
     }
   }, [usage, user])
 
@@ -912,10 +916,14 @@ export default function Aiya() {
         console.log(`[Aiya] Route: tier=${route.tier}, memories=${route.memoryCount}, history=${trimmedHistory.length}/${history.length}, profile=${route.includeProfile}`)
       }
 
+      // Surface real-world support resources whenever a crisis is detected.
+      if (route.tier === 'crisis') setCrisisActive(true)
+
       const res = await aiyaService.sendMessage({
         message: text, history: trimmedHistory, memories, locale,
         systemPrompt: selectedPrompt,
         memoryContext: tieredMemoryContext,
+        crisis: route.tier === 'crisis',
       })
 
       // Guard against missing reply
@@ -1268,6 +1276,26 @@ export default function Aiya() {
               />
             )
           })}
+
+          {/* Crisis support resources — shown when a crisis-tier message is detected */}
+          {crisisActive && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              role="region"
+              aria-label={t('aiyaCrisisTitle')}
+              className="mx-1 my-2"
+            >
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-4 py-3 rounded-2xl flex items-start gap-3">
+                <LifeBuoy size={20} className="text-blue-500 dark:text-blue-300 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="font-semibold text-blue-800 dark:text-blue-200 text-sm mb-1">{t('aiyaCrisisTitle')}</p>
+                  <p className="text-blue-700 dark:text-blue-300 text-xs sm:text-sm leading-relaxed">{t('aiyaCrisisBody')}</p>
+                  <p className="text-blue-600 dark:text-blue-300 text-xs sm:text-sm leading-relaxed mt-1 font-medium">{t('aiyaCrisisResources')}</p>
+                </div>
+              </div>
+            </motion.div>
+          )}
 
           {/* Typing indicator */}
           {sending && <TypingDots />}
