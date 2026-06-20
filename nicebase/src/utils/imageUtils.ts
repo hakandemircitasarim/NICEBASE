@@ -1,18 +1,26 @@
+// Format support never changes within a session — probe once and cache.
+let webPSupport: boolean | null = null
+let avifSupport: Promise<boolean> | null = null
+
 /**
- * Check if browser supports WebP format
+ * Check if browser supports WebP format (memoized)
  */
 export function supportsWebP(): boolean {
+  if (webPSupport !== null) return webPSupport
   const canvas = document.createElement('canvas')
   canvas.width = 1
   canvas.height = 1
-  return canvas.toDataURL('image/webp').indexOf('data:image/webp') === 0
+  webPSupport = canvas.toDataURL('image/webp').indexOf('data:image/webp') === 0
+  return webPSupport
 }
 
 /**
- * Check if browser supports AVIF format
+ * Check if browser supports AVIF format (memoized — the encode+decode probe
+ * runs at most once per session)
  */
 export function supportsAVIF(): Promise<boolean> {
-  return new Promise((resolve) => {
+  if (avifSupport) return avifSupport
+  avifSupport = new Promise((resolve) => {
     const canvas = document.createElement('canvas')
     canvas.width = 1
     canvas.height = 1
@@ -32,6 +40,7 @@ export function supportsAVIF(): Promise<boolean> {
       0.5
     )
   })
+  return avifSupport
 }
 
 /**

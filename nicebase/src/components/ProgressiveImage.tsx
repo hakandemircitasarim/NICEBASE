@@ -12,9 +12,16 @@ interface ProgressiveImageProps {
   placeholder?: string
 }
 
+const DEFAULT_PLACEHOLDER =
+  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23e5e7eb"/%3E%3C/svg%3E'
+
 /**
- * Progressive image component with blur-up effect
- * Shows a low-quality placeholder while the full image loads
+ * Progressive image with a blur-up placeholder.
+ *
+ * The real <img> is bound directly to `src` with native loading="lazy", so the
+ * browser only fetches it when it scrolls near the viewport. (A previous version
+ * preloaded every image with a detached `new Image()`, which fetched the whole
+ * list up-front and made loading="lazy" a no-op.)
  */
 export default function ProgressiveImage({
   src,
@@ -26,65 +33,16 @@ export default function ProgressiveImage({
   placeholder,
 }: ProgressiveImageProps) {
   const { t } = useTranslation()
-  const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
   const [hasError, setHasError] = useState(false)
 
+  // Reset load/error state whenever the source changes.
   useEffect(() => {
-    let cancelled = false
-
-    // Reset state when src changes
     setIsLoaded(false)
     setHasError(false)
+  }, [src])
 
-    if (!src) {
-      setHasError(true)
-      return
-    }
-
-    // Use provided placeholder or generate a simple gray one
-    const defaultPlaceholder = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23e5e7eb"/%3E%3C/svg%3E'
-    setImageSrc(placeholder || defaultPlaceholder)
-
-    // Load the full image
-    const fullImg = new Image()
-    fullImg.onload = () => {
-      if (cancelled) return
-      setImageSrc(src)
-      setIsLoaded(true)
-    }
-    fullImg.onerror = () => {
-      if (cancelled) return
-      setHasError(true)
-      if (onError) {
-        // Create a synthetic event for the error
-        const errorEvent = new Event('error')
-        const syntheticEvent = {
-          nativeEvent: errorEvent,
-          currentTarget: fullImg,
-          target: fullImg,
-          bubbles: false,
-          cancelable: false,
-          defaultPrevented: false,
-          eventPhase: 0,
-          isTrusted: false,
-          timeStamp: Date.now(),
-          type: 'error',
-          preventDefault: () => {},
-          stopPropagation: () => {},
-          isDefaultPrevented: () => false,
-          isPropagationStopped: () => false,
-          persist: () => {},
-        } as unknown as React.SyntheticEvent<HTMLImageElement, Event>
-        onError(syntheticEvent)
-      }
-    }
-    fullImg.src = src
-
-    return () => { cancelled = true }
-  }, [src, placeholder, onError])
-
-  if (hasError) {
+  if (hasError || !src) {
     return (
       <div
         className={`${className} bg-gray-100 dark:bg-gray-700 flex items-center justify-center`}
@@ -100,48 +58,33 @@ export default function ProgressiveImage({
 
   return (
     <div className={`relative overflow-hidden ${className}`}>
-      {/* Blur-up placeholder */}
-      {imageSrc && !isLoaded && (
-        <motion.img
-          src={imageSrc}
+      {/* Blur-up placeholder, shown until the real image finishes loading */}
+      {!isLoaded && (
+        <img
+          src={placeholder || DEFAULT_PLACEHOLDER}
           alt=""
-          className="absolute inset-0 w-full h-full object-cover filter blur-sm scale-110"
           aria-hidden="true"
-          initial={{ opacity: 1 }}
-          animate={{ opacity: isLoaded ? 0 : 1 }}
-          transition={{ duration: 0.3 }}
+          className="absolute inset-0 w-full h-full object-cover filter blur-sm scale-110"
         />
       )}
 
-      {/* Full quality image */}
-      {imageSrc && (
-        <motion.img
-          src={imageSrc}
-          alt={alt}
-          loading={loading}
-          className={`w-full h-full object-cover ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
-          onClick={onClick}
-          onError={(e) => {
-            setHasError(true)
-            if (onError) {
-              onError(e)
-            }
-          }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: isLoaded ? 1 : 0 }}
-          transition={{ duration: 0.3 }}
-        />
-      )}
+      {/* Real image — lazily fetched by the browser */}
+      <motion.img
+        src={src}
+        alt={alt}
+        loading={loading}
+        decoding="async"
+        className="w-full h-full object-cover"
+        onClick={onClick}
+        onLoad={() => setIsLoaded(true)}
+        onError={(e) => {
+          setHasError(true)
+          if (onError) onError(e)
+        }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: isLoaded ? 1 : 0 }}
+        transition={{ duration: 0.3 }}
+      />
     </div>
   )
 }
-
-
-
-
-
-
-
-
-
-

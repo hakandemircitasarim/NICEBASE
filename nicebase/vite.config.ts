@@ -102,7 +102,13 @@ export default defineConfig({
             handler: 'NetworkOnly'
           },
           {
-            urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/,
+            // Generic images by extension — but NOT Supabase storage photos,
+            // which have their own larger (200-entry) cache above. Excluding
+            // them here keeps photos from being evicted early by this 100-entry
+            // bucket.
+            urlPattern: ({ url }) =>
+              /\.(?:png|jpg|jpeg|svg|gif|webp)$/i.test(url.pathname) &&
+              !url.hostname.endsWith('supabase.co'),
             handler: 'CacheFirst',
             options: {
               cacheName: 'images-cache',
@@ -157,8 +163,15 @@ export default defineConfig({
       },
       output: {
         manualChunks: (id) => {
-          // React and core - include recharts with React to avoid multiple React instances
-          if (id.includes('react') || id.includes('react-dom') || id.includes('react-router') || id.includes('recharts')) {
+          // Charts: recharts + its d3/victory deps. Only the lazy Statistics
+          // route uses them, so keep them OUT of the always-loaded react-vendor
+          // chunk. (They don't import a second React — react stays in
+          // react-vendor and is shared.)
+          if (id.includes('recharts') || id.includes('victory-vendor') || id.includes('/d3-')) {
+            return 'charts-vendor'
+          }
+          // React and core
+          if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
             return 'react-vendor'
           }
           // UI libraries

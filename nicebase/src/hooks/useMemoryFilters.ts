@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Memory, MemoryCategory, LifeArea } from '../types'
 import { useDebounce } from './useDebounce'
 import { normalizeConnectionKey } from '../utils/connections'
+import { parseLocalDate } from '../utils/dateFormat'
 
 interface FilterOptions {
   searchQuery?: string
@@ -69,25 +70,17 @@ export function useMemoryFilters(
       )
     }
 
-    // Date range filter
+    // Date range filter (parse calendar dates at LOCAL midnight to avoid the
+    // UTC day-shift in non-UTC timezones)
     if (dateRange.start) {
-      const startDate = new Date(dateRange.start)
-      startDate.setHours(0, 0, 0, 0)
-      filtered = filtered.filter(m => {
-        const memoryDate = new Date(m.date)
-        memoryDate.setHours(0, 0, 0, 0)
-        return memoryDate >= startDate
-      })
+      const startDate = parseLocalDate(dateRange.start)
+      filtered = filtered.filter(m => parseLocalDate(m.date) >= startDate)
     }
 
     if (dateRange.end) {
-      const endDate = new Date(dateRange.end)
+      const endDate = parseLocalDate(dateRange.end)
       endDate.setHours(23, 59, 59, 999)
-      filtered = filtered.filter(m => {
-        const memoryDate = new Date(m.date)
-        memoryDate.setHours(0, 0, 0, 0)
-        return memoryDate <= endDate
-      })
+      filtered = filtered.filter(m => parseLocalDate(m.date) <= endDate)
     }
 
     // Connection filter

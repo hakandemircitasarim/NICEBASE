@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback, memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useNavigate } from 'react-router-dom'
@@ -273,9 +273,11 @@ function SuggestionChips({
       })
     }
 
-    // Shuffle personalized to add variety, but keep baseChips first
-    const shuffled = [...personalized].sort(() => Math.random() - 0.5)
-    return [...baseChips, ...shuffled].slice(0, 6)
+    // Rotate personalized chips for variety as the library grows — deterministic
+    // (no Math.random), so chips don't reshuffle on every re-render.
+    const offset = personalized.length ? memories.length % personalized.length : 0
+    const rotated = [...personalized.slice(offset), ...personalized.slice(0, offset)]
+    return [...baseChips, ...rotated].slice(0, 6)
   }, [memories, t, isTr])
 
   return (
@@ -299,12 +301,14 @@ function SuggestionChips({
 
 // ─── Message Bubble Component ─────────────────────────────
 
-function MessageBubble({ 
-  message, 
-  isUser, 
-  showAvatar, 
-  showTime 
-}: { 
+// Memoized so typing in the composer (which re-renders the page) doesn't
+// reconcile every bubble in a long conversation — props are stable per message.
+const MessageBubble = memo(function MessageBubble({
+  message,
+  isUser,
+  showAvatar,
+  showTime
+}: {
   message: AiyaMessage
   isUser: boolean
   showAvatar: boolean
@@ -340,7 +344,7 @@ function MessageBubble({
       </div>
     </div>
   )
-}
+})
 
 // ═════════════════════════════════════════════════════════
 // ─── Main Component ─────────────────────────────────────

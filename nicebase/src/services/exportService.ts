@@ -1,5 +1,3 @@
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
 import { Memory } from '../types'
 import i18n from '../i18n'
 import { isNative } from '../utils/capacitor'
@@ -74,6 +72,12 @@ async function downloadBlob(blob: Blob, filename: string): Promise<void> {
 
 export const exportService = {
   async exportToPDF(memories: Memory[], filename: string = 'nicebase-export') {
+    // Load the heavy PDF libs on demand so they're not pulled into the Profile
+    // route chunk (jspdf + autotable are ~250KB+).
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ])
     const doc = new jsPDF()
     const lang = i18n.language || 'tr'
     const dateLocale = lang === 'tr' ? 'tr-TR' : 'en-US'
