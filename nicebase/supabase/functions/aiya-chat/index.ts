@@ -30,7 +30,9 @@ const RATE_CLASSIFY_MAX = 40
 const RATE_CLASSIFY_WINDOW_S = 60
 
 // Actions whose OpenAI call counts against the user's message quota.
-const COUNTED_ACTIONS = new Set(['chat', 'analysis', 'profile'])
+// NOT 'profile': the profile build is an automatic background call (every few
+// messages) — it's rate-limited but must not silently eat the visible quota.
+const COUNTED_ACTIONS = new Set(['chat', 'analysis'])
 
 const ALLOWED_CATEGORIES = [
   'success',
@@ -333,14 +335,25 @@ serve(async (req) => {
   }
 
   // Apply the burst limiter up front.
-  if (isCounted) {
-    if (!(await enforceRateLimit('chat', RATE_CHAT_MAX, RATE_CHAT_WINDOW_S))) {
-      return jsonResponse({ error: 'Rate limit exceeded' }, 429)
-    }
-  } else if (normalizedAction === 'classify' || normalizedAction === 'category') {
+  if (normalizedAction === 'classify' || normalizedAction === 'category') {
     if (!(await enforceRateLimit('classify', RATE_CLASSIFY_MAX, RATE_CLASSIFY_WINDOW_S))) {
       return jsonResponse({ error: 'Rate limit exceeded' }, 429)
     }
+  } else if (isCounted || normalizedAction === 'profile') {
+    // chat/analysis (billed) and the background profile build (not billed, but
+    // an expensive gpt-4o call) all share the burst limiter.
+    if (!(await enforceRateLimit('chat', RATE_CHAT_MAX, RATE_CHAT_WINDOW_S))) {
+      return jsonResponse({ error: 'Rate limit exceeded' }, 429)
+    }
+  }
+
+  // Validate required fields BEFORE reserving a usage slot, so a request the
+  // server itself rejects (400) never charges the user.
+  if (normalizedAction === 'chat' && !message) {
+    return jsonResponse({ error: 'Message required' }, 400)
+  }
+  if (normalizedAction === 'analysis' && !memoryContext) {
+    return jsonResponse({ error: 'No memories for analysis' }, 400)
   }
 
   // Reserve a usage slot for counted actions BEFORE spending on OpenAI.

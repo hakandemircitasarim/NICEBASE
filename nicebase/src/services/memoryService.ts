@@ -364,6 +364,10 @@ export const memoryService = {
           if (base) {
             // Optimistic concurrency: only overwrite the cloud row if it still
             // matches the version this edit was based on.
+            // INVARIANT: memories.updated_at must stay CLIENT-authoritative (no
+            // BEFORE UPDATE trigger on the table). The whole scheme — and the
+            // incremental-pull watermark — depends on the value we write being
+            // the value we read back.
             const { data: updRows, error } = await supabase
               .from('memories')
               .update(supabaseUpdates)
