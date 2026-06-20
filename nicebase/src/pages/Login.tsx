@@ -9,6 +9,7 @@ import { useStore } from '../store/useStore'
 import { mapUserFromSupabase } from '../lib/userMapper'
 import { fetchUserData } from '../lib/userService'
 import { errorLoggingService } from '../services/errorLoggingService'
+import { authErrorMessage } from '../utils/authErrors'
 import LoadingSpinner from '../components/LoadingSpinner'
 import OAuthButtons from '../components/OAuthButtons'
 import { useOAuth } from '../hooks/useOAuth'
@@ -316,7 +317,7 @@ export default function Login() {
           error instanceof Error ? error : new Error('Authentication error'),
           'error'
         )
-        toast.error(msg || t('errorOccurred'))
+        toast.error(authErrorMessage(msg, t))
       }
     } finally {
       // ALWAYS reset loading state regardless of outcome

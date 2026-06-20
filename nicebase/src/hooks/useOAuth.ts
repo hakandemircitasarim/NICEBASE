@@ -5,6 +5,7 @@ import { supabase, hasSupabaseConfig } from '../lib/supabase'
 import { errorLoggingService } from '../services/errorLoggingService'
 import { hapticFeedback } from '../utils/haptic'
 import { isNative } from '../utils/capacitor'
+import { authErrorMessage } from '../utils/authErrors'
 
 // ─── Native Google Sign-In (via @capgo/capacitor-social-login) ──────────
 // On Android/iOS: shows the native Google account picker (bottom sheet)
@@ -265,8 +266,9 @@ export function useOAuth() {
             return
           }
 
-          // Show the actual error instead of silently falling back
-          toast.error(`Google Sign-In hatası: ${errMsg}`)
+          // Log the raw native error, show a localized message.
+          errorLoggingService.logError(new Error(`Google Sign-In: ${errMsg}`), 'error')
+          toast.error(authErrorMessage(errMsg, t))
           loadingRef.current = false
           setLoading(false)
           return

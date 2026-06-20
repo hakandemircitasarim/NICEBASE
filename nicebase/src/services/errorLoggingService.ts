@@ -53,30 +53,22 @@ class ErrorLoggingService {
   }
 
   private async sendToErrorService(errorLog: ErrorLog) {
-    // Send to error tracking service (Sentry, LogRocket, etc.)
-    // For now, we'll use a simple approach that can be extended later
+    // Remote transport is OPT-IN: set VITE_ERROR_LOGGING_ENDPOINT to a URL that
+    // accepts a JSON POST of the error log (your own collector, a Supabase edge
+    // function, a Sentry tunnel, etc.). When it's unset this is a no-op and
+    // errors remain in localStorage (capped 100, exportable via exportLogs()).
+    const endpoint = import.meta.env.VITE_ERROR_LOGGING_ENDPOINT
+    if (!endpoint) return
+
     try {
-      // Option 1: Send to a custom API endpoint (if you have one)
-      // Uncomment and configure when you have an error tracking service
-      // await fetch('/api/errors', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(errorLog),
-      // })
-
-      // Option 2: For Sentry integration, uncomment and install @sentry/react:
-      // import * as Sentry from '@sentry/react'
-      // Sentry.captureException(new Error(errorLog.message), {
-      //   extra: errorLog,
-      //   tags: { severity: errorLog.severity },
-      //   user: errorLog.userId ? { id: errorLog.userId } : undefined,
-      // })
-
-      // In production, you might want to send to an analytics service
-      // or use a service like Sentry, LogRocket, etc.
-      // For now, errors are stored in localStorage and can be exported
+      await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(errorLog),
+        keepalive: true, // allow the request to outlive a page unload
+      })
     } catch (e) {
-      // Failed to send error to tracking service - non-critical
+      // Failed to send error to tracking service — non-critical.
       if (import.meta.env.DEV) {
         console.warn('Could not send error to tracking service', e)
       }

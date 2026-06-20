@@ -6,6 +6,7 @@ import { Home, Archive, MessageCircle, User } from 'lucide-react'
 import { hapticFeedback } from '../utils/haptic'
 import { useStore } from '../store/useStore'
 import { setBackButtonHandler } from '../utils/capacitor'
+import { RouteErrorBoundary } from './RouteErrorBoundary'
 
 export default function Layout() {
   const { t } = useTranslation()
@@ -47,7 +48,11 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <main className={isFullscreenChat ? '' : 'pb-16'}>
-        <Outlet />
+        {/* Isolate a page-render crash to the page — keyed by path so it resets
+            on navigation, leaving the nav/layout mounted. */}
+        <RouteErrorBoundary key={location.pathname}>
+          <Outlet />
+        </RouteErrorBoundary>
       </main>
       
       <nav 

@@ -5,6 +5,8 @@ import { motion } from 'framer-motion'
 import { KeyRound } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import LoadingSpinner from '../components/LoadingSpinner'
+import { errorLoggingService } from '../services/errorLoggingService'
+import { authErrorMessage } from '../utils/authErrors'
 
 export default function ResetPassword() {
   const { t } = useTranslation()
@@ -38,7 +40,9 @@ export default function ResetPassword() {
       setSuccess(true)
       setTimeout(() => navigate('/'), 2000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('errorOccurred'))
+      const raw = err instanceof Error ? err.message : String(err)
+      errorLoggingService.logError(err instanceof Error ? err : new Error('Reset password error'), 'error')
+      setError(authErrorMessage(raw, t))
     } finally {
       setLoading(false)
     }

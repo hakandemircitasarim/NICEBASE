@@ -4,6 +4,7 @@ import { AlertTriangle, RefreshCw, Home } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import i18n from '../i18n'
+import { errorLoggingService } from '../services/errorLoggingService'
 
 interface Props {
   children: ReactNode
@@ -27,7 +28,11 @@ export class RouteErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // Log to console only in development
+    // Route to the error logging service (was previously DEV-console only).
+    errorLoggingService.logError(
+      new Error(`${error.message}\nComponent Stack: ${errorInfo.componentStack}`),
+      'error'
+    )
     if (import.meta.env.DEV) {
       console.error('Route Error Boundary caught an error:', error?.message || 'Unknown error', JSON.stringify({
         error: error?.message,

@@ -1,6 +1,8 @@
 import { supabase } from '../lib/supabase'
 import { DailyQuestion, DailyQuestionAnswer } from '../types'
 import i18n from '../i18n'
+import { errorLoggingService } from './errorLoggingService'
+import { toLocalISODate } from '../utils/dateFormat'
 
 // Fallback questions (used when Supabase is unavailable or no question exists for today)
 const FALLBACK_QUESTIONS_TR = [
@@ -30,7 +32,9 @@ const FALLBACK_QUESTIONS_EN = [
 ]
 
 function getTodayString(): string {
-  return new Date().toISOString().split('T')[0]
+  // Local calendar date — using UTC (toISOString) would change "today's
+  // question" a few hours early/late depending on timezone.
+  return toLocalISODate()
 }
 
 function getFallbackQuestion(): { questionTr: string; questionEn: string } {
@@ -98,8 +102,9 @@ export const dailyQuestionService = {
           createdAt: data.created_at,
         }
       }
-    } catch {
-      // Fall through to fallback
+    } catch (err) {
+      // Non-fatal — we fall through to the local fallback question.
+      if (import.meta.env.DEV) console.warn('[dailyQuestion] getTodaysQuestion failed, using fallback:', err)
     }
 
     if (!question) {
@@ -163,6 +168,7 @@ export const dailyQuestionService = {
         .single()
 
       if (error || !data) {
+        if (error) errorLoggingService.logError(new Error(`saveAnswer failed: ${error.message}`), 'warning', userId)
         return null
       }
 
@@ -175,7 +181,8 @@ export const dailyQuestionService = {
         isPublic: data.is_public,
         createdAt: data.created_at,
       }
-    } catch {
+    } catch (err) {
+      errorLoggingService.logError(err instanceof Error ? err : new Error(String(err)), 'warning', userId)
       return null
     }
   },
@@ -197,7 +204,8 @@ export const dailyQuestionService = {
 
       if (error) return false
       return (count ?? 0) > 0
-    } catch {
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn('[dailyQuestion] hasAnsweredToday failed:', err)
       return false
     }
   },

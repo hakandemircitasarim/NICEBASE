@@ -282,7 +282,7 @@ export default function MemoryForm({
             savedAt: Date.now(),
           }))
         } catch (error) {
-          // Ignore localStorage errors
+          if (import.meta.env.DEV) console.warn('[MemoryForm] draft save failed:', error)
         }
       }, 30000) // Save every 30 seconds
 
@@ -385,7 +385,9 @@ export default function MemoryForm({
           }
         }
       } catch (error) {
-        // Ignore draft loading errors
+        // Corrupt draft — log (DEV) and clear it so the next mount starts clean.
+        if (import.meta.env.DEV) console.warn('[MemoryForm] draft restore failed, clearing:', error)
+        try { localStorage.removeItem(`memory_draft_${userId}`) } catch { /* ignore */ }
       }
     }
   }, [memory, userId, initialDate, t, initialCategories])

@@ -962,9 +962,16 @@ export default function Aiya() {
 
       void maybeUpdateProfile([...history, aiyaMsg])
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (import.meta.env.DEV) console.error('[Aiya] sendMessage failed:', msg, err)
-      setErrorMessage(msg || t('aiyaError'))
+      const raw = err instanceof Error ? err.message : String(err)
+      if (import.meta.env.DEV) console.error('[Aiya] sendMessage failed:', raw, err)
+      // Map known failures to localized copy; never surface a raw/English message.
+      const lower = raw.toLowerCase()
+      let friendly: string
+      if (lower.includes('usage limit') || lower.includes('429')) friendly = t('aiyaLimitReached')
+      else if (lower.includes('rate limit')) friendly = t('aiyaRateLimited')
+      else if (lower.includes('network') || lower.includes('timeout') || lower.includes('failed to fetch') || lower.includes('fetch')) friendly = t('aiyaNetworkError')
+      else friendly = t('aiyaError')
+      setErrorMessage(friendly)
     } finally {
       setSending(false)
     }

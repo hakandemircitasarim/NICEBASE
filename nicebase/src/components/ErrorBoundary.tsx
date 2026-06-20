@@ -74,7 +74,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <p className="text-gray-600 dark:text-gray-400 mb-6">
               {this.safeTranslate('errorOccurredMessage', 'Üzgünüm, beklenmeyen bir hata oluştu. Lütfen sayfayı yenileyin.')}
             </p>
-            {this.state.error && (
+            {this.state.error && import.meta.env.DEV && (
               <pre className="mb-4 p-2 bg-gray-100 dark:bg-gray-900 rounded overflow-auto text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-all">
                 {this.state.error.message}
                 {'\n'}

@@ -20,10 +20,17 @@ vi.mock('../../i18n', () => ({
 
 import { dailyQuestionService, getDefaultQuestion } from '../dailyQuestionService'
 
+// Local calendar date (YYYY-MM-DD) — matches how the service computes "today".
+// Using toISOString() (UTC) would be off by a day near midnight in non-UTC zones.
+function todayLocal(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 describe('getDefaultQuestion', () => {
   it('returns a fallback question for today', () => {
     const q = getDefaultQuestion()
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayLocal()
     expect(q.date).toBe(today)
     expect(q.id).toBe(`fallback-${today}`)
     expect(q.questionTr).toBeTruthy()
@@ -92,7 +99,7 @@ describe('dailyQuestionService.getTodaysQuestion', () => {
 
   it('returns a question with today date', async () => {
     const question = await dailyQuestionService.getTodaysQuestion()
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayLocal()
     expect(question.date).toBe(today)
   })
 
@@ -106,7 +113,7 @@ describe('dailyQuestionService.getTodaysQuestion', () => {
     const cached = localStorage.getItem('daily_question_cache')
     expect(cached).toBeTruthy()
     const parsed = JSON.parse(cached!)
-    expect(parsed.date).toBe(new Date().toISOString().split('T')[0])
+    expect(parsed.date).toBe(todayLocal())
   })
 
   it('uses cache on second call', async () => {

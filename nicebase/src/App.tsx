@@ -164,8 +164,9 @@ function App() {
                 syncStartedForRef.current = user.id
               }
             }
-          } catch {
+          } catch (err) {
             // Timeout or error fetching user data — non-blocking
+            if (import.meta.env.DEV) console.warn('[App] auth SIGNED_IN user fetch failed:', err)
           }
         }
       } else if (event === 'SIGNED_OUT') {
@@ -183,8 +184,9 @@ function App() {
               syncStartedForRef.current = user.id
             }
           }
-        } catch {
+        } catch (err) {
           // Timeout or error — non-blocking
+          if (import.meta.env.DEV) console.warn('[App] auth state user fetch failed:', err)
         }
       } else if (event !== 'INITIAL_SESSION') {
         // Only clear user for explicit sign-out events, not during init
