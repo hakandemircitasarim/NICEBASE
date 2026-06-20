@@ -213,12 +213,14 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
 
       hapticFeedback('success')
 
-      // Show detailed feedback
-      if (statusAfter.pending > 0 || statusAfter.failed > 0) {
+      // Show detailed feedback. 'abandoned' items permanently failed, so fold
+      // them into the failed count the user sees.
+      const failedTotal = statusAfter.failed + statusAfter.abandoned
+      if (statusAfter.pending > 0 || failedTotal > 0) {
         toast.success(
           t('syncPartial', {
             pending: statusAfter.pending,
-            failed: statusAfter.failed
+            failed: failedTotal
           }),
           { id: 'sync', duration: 4000 }
         )

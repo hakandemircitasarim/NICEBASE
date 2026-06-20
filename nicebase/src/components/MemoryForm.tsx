@@ -14,6 +14,7 @@ import { compressImage } from '../utils/imageUtils'
 import ImageModal from './ImageModal'
 import { hapticFeedback } from '../utils/haptic'
 import { isNative, setBackButtonHandler } from '../utils/capacitor'
+import { toLocalISODate } from '../utils/dateFormat'
 import { errorLoggingService } from '../services/errorLoggingService'
 import LoadingSpinner from './LoadingSpinner'
 import ConfirmationDialog from './ConfirmationDialog'
@@ -217,8 +218,8 @@ export default function MemoryForm({
   const sliderRef = useRef<HTMLDivElement>(null)
 
   const initialDate = memory?.date
-    ? new Date(memory.date).toISOString().split('T')[0]
-    : new Date().toISOString().split('T')[0]
+    ? String(memory.date).split('T')[0]
+    : toLocalISODate()
 
   // Support both old (category) and new (categories) format — memoize to avoid
   // new array reference on every render which would retrigger useEffect loops
@@ -407,7 +408,7 @@ export default function MemoryForm({
       return (
         formData.text !== memory.text ||
         formData.intensity !== memory.intensity ||
-        formData.date !== (memory.date ? new Date(memory.date).toISOString().split('T')[0] : initialDate) ||
+        formData.date !== (memory.date ? String(memory.date).split('T')[0] : initialDate) ||
         formData.connections !== memory.connections.join(', ') ||
         formData.isCore !== memory.isCore ||
         formData.photos.length !== memory.photos.length ||
@@ -668,7 +669,7 @@ export default function MemoryForm({
     formData.connections.trim().length > 0,
     formData.isCore,
     formData.photos.length > 0,
-    formData.date !== new Date().toISOString().split('T')[0],
+    formData.date !== toLocalISODate(),
     formData.category !== 'uncategorized',
     formData.lifeArea !== 'uncategorized',
   ].filter(Boolean).length
@@ -1142,7 +1143,7 @@ export default function MemoryForm({
                             setFormData({ ...formData, date: e.target.value })
                             if (errors.date) setErrors({ ...errors, date: '' })
                           }}
-                          max={new Date().toISOString().split('T')[0]}
+                          max={toLocalISODate()}
                           className={`w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary/20 transition-all outline-none touch-manipulation border ${
                             errors.date
                               ? 'border-red-500'

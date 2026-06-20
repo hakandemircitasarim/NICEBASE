@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable'
 import { Memory } from '../types'
 import i18n from '../i18n'
 import { isNative } from '../utils/capacitor'
+import { formatMemoryDate } from '../utils/dateFormat'
 
 /**
  * Convert blob to base64 data URL
@@ -88,7 +89,7 @@ export const exportService = {
     
     // Table
     const tableData = memories.map(m => [
-      new Date(m.date).toLocaleDateString(dateLocale),
+      formatMemoryDate(m.date, dateLocale),
       m.text.substring(0, 50) + (m.text.length > 50 ? '...' : ''),
       m.category,
       m.intensity.toString(),
@@ -126,7 +127,7 @@ export const exportService = {
     }
 
     const rows = memories.map(m => [
-      escapeCSV(new Date(m.date).toLocaleDateString(dateLocale)),
+      escapeCSV(formatMemoryDate(m.date, dateLocale)),
       escapeCSV(m.text),
       escapeCSV(m.category),
       escapeCSV(m.intensity.toString()),

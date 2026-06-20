@@ -30,6 +30,12 @@ export const gamificationService = {
   async getBadges(userId: string, memories: Memory[]): Promise<Badge[]> {
     const streak = await streakService.calculateStreak(userId)
     const totalMemories = memories.length
+    // Dexie returns rows in primary-key (UUID) order, NOT creation order, so
+    // sort a copy by createdAt to pick the genuine 1st/10th/50th memory for the
+    // milestone unlock timestamps below.
+    const byCreated = [...memories].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    )
     const coreMemories = memories.filter(m => m.isCore).length
     const categories = new Set(memories.map(m => m.category)).size
     const lifeAreas = new Set(memories.map(m => m.lifeArea)).size
@@ -44,7 +50,7 @@ export const gamificationService = {
         descriptionEn: 'Save your first memory',
         icon: '🎯',
         unlocked: totalMemories >= 1,
-        unlockedAt: totalMemories >= 1 ? memories[0]?.createdAt || null : null,
+        unlockedAt: totalMemories >= 1 ? byCreated[0]?.createdAt || null : null,
       },
       {
         id: 'memory-collector',
@@ -54,7 +60,7 @@ export const gamificationService = {
         descriptionEn: 'Save 10 memories',
         icon: '📚',
         unlocked: totalMemories >= 10,
-        unlockedAt: totalMemories >= 10 ? memories[9]?.createdAt || null : null,
+        unlockedAt: totalMemories >= 10 ? byCreated[9]?.createdAt || null : null,
       },
       {
         id: 'memory-master',
@@ -64,7 +70,7 @@ export const gamificationService = {
         descriptionEn: 'Save 50 memories',
         icon: '👑',
         unlocked: totalMemories >= 50,
-        unlockedAt: totalMemories >= 50 ? memories[49]?.createdAt || null : null,
+        unlockedAt: totalMemories >= 50 ? byCreated[49]?.createdAt || null : null,
       },
       {
         id: 'core-creator',

@@ -2,7 +2,9 @@ import Dexie, { Table } from 'dexie'
 import { Memory, Connection } from '../types'
 
 export type SyncQueueOp = 'create' | 'update' | 'delete' | 'photoUpload'
-export type SyncQueueStatus = 'pending' | 'in_progress' | 'failed' | 'done'
+// 'abandoned' = permanently given up (max attempts / corrupt payload). Distinct
+// from 'done' so getSyncStatus does not report never-synced items as backed up.
+export type SyncQueueStatus = 'pending' | 'in_progress' | 'failed' | 'done' | 'abandoned'
 
 /**
  * Sync queue item data types

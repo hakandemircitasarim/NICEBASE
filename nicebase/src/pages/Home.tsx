@@ -15,6 +15,7 @@ import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import { useNotifications } from '../hooks/useNotifications'
 import ConflictResolutionDialog from '../components/ConflictResolutionDialog'
+import { toLocalISODate, parseLocalDate, formatMemoryDate } from '../utils/dateFormat'
 
 export default function Home() {
   const { t, i18n } = useTranslation()
@@ -199,7 +200,7 @@ export default function Home() {
     const coreMemories = availableMemories.filter(m => m.isCore)
     const highIntensityMemories = availableMemories.filter(m => m.intensity >= 8)
     const recentMemories = availableMemories.filter(m => {
-      const memoryDate = new Date(m.date)
+      const memoryDate = parseLocalDate(m.date)
       const daysSince = (Date.now() - memoryDate.getTime()) / (1000 * 60 * 60 * 24)
       return daysSince <= 30 // Last 30 days
     })
@@ -299,9 +300,9 @@ export default function Home() {
     const todayDay = today.getDate()
 
     return memories.filter(memory => {
-      const memoryDate = new Date(memory.date)
+      const memoryDate = parseLocalDate(memory.date)
       return memoryDate.getMonth() === todayMonth && memoryDate.getDate() === todayDay && memoryDate.getFullYear() !== today.getFullYear()
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    }).sort((a, b) => parseLocalDate(b.date).getTime() - parseLocalDate(a.date).getTime())
   }, [memories])
 
   const getTimeAgoText = useCallback((date: Date): string => {
@@ -582,7 +583,7 @@ export default function Home() {
 
               <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
                 <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">
-                  {new Date(randomMemory.date).toLocaleDateString(locale, {
+                  {formatMemoryDate(randomMemory.date, locale, {
                     year: 'numeric',
                     month: 'long',
                     day: 'numeric'
@@ -825,7 +826,7 @@ export default function Home() {
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="font-bold text-lg sm:text-xl text-gray-900 dark:text-gray-100 mb-1">
-                {getTimeAgoText(new Date(memoriesOnThisDay[0].date))} {t('onThisDay', { defaultValue: 'bugün' })}
+                {getTimeAgoText(parseLocalDate(memoriesOnThisDay[0].date))} {t('onThisDay', { defaultValue: 'bugün' })}
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-300">
                 {t('memoriesOnThisDay', { count: memoriesOnThisDay.length, defaultValue: `${memoriesOnThisDay.length} anı` })}
@@ -842,7 +843,7 @@ export default function Home() {
                   {memory.text}
                 </p>
                 <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                  <span>{new Date(memory.date).getFullYear()}</span>
+                  <span>{parseLocalDate(memory.date).getFullYear()}</span>
                   {memory.isCore && <span className="text-yellow-500">⭐</span>}
                   <span className="ml-auto">{memory.intensity}/10</span>
                 </div>
@@ -855,11 +856,11 @@ export default function Home() {
             onClick={() => {
               hapticFeedback('light')
               navigate('/vault', { 
-                state: { 
-                  filterDate: new Date().toISOString().split('T')[0],
+                state: {
+                  filterDate: toLocalISODate(),
                   filterMonth: new Date().getMonth(),
                   filterDay: new Date().getDate()
-                } 
+                }
               })
             }}
             className="w-full px-4 py-3 rounded-xl bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white font-semibold transition-colors touch-manipulation flex items-center justify-center gap-2"

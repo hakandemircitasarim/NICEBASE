@@ -34,9 +34,9 @@ export interface SupabaseUserRow {
 }
 
 /**
- * Supabase memories table row format (snake_case)
- * This is already defined in memoryMapper.ts as SupabaseMemoryRow,
- * but we export it here for consistency
+ * Supabase memories table row format (snake_case).
+ * The actual mapping helpers live in services/memoryService.ts
+ * (mapMemoryToSupabase / mapSupabaseToMemory).
  */
 export interface SupabaseMemoryRow {
   id: string
@@ -44,6 +44,7 @@ export interface SupabaseMemoryRow {
   userId?: string // Support camelCase for backward compatibility
   text: string
   category?: string
+  categories?: string[]
   intensity?: number
   date?: string
   connections?: string[]

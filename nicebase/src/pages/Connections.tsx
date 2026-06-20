@@ -16,6 +16,7 @@ import {
   dedupeConnections,
   normalizeConnectionKey,
 } from '../utils/connections'
+import { parseLocalDate, formatMemoryDate } from '../utils/dateFormat'
 
 type ConnectionStat = {
   key: string
@@ -25,7 +26,7 @@ type ConnectionStat = {
 }
 
 export default function Connections() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const userId = useUserId()
   const { memories, loading, refreshMemories } = useMemories(userId)
@@ -51,7 +52,7 @@ export default function Connections() {
         const k = normalizeConnectionKey(raw)
         const entry = map.get(k) ?? { key: k, name: cleanConnectionName(raw), count: 0, lastUsed: null }
         entry.count += 1
-        if (!entry.lastUsed || new Date(memory.date) > new Date(entry.lastUsed)) {
+        if (!entry.lastUsed || parseLocalDate(memory.date) > parseLocalDate(entry.lastUsed)) {
           entry.lastUsed = memory.date
         }
         map.set(k, entry)
@@ -207,7 +208,7 @@ export default function Connections() {
                   <p className="font-bold text-gray-900 dark:text-gray-100 truncate">{c.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {t('connectionMemoryCount', { count: c.count })}
-                    {c.lastUsed ? ` • ${t('lastUsed')}: ${new Date(c.lastUsed).toLocaleDateString()}` : ''}
+                    {c.lastUsed ? ` • ${t('lastUsed')}: ${formatMemoryDate(c.lastUsed, i18n.language)}` : ''}
                   </p>
                 </div>
                 <div className="row-right">

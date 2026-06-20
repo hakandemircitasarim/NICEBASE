@@ -1,6 +1,7 @@
 import { Memory } from '../types'
 import { memoryService } from './memoryService'
 import i18n from '../i18n'
+import { parseLocalDate } from '../utils/dateFormat'
 
 export interface StreakData {
   currentStreak: number
@@ -39,10 +40,10 @@ export const streakService = {
     let streakLength = 1
 
     for (let i = 1; i < uniqueDates.length; i++) {
-      const prev = new Date(uniqueDates[i - 1])
-      const curr = new Date(uniqueDates[i])
-      prev.setHours(0, 0, 0, 0)
-      curr.setHours(0, 0, 0, 0)
+      // Parse calendar dates at LOCAL midnight so day-deltas don't shift in
+      // negative-UTC timezones.
+      const prev = parseLocalDate(uniqueDates[i - 1])
+      const curr = parseLocalDate(uniqueDates[i])
       const diffDays = Math.round((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24))
 
       if (diffDays === 1) {
@@ -66,8 +67,8 @@ export const streakService = {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const lastStreak = streaks[streaks.length - 1]
-    const lastStreakEnd = new Date(lastStreak.end)
-    lastStreakEnd.setHours(0, 0, 0, 0)
+    // Parse the stored calendar date at LOCAL midnight to match `today`.
+    const lastStreakEnd = parseLocalDate(lastStreak.end)
     const daysSinceEnd = Math.round((today.getTime() - lastStreakEnd.getTime()) / (1000 * 60 * 60 * 24))
 
     const isActive = daysSinceEnd <= 1 // today or yesterday

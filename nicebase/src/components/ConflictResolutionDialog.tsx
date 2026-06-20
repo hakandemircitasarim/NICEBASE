@@ -34,16 +34,29 @@ export default function ConflictResolutionDialog({
 
     try {
       if (keepLocal) {
-        // Keep local version - mark as synced and clear conflict
+        // Keep local version. Re-push the FULL local content with the cloud's
+        // current updated_at as the new base, so the optimistic-concurrency
+        // guard on the next sync MATCHES the cloud and overwrites it with the
+        // local content (instead of re-detecting the same conflict in a loop).
         await memoryService.update(memory.id, {
+          text: memory.text,
+          category: memory.category,
+          categories: memory.categories,
+          intensity: memory.intensity,
+          date: memory.date,
+          connections: memory.connections,
+          lifeArea: memory.lifeArea,
+          isCore: memory.isCore,
+          photos: memory.photos,
+          baseUpdatedAt: cloudMemory.updatedAt,
           conflict: false,
           conflictCloud: undefined,
           conflictDetectedAt: undefined,
-          synced: false, // Will be synced on next sync
         })
         toast.success(t('conflictResolvedLocal', { defaultValue: 'Yerel versiyon korundu' }))
       } else {
-        // Keep cloud version - replace local with cloud
+        // Keep cloud version - replace local content with cloud's, and adopt
+        // the cloud updated_at as the new base.
         const updates: Partial<Memory> = {
           text: cloudMemory.text,
           category: cloudMemory.category,
@@ -54,11 +67,10 @@ export default function ConflictResolutionDialog({
           lifeArea: cloudMemory.lifeArea,
           isCore: cloudMemory.isCore,
           photos: cloudMemory.photos,
-          updatedAt: cloudMemory.updatedAt,
+          baseUpdatedAt: cloudMemory.updatedAt,
           conflict: false,
           conflictCloud: undefined,
           conflictDetectedAt: undefined,
-          synced: true,
         }
         await memoryService.update(memory.id, updates)
         toast.success(t('conflictResolvedCloud', { defaultValue: 'Bulut versiyonu kullanıldı' }))

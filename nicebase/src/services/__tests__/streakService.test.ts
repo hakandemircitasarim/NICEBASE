@@ -32,11 +32,17 @@ function makeMemory(date: string): Memory {
   }
 }
 
-/** Helper: produce an ISO date string N days ago from today */
+/** Helper: produce a LOCAL calendar date string (YYYY-MM-DD) N days ago.
+ *  Uses local date parts — not toISOString() (UTC) — so the test matches how
+ *  the app stores memory dates and stays deterministic regardless of the
+ *  time-of-day / timezone it runs in. */
 function daysAgo(n: number): string {
   const d = new Date()
   d.setDate(d.getDate() - n)
-  return d.toISOString().split('T')[0]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 describe('streakService.calculateStreak', () => {

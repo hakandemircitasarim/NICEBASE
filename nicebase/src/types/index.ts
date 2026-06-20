@@ -19,6 +19,9 @@ export interface Memory {
   conflict?: boolean
   conflictCloud?: Memory
   conflictDetectedAt?: string
+  // Dexie-only (never pushed): the cloud `updated_at` this local copy is based
+  // on. Used for optimistic-concurrency conflict detection at push time.
+  baseUpdatedAt?: string
 }
 
 export interface Connection {
