@@ -9,7 +9,8 @@ import './index.css'
 
 // Synchronously mark platform on <html> BEFORE first render so CSS can
 // skip body safe-area padding on Android (native content-view padding handles it).
-if (typeof window !== 'undefined' && (window as any).Capacitor?.getPlatform?.() === 'android') {
+type WindowWithCapacitor = Window & { Capacitor?: { getPlatform?: () => string } }
+if (typeof window !== 'undefined' && (window as WindowWithCapacitor).Capacitor?.getPlatform?.() === 'android') {
   document.documentElement.classList.add('native-android')
 }
 

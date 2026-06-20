@@ -1146,7 +1146,7 @@ export default function Aiya() {
                         hapticFeedback('warning')
                         setDeleteConfirm({ isOpen: true, chatId: chat.id })
                       }}
-                      className="w-10 h-10 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 md:opacity-100 transition-all flex-shrink-0 touch-manipulation touch-target"
+                      className="w-10 h-10 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all flex-shrink-0 touch-manipulation touch-target"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -1187,7 +1187,7 @@ export default function Aiya() {
         <div className="flex items-center gap-1">
           <button
             onClick={() => { hapticFeedback('light'); createNewChat() }}
-            className="w-10 h-10 rounded-xl flex items-center justify-center text-primary hover:bg-primary/10 transition-colors touch-manipulation touch-target"
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-primary hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors touch-manipulation touch-target"
             aria-label={t('aiyaNewChat', { defaultValue: 'Yeni Sohbet' })}
           >
             <Plus size={22} strokeWidth={2.5} />
@@ -1420,7 +1420,7 @@ export default function Aiya() {
   // ═════════════════════════════════════════════════════════
 
   return (
-    <div className="relative bg-white dark:bg-gray-900 overflow-hidden" style={{ height: '100vh' }}>
+    <div className="relative bg-white dark:bg-gray-900 overflow-hidden" style={{ height: '100dvh' }}>
       <AnimatePresence mode="wait" initial={false}>
         {view === 'list' ? (
           <motion.div

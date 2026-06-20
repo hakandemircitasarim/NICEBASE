@@ -54,7 +54,7 @@ export default function OfflineIndicator() {
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: -100, opacity: 0 }}
           transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-          className="fixed top-0 left-0 right-0 z-50 safe-area-top"
+          className="fixed top-0 left-0 right-0 z-[110] safe-area-top"
         >
           <div className={`mx-4 mt-2 px-4 py-3 rounded-xl flex items-center gap-3 shadow-lg ${
             isOnline 

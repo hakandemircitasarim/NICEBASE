@@ -27,7 +27,11 @@ const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const AddMemory = lazy(() => import('./pages/AddMemory'))
 
 function App() {
-  const { init, setUser, theme } = useStore()
+  // Per-slice selectors so App doesn't re-render the whole routed tree on every
+  // openModalCount/isOnline change.
+  const init = useStore((s) => s.init)
+  const setUser = useStore((s) => s.setUser)
+  const theme = useStore((s) => s.theme)
   const syncStartedForRef = useRef<string | null>(null)
   const subscriptionRef = useRef<{ unsubscribe: () => void } | null>(null)
   const themeRef = useRef(theme)

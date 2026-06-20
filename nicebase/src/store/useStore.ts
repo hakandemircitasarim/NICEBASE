@@ -17,12 +17,7 @@ interface AppState {
   decrementModalCount: () => void
   checkOnlineStatus: () => void
   init: () => Promise<void>
-  cleanup: () => void
 }
-
-// Track if listeners are registered per store instance
-let onlineListenersRegistered = false
-let onlineHandler: (() => void) | null = null
 
 // Safe localStorage access
 const getStoredTheme = (): 'light' | 'dark' => {
@@ -162,25 +157,8 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
-    // Listen to online/offline (only register once)
-    if (typeof window !== 'undefined') {
-      if (!onlineListenersRegistered) {
-        onlineHandler = () => get().checkOnlineStatus()
-        window.addEventListener('online', onlineHandler)
-        window.addEventListener('offline', onlineHandler)
-        onlineListenersRegistered = true
-      }
-    }
-  },
-
-  // Cleanup method for proper teardown
-  cleanup: () => {
-    if (typeof window !== 'undefined' && onlineListenersRegistered && onlineHandler) {
-      window.removeEventListener('online', onlineHandler)
-      window.removeEventListener('offline', onlineHandler)
-      onlineListenersRegistered = false
-      onlineHandler = null
-    }
+    // Online/offline listeners are owned solely by OfflineIndicator (always
+    // mounted in Layout), which calls checkOnlineStatus — no duplicate set here.
   },
 }))
 

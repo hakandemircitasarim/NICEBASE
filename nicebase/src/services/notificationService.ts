@@ -291,7 +291,9 @@ export const notificationService = {
           const parsed = JSON.parse(streakData)
           nextStreak = parsed.currentStreak || 0
         }
-      } catch {}
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('[notifications] Failed to read streak for reminder:', err)
+      }
 
       const nextBody = nextStreak > 0
         ? i18n.t('dailyReminderBodyWithStreak', { count: nextStreak })

@@ -277,7 +277,7 @@ function MemoryCard({
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
               onClick={() => handleContextAction(onEdit)}
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-primary hover:bg-primary/10 transition-colors touch-manipulation"
+              className="w-11 h-11 flex items-center justify-center rounded-lg text-primary hover:bg-primary/10 transition-colors touch-manipulation"
               aria-label={t('edit')}
               title={t('edit')}
             >
@@ -287,7 +287,7 @@ function MemoryCard({
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
               onClick={() => handleContextAction(onDelete)}
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation"
+              className="w-11 h-11 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation"
               aria-label={t('delete')}
               title={t('delete')}
             >
