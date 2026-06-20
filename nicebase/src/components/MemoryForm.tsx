@@ -862,6 +862,7 @@ export default function MemoryForm({
                   : 'focus:bg-gray-100/80 dark:focus:bg-gray-700/60 focus:ring-2 focus:ring-primary/15'
               }`}
               placeholder={questionText || t('memoryTextPlaceholder')}
+              aria-label={t('memoryTextPlaceholder')}
             />
             <AnimatePresence>
             {errors.text && (
@@ -907,7 +908,41 @@ export default function MemoryForm({
 
             <div
               ref={sliderRef}
-              className="relative h-7 cursor-pointer touch-manipulation select-none"
+              role="slider"
+              tabIndex={0}
+              aria-label={t('intensity')}
+              aria-orientation="horizontal"
+              aria-valuemin={1}
+              aria-valuemax={10}
+              aria-valuenow={formData.intensity}
+              aria-valuetext={`${formData.intensity}`}
+              onKeyDown={(e) => {
+                let next = formData.intensity
+                switch (e.key) {
+                  case 'ArrowLeft':
+                  case 'ArrowDown':
+                    next = Math.max(1, formData.intensity - 1)
+                    break
+                  case 'ArrowRight':
+                  case 'ArrowUp':
+                    next = Math.min(10, formData.intensity + 1)
+                    break
+                  case 'Home':
+                    next = 1
+                    break
+                  case 'End':
+                    next = 10
+                    break
+                  default:
+                    return
+                }
+                e.preventDefault()
+                if (next !== formData.intensity) {
+                  setFormData({ ...formData, intensity: next })
+                  hapticFeedback('light')
+                }
+              }}
+              className="relative h-7 cursor-pointer touch-manipulation select-none rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
               onMouseDown={onSliderPointerDown}
               onTouchStart={onSliderPointerDown}
             >

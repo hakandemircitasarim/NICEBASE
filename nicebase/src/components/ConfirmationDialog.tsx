@@ -3,6 +3,8 @@ import { AlertTriangle, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { hapticFeedback } from '../utils/haptic'
 import { useModalPresence } from '../hooks/useModalPresence'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 
 interface ConfirmationDialogProps {
   isOpen: boolean
@@ -27,6 +29,7 @@ export default function ConfirmationDialog({
 }: ConfirmationDialogProps) {
   const { t } = useTranslation()
   useModalPresence(isOpen)
+  useBodyScrollLock(isOpen)
 
   const handleConfirm = () => {
     hapticFeedback('success')
@@ -38,6 +41,8 @@ export default function ConfirmationDialog({
     hapticFeedback('light')
     onClose()
   }
+
+  useEscapeKey(handleCancel, isOpen)
 
   const colors = {
     danger: 'bg-danger hover:bg-danger-dark',
@@ -60,6 +65,9 @@ export default function ConfirmationDialog({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
             onClick={(e) => e.stopPropagation()}
+            role="alertdialog"
+            aria-modal="true"
+            aria-label={title}
             className="bg-white dark:bg-gray-800 rounded-3xl max-w-md w-full shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
           >
             <div className="p-6">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -16,6 +16,8 @@ import { supabase } from '../lib/supabase'
 import { mapUserFromSupabase } from '../lib/userMapper'
 import { hapticFeedback } from '../utils/haptic'
 import { useModalPresence } from '../hooks/useModalPresence'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 
 interface EditProfileSheetProps {
   onClose: () => void
@@ -35,13 +37,9 @@ export default function EditProfileSheet({ onClose }: EditProfileSheetProps) {
   const [saving, setSaving] = useState(false)
 
   useModalPresence(true)
-
-  useEffect(() => {
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [])
+  // iOS-safe scroll lock with proper restore (replaces manual body.overflow).
+  useBodyScrollLock(true)
+  useEscapeKey(() => { if (!saving) onClose() }, true)
 
   const handleAvatarPick = () => {
     fileInputRef.current?.click()

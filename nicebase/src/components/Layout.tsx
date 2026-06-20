@@ -78,6 +78,7 @@ export default function Layout() {
                     : 'text-gray-500 dark:text-gray-400'
                 }`}
                 aria-label={item.label}
+                aria-current={isActive ? 'page' : undefined}
               >
                 {isActive && (
                   <motion.div

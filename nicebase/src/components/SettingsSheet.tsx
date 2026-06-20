@@ -31,6 +31,8 @@ import ConfirmationDialog from './ConfirmationDialog'
 import Select from './Select'
 import TimePicker from './TimePicker'
 import { useModalPresence } from '../hooks/useModalPresence'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 
 interface SettingsSheetProps {
   onClose: () => void
@@ -69,13 +71,9 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     }
   }, [user])
 
-  // Prevent body scroll when sheet is open
-  useEffect(() => {
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [])
+  // iOS-safe scroll lock with proper restore (replaces manual body.overflow).
+  useBodyScrollLock(true)
+  useEscapeKey(onClose, true)
 
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section)

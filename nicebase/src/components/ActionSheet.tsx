@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Zap, FileText, X } from 'lucide-react'
 import { hapticFeedback } from '../utils/haptic'
 import { useModalPresence } from '../hooks/useModalPresence'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 
 interface ActionSheetProps {
   isOpen: boolean
@@ -14,6 +16,8 @@ interface ActionSheetProps {
 export default function ActionSheet({ isOpen, onClose, onQuickAdd, onFullAdd }: ActionSheetProps) {
   const { t } = useTranslation()
   useModalPresence(isOpen)
+  useBodyScrollLock(isOpen)
+  useEscapeKey(onClose, isOpen)
 
   const handleQuickAdd = () => {
     hapticFeedback('light')
@@ -43,12 +47,15 @@ export default function ActionSheet({ isOpen, onClose, onQuickAdd, onFullAdd }: 
             initial={{ y: '100%', opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: '100%', opacity: 0 }}
-            transition={{ 
-              type: 'spring', 
-              damping: 35, 
+            transition={{
+              type: 'spring',
+              damping: 35,
               stiffness: 400,
               mass: 0.8
             }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('addMemory')}
             className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 rounded-t-3xl shadow-2xl z-[100] safe-area-bottom border-t border-gray-200 dark:border-gray-700 max-h-[85vh] overflow-y-auto"
           >
             {/* Handle */}

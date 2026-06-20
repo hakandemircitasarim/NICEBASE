@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useNavigate } from 'react-router-dom'
 import { Memory } from '../types'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import {
   Send, Sparkles, ChevronLeft, Plus, Trash2, ChevronDown,
   MessageCircle, MoreVertical, X, LifeBuoy,
@@ -146,16 +146,19 @@ function AiyaAvatar({ size = 28 }: { size?: number }) {
 // ─── Typing Indicator ────────────────────────────────────
 
 function TypingDots() {
+  const { t } = useTranslation()
+  const prefersReducedMotion = useReducedMotion()
   return (
-    <div className="flex items-end gap-2.5 mb-4">
+    <div className="flex items-end gap-2.5 mb-4" role="status">
+      <span className="sr-only">{t('aiyaTyping')}</span>
       <AiyaAvatar size={32} />
       <div className="bg-gray-100 dark:bg-gray-700 rounded-3xl rounded-bl-md px-5 py-3.5 flex items-center gap-1.5 shadow-sm">
         {[0, 1, 2].map((i) => (
           <motion.span
             key={i}
             className="w-2.5 h-2.5 rounded-full bg-gray-400 dark:bg-gray-500"
-            animate={{ y: [0, -8, 0] }}
-            transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
+            animate={prefersReducedMotion ? undefined : { y: [0, -8, 0] }}
+            transition={prefersReducedMotion ? undefined : { duration: 0.6, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
           />
         ))}
       </div>
@@ -349,6 +352,7 @@ export default function Aiya() {
   const { user, setUser } = useStore()
   const userId = useUserId()
   const { memories } = useMemories(userId, { autoLoad: Boolean(user) })
+  const prefersReducedMotion = useReducedMotion()
 
   const locale = i18n.language || 'tr'
 
@@ -1054,8 +1058,8 @@ export default function Aiya() {
         {/* Hero / Start Chat section */}
         <div className={`flex flex-col items-center container-padding text-center ${chats.length === 0 ? 'justify-center h-full min-h-[400px]' : 'pt-8 sm:pt-10 pb-6'}`}>
           <motion.div
-            animate={{ scale: [1, 1.05, 1] }}
-            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+            animate={prefersReducedMotion ? undefined : { scale: [1, 1.05, 1] }}
+            transition={prefersReducedMotion ? undefined : { duration: 3, repeat: Infinity, ease: 'easeInOut' }}
             className="mb-4 sm:mb-6"
           >
             <AiyaAvatar size={chats.length === 0 ? 80 : 64} />
@@ -1180,6 +1184,9 @@ export default function Aiya() {
           <div className="relative">
             <button
               onClick={() => { hapticFeedback('light'); setShowMenu(!showMenu) }}
+              aria-label={t('aiyaChatOptions')}
+              aria-haspopup="menu"
+              aria-expanded={showMenu}
               className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors touch-manipulation touch-target"
             >
               <MoreVertical size={20} />
@@ -1231,8 +1238,13 @@ export default function Aiya() {
       {/* Messages area - Scrollable, flex-1 */}
       <div
         ref={chatContainerRef}
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-atomic="false"
+        aria-label={t('aiyaTitle')}
         className="flex-1 overflow-y-auto overscroll-contain container-padding py-6 space-y-4 min-h-0"
-        style={{ 
+        style={{
           WebkitOverflowScrolling: 'touch',
           touchAction: 'pan-y',
         } as React.CSSProperties}
@@ -1243,8 +1255,8 @@ export default function Aiya() {
           {messages.length === 0 && !sending && (
             <div className="flex flex-col items-center justify-center h-full text-center px-4 min-h-[400px]">
               <motion.div
-                animate={{ scale: [1, 1.06, 1] }}
-                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                animate={prefersReducedMotion ? undefined : { scale: [1, 1.06, 1] }}
+                transition={prefersReducedMotion ? undefined : { duration: 3, repeat: Infinity, ease: 'easeInOut' }}
                 className="mb-6"
               >
                 <AiyaAvatar size={72} />
@@ -1305,6 +1317,7 @@ export default function Aiya() {
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
+              role="alert"
               className="mx-4 my-2"
             >
               <div className="text-xs sm:text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 rounded-2xl">
@@ -1364,6 +1377,7 @@ export default function Aiya() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={t('aiyaPlaceholder', { defaultValue: 'Mesaj yaz...' })}
+              aria-label={t('aiyaPlaceholder')}
               className="w-full px-4 sm:px-5 py-3 sm:py-3.5 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[15px] sm:text-base leading-relaxed focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none touch-manipulation resize-none overflow-hidden transition-all duration-200 shadow-sm"
               style={{ minHeight: '48px', maxHeight: '120px' }}
               onKeyDown={(e) => {

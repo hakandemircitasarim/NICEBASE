@@ -78,6 +78,35 @@ export default function RangeSlider({
     hapticFeedback('success')
   }
 
+  // Keyboard support (WCAG 2.1.1): arrows adjust by step, Home/End jump to min/max.
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    let next = localValue
+    switch (e.key) {
+      case 'ArrowLeft':
+      case 'ArrowDown':
+        next = Math.max(min, localValue - step)
+        break
+      case 'ArrowRight':
+      case 'ArrowUp':
+        next = Math.min(max, localValue + step)
+        break
+      case 'Home':
+        next = min
+        break
+      case 'End':
+        next = max
+        break
+      default:
+        return
+    }
+    e.preventDefault()
+    if (next !== localValue) {
+      setLocalValue(next)
+      onChange(next)
+      hapticFeedback('light')
+    }
+  }
+
   useEffect(() => {
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove)
@@ -151,7 +180,16 @@ export default function RangeSlider({
         {/* Slider Track */}
         <div
           ref={sliderRef}
-          className="relative h-3 bg-gray-200 dark:bg-gray-700 rounded-full cursor-pointer touch-manipulation"
+          role="slider"
+          tabIndex={0}
+          aria-label={label || 'value'}
+          aria-orientation="horizontal"
+          aria-valuemin={min}
+          aria-valuemax={max}
+          aria-valuenow={localValue}
+          aria-valuetext={`${localValue}`}
+          onKeyDown={handleKeyDown}
+          className="relative h-3 bg-gray-200 dark:bg-gray-700 rounded-full cursor-pointer touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
           onMouseDown={handleMouseDown}
           onTouchStart={handleTouchStart}
         >

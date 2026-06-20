@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { useState, memo, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -73,6 +73,10 @@ function MemoryCard({
 }: MemoryCardProps) {
   const { t, i18n } = useTranslation()
   const locale = (i18n?.language || 'tr').startsWith('tr') ? 'tr-TR' : 'en-US'
+  const prefersReducedMotion = useReducedMotion()
+  // Only stagger the first page of cards; skip the entry animation entirely
+  // under reduced-motion or for long lists (cuts simultaneous animations).
+  const animateEntry = !prefersReducedMotion && index < 10
   const [showContextMenu, setShowContextMenu] = useState(false)
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
   const [isLongPressing, setIsLongPressing] = useState(false)
@@ -122,14 +126,14 @@ function MemoryCard({
   return (
     <div className="container-responsive">
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={animateEntry ? { opacity: 0, y: 20 } : false}
         animate={{
           opacity: 1,
           y: 0,
           scale: isLongPressing ? 0.98 : 1,
         }}
         exit={{ opacity: 0, scale: 0.9 }}
-        transition={{ delay: Math.min(index * 0.04, 0.4) }}
+        transition={{ delay: animateEntry ? Math.min(index * 0.04, 0.4) : 0 }}
         className={`bg-white dark:bg-gray-800 border-2 rounded-2xl p-5 sm:p-6 hover:shadow-xl transition-all duration-300 touch-manipulation memory-card-responsive relative ${
           bulkMode
             ? isSelected

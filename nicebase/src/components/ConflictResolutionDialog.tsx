@@ -5,6 +5,8 @@ import { AlertTriangle, Check, X, Cloud, HardDrive } from 'lucide-react'
 import { Memory } from '../types'
 import { memoryService } from '../services/memoryService'
 import { hapticFeedback } from '../utils/haptic'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import toast from 'react-hot-toast'
 
 interface ConflictResolutionDialogProps {
@@ -21,6 +23,10 @@ export default function ConflictResolutionDialog({
   const { t } = useTranslation()
   const [resolving, setResolving] = useState(false)
   const cloudMemory = memory.conflictCloud
+
+  useBodyScrollLock(true)
+  // Escape closes only while not mid-resolution.
+  useEscapeKey(() => { if (!resolving) onClose() }, true)
 
   if (!cloudMemory) {
     return null
@@ -105,6 +111,9 @@ export default function ConflictResolutionDialog({
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('conflictDetected', { defaultValue: 'Çakışma Tespit Edildi' })}
           className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
         >
           {/* Header */}
