@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState, useRef, useCallback, memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useNavigate } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { Memory } from '../types'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import {
   Send, Sparkles, ChevronLeft, Plus, Trash2, ChevronDown,
-  MessageCircle, MoreVertical, X, LifeBuoy,
+  MessageCircle, MoreVertical, X, LifeBuoy, Pencil,
 } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { useUserId } from '../hooks/useUserId'
@@ -398,6 +399,13 @@ export default function Aiya() {
   // support resources alongside Aiya's reply.
   const [crisisActive, setCrisisActive] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; chatId: string | null }>({ isOpen: false, chatId: null })
+  // #43: distinguish a failed cloud chat-load from "no chats" so we can offer a retry.
+  const [chatsLoadError, setChatsLoadError] = useState(false)
+  // #64: inline chat rename.
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
+  // #66: "what Aiya remembers about you" transparency panel.
+  const [showProfile, setShowProfile] = useState(false)
   const [viewportHeight, setViewportHeight] = useState(() =>
     typeof window !== 'undefined' ? (window.visualViewport?.height ?? window.innerHeight) : 800
   )
@@ -637,10 +645,13 @@ export default function Aiya() {
         if (userId && currentUser) {
           try {
             cloudChats = await aiyaService.loadChats(userId)
+            setChatsLoadError(false)
           } catch (err) {
             if (import.meta.env.DEV) {
               console.warn('[Aiya] Failed to load chats from cloud:', err)
             }
+            // Real load failure (not "no chats") — surface a retry in the list view.
+            setChatsLoadError(true)
           }
         }
 
@@ -868,15 +879,57 @@ export default function Aiya() {
     hapticFeedback('light')
   }, [activeChatId, input, saveDraft])
 
-  // Escape closes the options menu.
-  useEscapeKey(() => setShowMenu(false), showMenu)
-  // Android back: close the menu first, then return chat -> list. In list view,
-  // return false so the page-level handler navigates away (Aiya is a tab).
+  // Escape closes the options menu / open panels.
+  useEscapeKey(() => { setShowMenu(false); setShowProfile(false); if (renaming) setRenaming(false) }, showMenu || showProfile || renaming)
+  // Android back: close the menu/panel/rename first, then return chat -> list. In
+  // list view, return false so the page-level handler navigates away (Aiya is a tab).
   useBackButton(() => {
+    if (renaming) { setRenaming(false); return true }
+    if (showProfile) { setShowProfile(false); return true }
     if (showMenu) { setShowMenu(false); return true }
     if (view === 'chat') { goToList(); return true }
     return false
   })
+
+  // #43: retry the cloud chat fetch after a transient failure, merging with local.
+  const retryCloudChats = useCallback(async () => {
+    if (!userId) return
+    setChatsLoadError(false)
+    try {
+      const cloud = await aiyaService.loadChats(userId)
+      if (cloud && cloud.length > 0) {
+        setChats((prev) => {
+          const map = new Map(prev.map((c) => [c.id, c]))
+          for (const c of cloud) {
+            const ex = map.get(c.id)
+            if (!ex || c.updatedAt >= ex.updatedAt) map.set(c.id, c)
+          }
+          return Array.from(map.values()).sort((a, b) => b.updatedAt - a.updatedAt)
+        })
+      }
+    } catch {
+      setChatsLoadError(true)
+    }
+  }, [userId])
+
+  // #64: commit / cancel an inline chat-title rename.
+  const commitRename = useCallback(() => {
+    const next = renameValue.trim()
+    setRenaming(false)
+    if (!next || !activeChatId) return
+    setChats((prev) => prev.map((c) => (c.id === activeChatId ? { ...c, title: next, updatedAt: Date.now() } : c)))
+    hapticFeedback('light')
+  }, [renameValue, activeChatId])
+
+  // #66: clear the locally-stored Aiya profile (what it has inferred about you).
+  const clearAiyaMemory = useCallback(() => {
+    setProfileSummary('')
+    setProfileMeta(null)
+    try { localStorage.removeItem(profileKey) } catch { /* ignore */ }
+    setShowProfile(false)
+    hapticFeedback('success')
+    toast.success(t('aiyaMemoryCleared'))
+  }, [profileKey, t])
 
   // ─── Profile update ────────────────────────────────────
   const maybeUpdateProfile = useCallback(async (nextMessages: AiyaMessage[]) => {
@@ -1178,6 +1231,21 @@ export default function Aiya() {
           </motion.button>
         </div>
 
+        {/* Cloud chat-load failed (distinct from "no chats") — offer a retry. */}
+        {chatsLoadError && (
+          <div className="container-padding pb-4 max-w-4xl mx-auto w-full">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+              <p className="text-xs sm:text-sm text-orange-700 dark:text-orange-300">{t('aiyaChatsLoadError')}</p>
+              <button
+                onClick={retryCloudChats}
+                className="text-xs sm:text-sm font-semibold text-orange-700 dark:text-orange-300 underline whitespace-nowrap touch-manipulation"
+              >
+                {t('tryAgain')}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Previous conversations list */}
         {chats.length > 0 && (
           <div className="container-padding pb-6 max-w-4xl mx-auto w-full">
@@ -1269,9 +1337,25 @@ export default function Aiya() {
           <ChevronLeft size={24} />
         </button>
         <div className="flex-1 min-w-0 text-center">
-          <p className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 truncate">
-            {activeChat?.title || t('aiyaNewChat', { defaultValue: 'Yeni Sohbet' })}
-          </p>
+          {renaming ? (
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commitRename() }
+                else if (e.key === 'Escape') { e.preventDefault(); setRenaming(false) }
+              }}
+              maxLength={60}
+              aria-label={t('aiyaRenameChat')}
+              className="w-full text-center text-[15px] font-semibold bg-transparent border-b-2 border-primary text-gray-900 dark:text-gray-100 outline-none px-2 py-0.5"
+            />
+          ) : (
+            <p className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 truncate">
+              {activeChat?.title || t('aiyaNewChat', { defaultValue: 'Yeni Sohbet' })}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -1307,6 +1391,22 @@ export default function Aiya() {
                     exit={{ opacity: 0, scale: 0.95, y: -5 }}
                     className="absolute right-0 top-12 z-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl py-1.5 min-w-[180px] overflow-hidden"
                   >
+                    {activeChatId && (
+                      <button
+                        onClick={() => { setShowMenu(false); setRenameValue(activeChat?.title || ''); setRenaming(true) }}
+                        className="w-full px-4 py-2.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm font-medium text-gray-700 dark:text-gray-200 transition-colors touch-manipulation"
+                      >
+                        <Pencil size={16} className="text-gray-400" />
+                        {t('aiyaRenameChat')}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setShowMenu(false); setShowProfile(true) }}
+                      className="w-full px-4 py-2.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 text-sm font-medium text-gray-700 dark:text-gray-200 transition-colors touch-manipulation"
+                    >
+                      <Sparkles size={16} className="text-gray-400" />
+                      {t('aiyaWhatRemembers')}
+                    </button>
                     {activeChatId && (
                       <button
                         onClick={() => {
@@ -1364,9 +1464,14 @@ export default function Aiya() {
               <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
                 {t('aiyaEmptyTitle', { defaultValue: 'Merhaba! Ben Aiya' })}
               </p>
-              <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mb-6 max-w-[280px] sm:max-w-sm leading-relaxed">
-                {t('aiyaEmptyState', { defaultValue: 'Anılarını bilen, seni tanıyan özel asistanın. Sorularını sorabilirsin!' })}
-              </p>
+              {/* Suggestion chips below already invite the user to start, so only
+                  show the long description when chips aren't visible (avoids the
+                  duplicate "get started" message cluttering small screens). */}
+              {!showChips && (
+                <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mb-6 max-w-[280px] sm:max-w-sm leading-relaxed">
+                  {t('aiyaEmptyState', { defaultValue: 'Anılarını bilen, seni tanıyan özel asistanın. Sorularını sorabilirsin!' })}
+                </p>
+              )}
             </div>
           )}
 
@@ -1560,6 +1665,61 @@ export default function Aiya() {
         message={t('aiyaDeleteChatConfirm', { defaultValue: 'Bu sohbeti silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.' })}
         type="danger"
       />
+
+      {/* #66: "What Aiya remembers about you" — transparency + a clear control */}
+      <AnimatePresence>
+        {showProfile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+            onClick={() => setShowProfile(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t('aiyaWhatRemembers')}
+              className="bg-white dark:bg-gray-800 rounded-3xl max-w-md w-full shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col max-h-[80vh]"
+            >
+              <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 dark:border-gray-700/50">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Sparkles size={18} className="text-primary flex-shrink-0" />
+                  <h3 className="text-base font-bold text-gray-900 dark:text-gray-100 truncate">{t('aiyaWhatRemembers')}</h3>
+                </div>
+                <button
+                  onClick={() => setShowProfile(false)}
+                  className="touch-target inline-flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  aria-label={t('close')}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="px-5 py-4 overflow-y-auto">
+                {profileSummary?.trim() ? (
+                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap break-words">{profileSummary}</p>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{t('aiyaNoProfile')}</p>
+                )}
+              </div>
+              {profileSummary?.trim() && (
+                <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700/50">
+                  <button
+                    onClick={clearAiyaMemory}
+                    className="w-full px-4 py-2.5 rounded-xl border-2 border-red-200 dark:border-red-900/40 text-red-600 dark:text-red-400 font-semibold text-sm hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation"
+                  >
+                    {t('aiyaClearMemory')}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

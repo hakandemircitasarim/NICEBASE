@@ -632,42 +632,37 @@ export const aiyaService = {
     })
   },
 
+  // Returns null when cloud is not applicable (local user / no session), an
+  // array (possibly empty) on success, and THROWS on a real query failure so the
+  // caller can tell "no chats" apart from "couldn't load" and offer a retry.
   async loadChats(userId: string): Promise<AiyaChat[] | null> {
     // Skip cloud operations for local/offline users — RLS would reject them
     if (userId.startsWith('local')) return null
     if (!(await hasActiveSessionCached())) return null
-    try {
-      // Select only needed columns — user_id is known, no need to transfer it back.
-      // Limit to 20 most recent chats to avoid transferring massive message histories.
-      const { data, error } = await supabase
-        .from('aiya_chats')
-        .select('id, title, messages, created_at, updated_at')
-        .eq('user_id', userId)
-        .order('updated_at', { ascending: false })
-        .limit(20)
+    // Select only needed columns — user_id is known, no need to transfer it back.
+    // Limit to 20 most recent chats to avoid transferring massive message histories.
+    const { data, error } = await supabase
+      .from('aiya_chats')
+      .select('id, title, messages, created_at, updated_at')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(20)
 
-      if (error) throw error
-      if (!data) return null
+    if (error) throw error
 
-      return data.map((row: {
-        id: string
-        title: string
-        messages: AiyaMessage[]
-        created_at: string
-        updated_at: string
-      }) => ({
-        id: row.id,
-        title: row.title,
-        messages: row.messages,
-        createdAt: new Date(row.created_at).getTime(),
-        updatedAt: new Date(row.updated_at).getTime(),
-      }))
-    } catch (error) {
-      if (import.meta.env.DEV) {
-        console.warn('[aiyaService] Failed to load chats:', error)
-      }
-      return null
-    }
+    return (data ?? []).map((row: {
+      id: string
+      title: string
+      messages: AiyaMessage[]
+      created_at: string
+      updated_at: string
+    }) => ({
+      id: row.id,
+      title: row.title,
+      messages: row.messages,
+      createdAt: new Date(row.created_at).getTime(),
+      updatedAt: new Date(row.updated_at).getTime(),
+    }))
   },
 
   async syncChats(userId: string, chats: AiyaChat[]): Promise<void> {
