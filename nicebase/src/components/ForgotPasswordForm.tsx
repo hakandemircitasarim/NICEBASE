@@ -4,6 +4,7 @@ import { Lock } from 'lucide-react'
 import LoadingSpinner from './LoadingSpinner'
 import { hapticFeedback } from '../utils/haptic'
 import { useModalPresence } from '../hooks/useModalPresence'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 
 interface ForgotPasswordFormProps {
   email: string
@@ -22,6 +23,7 @@ export default function ForgotPasswordForm({
 }: ForgotPasswordFormProps) {
   const { t } = useTranslation()
   useModalPresence(true)
+  useEscapeKey(onClose, !loading)
 
   return (
     <motion.div

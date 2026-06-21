@@ -26,6 +26,10 @@ export default function TimePicker({
   const [isOpen, setIsOpen] = useState(false)
   const [hours, setHours] = useState(9)
   const [minutes, setMinutes] = useState(0)
+  // Distinguishes "no time set" from a real selection. Starts true only when a
+  // value is provided; otherwise the user must explicitly pick before Apply
+  // commits, so we never persist a default time (e.g. 09:00) the user never chose.
+  const [hasSelection, setHasSelection] = useState(Boolean(value))
   const pickerRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const previouslyFocusedRef = useRef<HTMLElement | null>(null)
@@ -34,14 +38,18 @@ export default function TimePicker({
   useBodyScrollLock(isOpen)
   useModalPresence(isOpen)
 
-  // Parse initial value
+  // Parse initial value. A present value counts as a real selection; clearing it
+  // resets to "no time set" so a stale 09:00 default can't be committed.
   useEffect(() => {
     if (value) {
       const [h, m] = value.split(':').map(Number)
       if (!isNaN(h) && !isNaN(m)) {
         setHours(h)
         setMinutes(m)
+        setHasSelection(true)
       }
+    } else {
+      setHasSelection(false)
     }
   }, [value])
 
@@ -142,6 +150,11 @@ export default function TimePicker({
   }
 
   const handleApply = () => {
+    // Never commit a time the user didn't actively pick.
+    if (!hasSelection) {
+      handleClose()
+      return
+    }
     const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
     onChange(timeString)
     handleClose()
@@ -149,12 +162,14 @@ export default function TimePicker({
   }
 
   const handleClear = () => {
+    setHasSelection(false)
     onChange('')
     handleClose()
     hapticFeedback('light')
   }
 
   const incrementHours = () => {
+    setHasSelection(true)
     setHours((prev) => {
       const newValue = prev >= 23 ? 0 : prev + 1
       hapticFeedback('light')
@@ -163,6 +178,7 @@ export default function TimePicker({
   }
 
   const decrementHours = () => {
+    setHasSelection(true)
     setHours((prev) => {
       const newValue = prev <= 0 ? 23 : prev - 1
       hapticFeedback('light')
@@ -171,6 +187,7 @@ export default function TimePicker({
   }
 
   const incrementMinutes = () => {
+    setHasSelection(true)
     setMinutes((prev) => {
       const newValue = prev >= 55 ? 0 : prev + 5
       hapticFeedback('light')
@@ -179,6 +196,7 @@ export default function TimePicker({
   }
 
   const decrementMinutes = () => {
+    setHasSelection(true)
     setMinutes((prev) => {
       const newValue = prev <= 0 ? 55 : prev - 5
       hapticFeedback('light')
@@ -195,9 +213,11 @@ export default function TimePicker({
       decrementHours()
     } else if (e.key === 'Home') {
       e.preventDefault()
+      setHasSelection(true)
       setHours(0)
     } else if (e.key === 'End') {
       e.preventDefault()
+      setHasSelection(true)
       setHours(23)
     }
   }
@@ -211,9 +231,11 @@ export default function TimePicker({
       decrementMinutes()
     } else if (e.key === 'Home') {
       e.preventDefault()
+      setHasSelection(true)
       setMinutes(0)
     } else if (e.key === 'End') {
       e.preventDefault()
+      setHasSelection(true)
       setMinutes(55)
     }
   }
@@ -341,7 +363,9 @@ export default function TimePicker({
                       aria-valuenow={hours}
                       aria-valuetext={String(hours).padStart(2, '0')}
                       onKeyDown={handleHoursKeyDown}
-                      className="text-5xl font-bold text-gray-900 dark:text-gray-100 my-2 min-w-[60px] text-center outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg"
+                      className={`text-5xl font-bold my-2 min-w-[60px] text-center outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg transition-colors ${
+                        hasSelection ? 'text-gray-900 dark:text-gray-100' : 'text-gray-300 dark:text-gray-600'
+                      }`}
                     >
                       {String(hours).padStart(2, '0')}
                     </div>
@@ -377,7 +401,9 @@ export default function TimePicker({
                       aria-valuenow={minutes}
                       aria-valuetext={String(minutes).padStart(2, '0')}
                       onKeyDown={handleMinutesKeyDown}
-                      className="text-5xl font-bold text-gray-900 dark:text-gray-100 my-2 min-w-[60px] text-center outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg"
+                      className={`text-5xl font-bold my-2 min-w-[60px] text-center outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg transition-colors ${
+                        hasSelection ? 'text-gray-900 dark:text-gray-100' : 'text-gray-300 dark:text-gray-600'
+                      }`}
                     >
                       {String(minutes).padStart(2, '0')}
                     </div>
@@ -402,7 +428,8 @@ export default function TimePicker({
                 </button>
                 <button
                   onClick={handleApply}
-                  className="flex-1 px-4 py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary-dark transition-colors touch-manipulation"
+                  disabled={!hasSelection}
+                  className="flex-1 px-4 py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary-dark transition-colors touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {t('apply')}
                 </button>

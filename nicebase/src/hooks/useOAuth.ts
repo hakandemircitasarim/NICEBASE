@@ -77,6 +77,18 @@ export function useOAuth() {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const loadingRef = useRef(false)
+  // Holds the id of the 60s OAuth safety timeout so the deep-link callback can
+  // cancel it the moment a code/token arrives — otherwise a slow-but-successful
+  // code exchange that finishes near the 60s mark would still fire a spurious
+  // "login failed" toast.
+  const oauthTimeoutRef = useRef<number | null>(null)
+
+  const clearOAuthTimeout = useCallback(() => {
+    if (oauthTimeoutRef.current !== null) {
+      window.clearTimeout(oauthTimeoutRef.current)
+      oauthTimeoutRef.current = null
+    }
+  }, [])
 
   // Initialize SocialLogin plugin on mount (native only)
   useEffect(() => {
@@ -105,6 +117,10 @@ export function useOAuth() {
       if (!urlString) return
       if (handledCallbacks.has(urlString)) return
       handledCallbacks.add(urlString)
+      // The deep link arrived — the flow was NOT abandoned. Cancel the 60s
+      // safety timeout so it can't fire a spurious error toast while the code
+      // exchange below is still completing on a slow network.
+      clearOAuthTimeout()
       try {
         // Close the in-app browser if open
         if (_browserRef) {
@@ -213,7 +229,7 @@ export function useOAuth() {
         listener = null
       }
     }
-  }, [t])
+  }, [t, clearOAuthTimeout])
 
   /**
    * Handles Google OAuth login
@@ -335,8 +351,21 @@ export function useOAuth() {
 
           // Safety net: if no deep-link callback ever arrives (user abandoned the
           // flow, or the callback was lost on a cold start), stop the spinner
-          // after 60s instead of hanging forever.
-          window.setTimeout(() => {
+          // after 60s instead of hanging forever. The callback handler clears
+          // this timer (clearOAuthTimeout) the moment a deep link arrives.
+          clearOAuthTimeout()
+          oauthTimeoutRef.current = window.setTimeout(async () => {
+            if (!loadingRef.current) return
+            // Double-check: a slow code exchange may have just landed a session
+            // right at the 60s mark — don't show a "login failed" toast then.
+            try {
+              const { data: { session } } = await supabase.auth.getSession()
+              if (session) {
+                loadingRef.current = false
+                setLoading(false)
+                return
+              }
+            } catch { /* fall through to the timeout error */ }
             if (loadingRef.current) {
               loadingRef.current = false
               setLoading(false)
@@ -381,7 +410,7 @@ export function useOAuth() {
       toast.error(userMessage)
       setLoading(false)
     }
-  }, [t])
+  }, [t, clearOAuthTimeout])
 
   return {
     handleOAuthLogin,

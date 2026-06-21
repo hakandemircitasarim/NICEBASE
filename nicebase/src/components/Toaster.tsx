@@ -19,12 +19,14 @@ export default function Toaster() {
         },
         success: {
           iconTheme: {
+            // Matches the theme `success` token (success.DEFAULT in tailwind.config.js)
             primary: '#10B981',
             secondary: '#fff',
           },
         },
         error: {
           iconTheme: {
+            // Matches the theme `danger` token (danger.DEFAULT in tailwind.config.js)
             primary: '#EF4444',
             secondary: '#fff',
           },

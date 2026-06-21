@@ -50,7 +50,7 @@ export default function SuccessAnimation({ message, onComplete }: SuccessAnimati
             delay: 0.2,
           }}
         >
-          <CheckCircle2 className="text-green-500" size={64} />
+          <CheckCircle2 className="text-success" size={64} />
         </motion.div>
         {message && (
           <motion.p

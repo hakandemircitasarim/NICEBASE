@@ -58,7 +58,9 @@ export default function ResetPassword() {
       })
       if (updateError) throw updateError
       setSuccess(true)
-      setTimeout(() => navigate('/'), 2000)
+      // Give the user time to read the confirmation; the explicit "Continue"
+      // button is the primary path, this longer timer is just a safety fallback.
+      setTimeout(() => navigate('/'), 8000)
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err)
       errorLoggingService.logError(err instanceof Error ? err : new Error('Reset password error'), 'error')
@@ -94,9 +96,16 @@ export default function ResetPassword() {
           </div>
         ) : success ? (
           <div className="text-center py-4">
-            <p className="text-green-600 dark:text-green-400 font-semibold">
+            <p className="text-green-600 dark:text-green-400 font-semibold mb-4">
               {t('passwordResetSuccess')}
             </p>
+            <button
+              type="button"
+              onClick={() => navigate('/', { replace: true })}
+              className="w-full py-3 rounded-xl bg-primary text-white font-semibold hover:bg-primary-dark transition-colors"
+            >
+              {t('goHome')}
+            </button>
           </div>
         ) : (
           <form onSubmit={handleReset} className="space-y-4">

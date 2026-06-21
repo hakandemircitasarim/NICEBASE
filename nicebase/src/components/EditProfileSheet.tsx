@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   X,
@@ -10,6 +10,7 @@ import {
   Cake,
   FileText,
   Trash2,
+  AlertCircle,
 } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { supabase } from '../lib/supabase'
@@ -35,11 +36,38 @@ export default function EditProfileSheet({ onClose }: EditProfileSheetProps) {
   const [avatarPreview, setAvatarPreview] = useState(user?.avatarUrl || '')
   const [avatarData, setAvatarData] = useState<string | null>(null) // new avatar base64
   const [saving, setSaving] = useState(false)
+  const [showDirtyConfirm, setShowDirtyConfirm] = useState(false)
+
+  // Dirty when any field diverges from the saved user record. avatarData !== null
+  // means the avatar was changed or removed in this session.
+  const isDirty =
+    displayName !== (user?.displayName || '') ||
+    bio !== (user?.bio || '') ||
+    birthday !== (user?.birthday || '') ||
+    location !== (user?.location || '') ||
+    avatarData !== null
+
+  // Route every dismissal path (backdrop, X, Escape) through a confirm when there
+  // are unsaved edits so a stray tap can't silently discard typed input.
+  const requestClose = () => {
+    if (saving) return
+    if (isDirty) {
+      setShowDirtyConfirm(true)
+      return
+    }
+    onClose()
+  }
 
   useModalPresence(true)
   // iOS-safe scroll lock with proper restore (replaces manual body.overflow).
   useBodyScrollLock(true)
-  useEscapeKey(() => { if (!saving) onClose() }, true)
+  useEscapeKey(() => {
+    if (showDirtyConfirm) {
+      setShowDirtyConfirm(false)
+      return
+    }
+    requestClose()
+  }, true)
 
   const handleAvatarPick = () => {
     fileInputRef.current?.click()
@@ -205,7 +233,7 @@ export default function EditProfileSheet({ onClose }: EditProfileSheetProps) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={onClose}
+        onClick={requestClose}
         className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
       />
 
@@ -225,7 +253,8 @@ export default function EditProfileSheet({ onClose }: EditProfileSheetProps) {
               {t('editProfile')}
             </h2>
             <button
-              onClick={onClose}
+              onClick={requestClose}
+              aria-label={t('close')}
               className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center touch-manipulation hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
             >
               <X size={18} />
@@ -361,6 +390,68 @@ export default function EditProfileSheet({ onClose }: EditProfileSheetProps) {
           </motion.button>
         </div>
       </motion.div>
+
+      {/* Unsaved-changes confirm — mirrors MemoryForm's showDirtyConfirm flow */}
+      <AnimatePresence>
+        {showDirtyConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+            onClick={() => setShowDirtyConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-gray-800 rounded-3xl max-w-md w-full shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+            >
+              <div className="p-6">
+                <div className="flex items-start gap-4 mb-4">
+                  <div className="p-3 rounded-full bg-orange-100 dark:bg-orange-900/20">
+                    <AlertCircle
+                      className="text-orange-600 dark:text-orange-400"
+                      size={24}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+                      {t('unsavedChanges')}
+                    </h3>
+                    <p className="text-gray-600 dark:text-gray-400">
+                      {t('unsavedChangesMessage')}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 mt-6">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      setShowDirtyConfirm(false)
+                      onClose()
+                    }}
+                    className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors touch-manipulation"
+                  >
+                    {t('discardChanges')}
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setShowDirtyConfirm(false)}
+                    className="w-full px-4 py-3 text-gray-600 dark:text-gray-400 rounded-xl font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors touch-manipulation"
+                  >
+                    {t('cancel')}
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   )
 }

@@ -328,7 +328,10 @@ export default function DateRangePicker({ startDate, endDate, onChange, onClose 
   const dayNames = i18n.language?.startsWith('tr')
     ? ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz']
     : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  // Normalize "today" to end-of-day so click guard and disabled state agree
+  // (mirrors handleDateClick). Any day after this is a non-selectable future day.
   const today = new Date()
+  today.setHours(23, 59, 59, 999)
 
   // Exactly one day cell is tabbable at a time (roving tabindex). Pick the
   // focused day if it is currently rendered, otherwise fall back to a day that
@@ -451,8 +454,9 @@ export default function DateRangePicker({ startDate, endDate, onChange, onClose 
                       const isSelectedEnd = selectedEnd && isSameDay(day, selectedEnd)
                       const isInRange = isDateInRange(day)
                       const isBetween = isDateBetween(day)
-                      const isPast = day > today
-                      const isDisabled = isPast && !isCurrentMonth
+                      // Disable any future day regardless of month so same-month
+                      // future days don't look tappable when they can't be selected.
+                      const isDisabled = day > today
                       const isTabbable = isSameDay(day, tabbableDate)
                       const isRangeEndpoint = Boolean(isSelectedStart || isSelectedEnd)
 

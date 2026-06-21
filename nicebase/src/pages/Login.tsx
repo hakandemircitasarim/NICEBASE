@@ -3,19 +3,19 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
-import { Eye, EyeOff, Mail, Lock } from 'lucide-react'
+import { Eye, EyeOff, MailCheck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useStore } from '../store/useStore'
-import { mapUserFromSupabase } from '../lib/userMapper'
 import { fetchUserData } from '../lib/userService'
 import { errorLoggingService } from '../services/errorLoggingService'
 import { authErrorMessage } from '../utils/authErrors'
 import LoadingSpinner from '../components/LoadingSpinner'
 import OAuthButtons from '../components/OAuthButtons'
+import ForgotPasswordForm from '../components/ForgotPasswordForm'
 import { useOAuth } from '../hooks/useOAuth'
 import { hapticFeedback } from '../utils/haptic'
 import { withTimeout } from '../utils/timeout'
-import { isValidEmail as validateEmail, validateEmail as validateEmailDetailed } from '../utils/formValidation'
+import { isValidEmail as validateEmail } from '../utils/formValidation'
 
 const AUTH_TIMEOUT_MS = 15000
 
@@ -35,6 +35,14 @@ export default function Login() {
   const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false)
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [passwordStrength, setPasswordStrength] = useState(0)
+  // Inline per-field validation errors (replaces transient toast-only feedback)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  // Set when sign-up succeeds but email confirmation is required (no session).
+  // We must NOT log the user in; instead surface a "check your inbox" state.
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null)
+  // Surfaces a "resend confirmation email" action when login fails because the
+  // account's email was never confirmed.
+  const [showResendVerification, setShowResendVerification] = useState(false)
   const { handleOAuthLogin, loading: oauthLoading } = useOAuth()
 
   // Check session and redirect if already logged in
@@ -109,29 +117,35 @@ export default function Login() {
     return t('passwordStrength.strong')
   }
 
-  const handleResendVerification = async () => {
-    if (!email || !isValidEmail(email)) {
+  const handleResendVerification = async (targetEmail?: string) => {
+    const address = targetEmail || email
+    if (!address || !isValidEmail(address)) {
       hapticFeedback('error')
       toast.error(t('invalidEmail'))
       return
     }
 
+    setLoading(true)
     try {
       const { error } = await supabase.auth.resend({
         type: 'signup',
-        email: email,
+        email: address,
       })
 
       if (error) throw error
 
+      hapticFeedback('success')
       toast.success(t('verificationEmailSent'), { duration: 5000 })
     } catch (error: unknown) {
+      hapticFeedback('error')
       errorLoggingService.logError(
         error instanceof Error ? error : new Error('Resend verification error'),
         'error'
       )
       const errorMessage = error instanceof Error ? error.message : String(error)
       toast.error(errorMessage || t('failedToSendEmail'))
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -170,34 +184,28 @@ export default function Login() {
     }
   }
 
+  // Collect all field errors at once so the user sees every problem inline,
+  // not one transient toast at a time.
+  const validate = (): Record<string, string> => {
+    const next: Record<string, string> = {}
+    if (!isValidEmail(email)) next.email = t('invalidEmail')
+    if (password.length < 6) next.password = t('passwordTooShort')
+    if (isSignUp && password !== confirmPassword) next.confirmPassword = t('passwordsDoNotMatch')
+    if (isSignUp && !acceptedTerms) next.terms = t('acceptTerms')
+    return next
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    // Email validation
-    if (!isValidEmail(email)) {
+
+    const validationErrors = validate()
+    setErrors(validationErrors)
+    if (Object.keys(validationErrors).length > 0) {
       hapticFeedback('error')
-      toast.error(t('invalidEmail'))
-      return
-    }
-    
-    if (password.length < 6) {
-      hapticFeedback('error')
-      toast.error(t('passwordTooShort'))
-      return
-    }
-    
-    if (isSignUp && password !== confirmPassword) {
-      hapticFeedback('error')
-      toast.error(t('passwordsDoNotMatch'))
       return
     }
 
-    if (isSignUp && !acceptedTerms) {
-      hapticFeedback('error')
-      toast.error(t('acceptTerms'))
-      return
-    }
-    
+    setShowResendVerification(false)
     setLoading(true)
     hapticFeedback('light')
 
@@ -210,19 +218,20 @@ export default function Login() {
 
         if (error) throw error
 
-        if (data.user) {
-          // Check if email needs verification
-          if (data.user.email_confirmed_at === null) {
-            toast.success(t('accountCreated'), { duration: 6000 })
-          }
-
-          // Refresh session to ensure auth.uid() is available
-          await supabase.auth.refreshSession()
-          
-          // Wait a moment for session to be ready
-          await new Promise(resolve => setTimeout(resolve, 500))
-          
-          // Create or update user record (upsert handles existing users gracefully)
+        if (!data.user) {
+          // No user returned from signup
+          toast.error(t('accountCreationFailed'))
+        } else if (!data.session) {
+          // Email confirmation is required: signUp returned a user but NO session.
+          // Do NOT setUser/navigate (that would drop the user into an
+          // authenticated shell with no real session). Surface a "check your
+          // inbox" state with a resend option instead. Toast is shown ONCE.
+          toast.success(t('accountCreated'), { duration: 6000 })
+          hapticFeedback('success')
+          setPendingVerificationEmail(data.user.email || email)
+        } else {
+          // A real session exists (confirmation disabled / auto-confirmed):
+          // create the user record and log them in.
           const { error: dbError } = await supabase.from('users').upsert(
             {
               id: data.user.id,
@@ -245,40 +254,20 @@ export default function Login() {
 
           // Fetch user record
           const fetchedUser = await fetchUserData(data.user.id)
-          
+
           if (fetchedUser) {
             setUser(fetchedUser)
-            if (data.user.email_confirmed_at === null) {
-              toast.success(t('accountCreated'), { duration: 6000 })
-            }
             hapticFeedback('success')
             navigate('/')
           } else {
-            // If still can't get user, create local user object
+            // Session exists but the record could not be read back.
             errorLoggingService.logError(
-              'Could not fetch user from database after signup, using local data',
+              'Could not fetch user from database after signup despite a valid session',
               'warning',
               data.user.id
             )
-            const newUser = mapUserFromSupabase({
-              id: data.user.id,
-              email: data.user.email!,
-              is_premium: false,
-              aiya_messages_used: 0,
-              aiya_messages_limit: 50,
-              weekly_summary_day: null,
-              daily_reminder_time: null,
-              language: 'tr',
-              theme: 'light',
-              created_at: new Date().toISOString(),
-            })
-            setUser(newUser)
-            hapticFeedback('success')
-            navigate('/')
+            toast.error(t('failedToLoadUserData'))
           }
-        } else {
-          // No user returned from signup
-          toast.error(t('accountCreationFailed'))
         }
       } else {
         // Login with timeout
@@ -313,6 +302,11 @@ export default function Login() {
       if (msg.includes('timeout') || msg.includes('Timeout')) {
         toast.error(t('connectionTimeout'))
       } else {
+        // Login blocked because the account's email was never confirmed —
+        // give the user a reachable "resend confirmation email" affordance.
+        if (!isSignUp && /email not confirmed|email_not_confirmed/i.test(msg)) {
+          setShowResendVerification(true)
+        }
         errorLoggingService.logError(
           error instanceof Error ? error : new Error('Authentication error'),
           'error'
@@ -344,6 +338,53 @@ export default function Login() {
           <p className="text-gray-600 dark:text-gray-400 text-lg">{t('tagline')}</p>
         </div>
 
+        {pendingVerificationEmail ? (
+          <div className="text-center space-y-4">
+            <div className="flex justify-center">
+              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+                <MailCheck className="text-primary" size={32} />
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold">
+              {t('checkYourInbox', { defaultValue: 'Check your inbox' })}
+            </h2>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">
+              {t('verifyEmailInstructions', {
+                email: pendingVerificationEmail,
+                defaultValue: 'We sent a confirmation link to {{email}}. Please verify your email to finish signing in.',
+              })}
+            </p>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => handleResendVerification(pendingVerificationEmail)}
+              className="w-full gradient-primary text-white py-3 rounded-xl font-semibold hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <LoadingSpinner size="sm" />
+                  <span>{t('loading')}</span>
+                </>
+              ) : (
+                t('resendVerificationEmail', { defaultValue: 'Resend confirmation email' })
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingVerificationEmail(null)
+                setIsSignUp(false)
+                setPassword('')
+                setConfirmPassword('')
+                setAcceptedTerms(false)
+                setErrors({})
+              }}
+              className="w-full text-primary hover:text-primary-dark font-medium text-sm transition-colors"
+            >
+              {t('backToLogin')}
+            </button>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-5">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
@@ -356,11 +397,22 @@ export default function Login() {
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                if (errors.email) setErrors((prev) => { const n = { ...prev }; delete n.email; return n })
+              }}
               required
-              className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none"
+              aria-invalid={!!errors.email}
+              className={`w-full px-4 py-3 border-2 rounded-xl bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary/20 transition-all outline-none ${
+                errors.email
+                  ? 'border-red-500 focus:border-red-500'
+                  : 'border-gray-200 dark:border-gray-600 focus:border-primary'
+              }`}
               placeholder={t('emailPlaceholder')}
             />
+            {errors.email && (
+              <p className="mt-1 text-xs text-red-500">{errors.email}</p>
+            )}
           </motion.div>
 
           <motion.div
@@ -375,9 +427,17 @@ export default function Login() {
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value)
+                  if (errors.password) setErrors((prev) => { const n = { ...prev }; delete n.password; return n })
+                }}
                 required
-                className="w-full px-4 py-3 pr-12 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none touch-manipulation text-base"
+                aria-invalid={!!errors.password}
+                className={`w-full px-4 py-3 pr-12 border-2 rounded-xl bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary/20 transition-all outline-none touch-manipulation text-base ${
+                  errors.password
+                    ? 'border-red-500 focus:border-red-500'
+                    : 'border-gray-200 dark:border-gray-600 focus:border-primary'
+                }`}
                 placeholder={t('passwordPlaceholder')}
                 autoComplete={isSignUp ? 'new-password' : 'current-password'}
               />
@@ -417,6 +477,9 @@ export default function Login() {
                 {t('passwordHint')}
               </p>
             )}
+            {errors.password && (
+              <p className="mt-1 text-xs text-red-500">{errors.password}</p>
+            )}
           </motion.div>
 
             {isSignUp && (
@@ -432,9 +495,17 @@ export default function Login() {
                 <input
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value)
+                    if (errors.confirmPassword) setErrors((prev) => { const n = { ...prev }; delete n.confirmPassword; return n })
+                  }}
                   required
-                  className="w-full px-4 py-3 pr-12 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none touch-manipulation text-base"
+                  aria-invalid={!!errors.confirmPassword}
+                  className={`w-full px-4 py-3 pr-12 border-2 rounded-xl bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary/20 transition-all outline-none touch-manipulation text-base ${
+                    errors.confirmPassword
+                      ? 'border-red-500 focus:border-red-500'
+                      : 'border-gray-200 dark:border-gray-600 focus:border-primary'
+                  }`}
                   placeholder={t('passwordPlaceholder')}
                   autoComplete="new-password"
                 />
@@ -450,6 +521,9 @@ export default function Login() {
                   {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
+              {errors.confirmPassword && (
+                <p className="mt-1 text-xs text-red-500">{errors.confirmPassword}</p>
+              )}
             </motion.div>
           )}
 
@@ -458,18 +532,34 @@ export default function Login() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.36 }}
-              className="flex items-start gap-2"
             >
-              <input
-                type="checkbox"
-                id="terms"
-                checked={acceptedTerms}
-                onChange={(e) => setAcceptedTerms(e.target.checked)}
-                className="mt-1 w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary focus:ring-2"
-              />
-              <label htmlFor="terms" className="text-sm text-gray-600 dark:text-gray-400">
-                {t('acceptTerms')}
-              </label>
+              <div className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  id="terms"
+                  checked={acceptedTerms}
+                  onChange={(e) => {
+                    setAcceptedTerms(e.target.checked)
+                    if (errors.terms) setErrors((prev) => { const n = { ...prev }; delete n.terms; return n })
+                  }}
+                  aria-invalid={!!errors.terms}
+                  className="mt-1 w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary focus:ring-2"
+                />
+                <label htmlFor="terms" className="text-sm text-gray-600 dark:text-gray-400">
+                  {t('acceptTerms')}{' '}
+                  <a
+                    href="/privacy-policy.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:text-primary-dark font-medium underline"
+                  >
+                    {t('privacyPolicy', { defaultValue: 'Privacy Policy' })}
+                  </a>
+                </label>
+              </div>
+              {errors.terms && (
+                <p className="mt-1 text-xs text-red-500">{errors.terms}</p>
+              )}
             </motion.div>
           )}
 
@@ -511,6 +601,22 @@ export default function Login() {
             )}
           </motion.button>
 
+          {showResendVerification && (
+            <div className="text-center -mt-1">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                {t('emailNotConfirmed')}
+              </p>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => handleResendVerification()}
+                className="text-sm text-primary hover:text-primary-dark font-medium transition-colors disabled:opacity-50"
+              >
+                {t('resendVerificationEmail', { defaultValue: 'Resend confirmation email' })}
+              </button>
+            </div>
+          )}
+
           <OAuthButtons
             onOAuthLogin={handleOAuthLogin}
             loading={loading || oauthLoading}
@@ -527,81 +633,27 @@ export default function Login() {
               setPassword('')
               setEmail('')
               setAcceptedTerms(false)
+              setErrors({})
+              setShowResendVerification(false)
             }}
             className="w-full text-primary hover:text-primary-dark font-medium text-sm transition-colors"
           >
             {isSignUp ? t('login') : t('signup')}
           </motion.button>
         </form>
+        )}
       </motion.div>
 
-      {/* Forgot Password Modal */}
+      {/* Forgot Password Modal — uses the shared component for scroll-lock,
+          Escape-to-close and modal-presence consistency. */}
       {showForgotPassword && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-          onClick={() => setShowForgotPassword(false)}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-gray-800 rounded-3xl max-w-md w-full shadow-2xl border border-gray-200 dark:border-gray-700 p-6"
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <Lock className="text-primary" size={24} />
-              <h2 className="text-2xl font-bold">
-                {t('resetPassword')}
-              </h2>
-            </div>
-            <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-              {t('enterEmailToReset')}
-            </p>
-            <form onSubmit={handleForgotPassword} className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">
-                  {t('email')}
-                </label>
-                <input
-                  type="email"
-                  value={forgotPasswordEmail}
-                  onChange={(e) => setForgotPasswordEmail(e.target.value)}
-                  required
-                  className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none"
-                  placeholder={t('emailPlaceholder')}
-                  autoFocus
-                />
-              </div>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowForgotPassword(false)}
-                  className="flex-1 px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                >
-                  {t('cancel')}
-                </button>
-                <button
-                  type="submit"
-                  disabled={forgotPasswordLoading}
-                  className="flex-1 px-4 py-3 gradient-primary text-white rounded-xl font-semibold hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {forgotPasswordLoading ? (
-                    <>
-                      <LoadingSpinner size="sm" />
-                      <span>{t('loading')}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Mail size={16} />
-                      <span>{t('send')}</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </motion.div>
+        <ForgotPasswordForm
+          email={forgotPasswordEmail}
+          loading={forgotPasswordLoading}
+          onEmailChange={setForgotPasswordEmail}
+          onSubmit={handleForgotPassword}
+          onClose={() => setShowForgotPassword(false)}
+        />
       )}
     </div>
   )
