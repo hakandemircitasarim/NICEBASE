@@ -2,6 +2,7 @@
 import i18n from '../i18n'
 import { isNativePlatform } from '../utils/platform'
 import { errorLoggingService } from './errorLoggingService'
+import { parseLocalDate } from '../utils/dateFormat'
 import type { WindowWithCapacitor } from '../types/capacitor'
 
 /**
@@ -15,6 +16,13 @@ function notificationId(userId: string, prefix: number): number {
   }
   return Math.abs(hash) % 2147483647 || 1 // Ensure non-zero positive int
 }
+
+// Monotonic counter for transient (ad-hoc) notification ids, so two
+// notifications fired within the same millisecond can't collide on
+// `Date.now() % MAX`. Lives in a high sub-range that the stable per-user
+// reminder hashes effectively never occupy.
+const MAX_NOTIFICATION_ID = 2147483647
+let transientNotificationCounter = 0
 
 // Load Capacitor notification plugins - in native they're available via window, in web they're not
 //
@@ -140,7 +148,7 @@ export const notificationService = {
             {
               title,
               body: options?.body || '',
-              id: Date.now() % 2147483647, // Android max int
+              id: (Date.now() + (transientNotificationCounter++)) % MAX_NOTIFICATION_ID, // Android max int; counter avoids same-ms collisions
               sound: 'default',
               attachments: undefined,
               actionTypeId: options?.tag || 'DEFAULT',
@@ -183,6 +191,16 @@ export const notificationService = {
   },
 
   async scheduleDailyReminder(time: string, userId: string, currentStreak?: number) {
+    // Clear any previously scheduled WEB timer for this user before re-arming.
+    // setupNotifications re-runs on every streak change, so without this each
+    // call would leak a setTimeout and fire duplicate reminders. (The native
+    // path cancels its own scheduled notification in its branch below.)
+    const prevTimeoutId = localStorage.getItem(`reminder_timeout_${userId}`)
+    if (prevTimeoutId) {
+      clearTimeout(Number(prevTimeoutId))
+      localStorage.removeItem(`reminder_timeout_${userId}`)
+    }
+
     // Parse time (HH:mm format)
     const [hours, minutes] = time.split(':').map(Number)
     
@@ -244,9 +262,10 @@ export const notificationService = {
         // Cancel existing daily reminders for this user
         await this.cancelReminder(userId)
 
-        // Schedule daily notification (repeating)
-        // Note: For repeating notifications, we can't dynamically change the body
-        // So we'll use the default body, but the streak will be checked when notification is shown
+        // Schedule daily notification (repeating). The body is baked in at
+        // schedule time with the streak known now, and refreshed every time
+        // scheduleDailyReminder re-runs (e.g. on app open / streak change), so
+        // it stays reasonably current between reschedules.
         await LocalNotifications.schedule({
           notifications: [
             {
@@ -331,104 +350,6 @@ export const notificationService = {
     localStorage.setItem(`reminder_timeout_${userId}`, timeoutId.toString())
   },
 
-  async scheduleRandomMemoryReminder(userId: string) {
-    // Native platform - use scheduled local notifications
-    if (isNativePlatform()) {
-      try {
-        const LocalNotifications = await loadLocalNotifications()
-        if (!LocalNotifications) {
-          // Fallback to web scheduling
-          const interval = 6 * 60 * 60 * 1000 // 6 hours in milliseconds
-          const intervalId = setInterval(async () => {
-            notificationService.showNotification(i18n.t('randomMemoryReminderTitle'), {
-              body: i18n.t('randomMemoryReminderBody'),
-              tag: 'random-memory',
-              requireInteraction: false,
-            })
-          }, interval)
-          localStorage.setItem(`random_memory_interval_${userId}`, intervalId.toString())
-          return
-        }
-
-        // Schedule 4 notifications per day (every 6 hours: 00:00, 06:00, 12:00, 18:00)
-        const now = new Date()
-        const today = new Date(now)
-        today.setHours(0, 0, 0, 0)
-
-        interface ScheduledNotification {
-          title: string
-          body: string
-          id: number
-          schedule: {
-            at: Date
-            repeats: boolean
-            every: 'day'
-          }
-          channelId?: string
-          actionTypeId?: string
-          extra?: unknown
-        }
-        const notifications: ScheduledNotification[] = []
-        const times = [0, 6, 12, 18] // Hours: 00:00, 06:00, 12:00, 18:00
-
-        times.forEach((hour, index) => {
-          const notificationTime = new Date(today)
-          notificationTime.setHours(hour, 0, 0, 0)
-
-          // If time has passed today, schedule for tomorrow
-          if (notificationTime < now) {
-            notificationTime.setDate(notificationTime.getDate() + 1)
-          }
-
-          notifications.push({
-            title: i18n.t('randomMemoryReminderTitle'),
-            body: i18n.t('randomMemoryReminderBody'),
-            id: (notificationId(userId, 2) + index) % 2147483647, // Unique ID per time
-            schedule: {
-              at: notificationTime,
-              repeats: true,
-              every: 'day',
-            },
-            channelId: 'random-memory',
-            actionTypeId: 'RANDOM_MEMORY',
-            extra: { userId, type: 'random-memory' },
-          })
-        })
-
-        await LocalNotifications.schedule({ notifications: notifications as never })
-      } catch (error) {
-        errorLoggingService.logError(
-          error instanceof Error ? error : new Error('Failed to schedule random memory reminder'),
-          'warning',
-          userId
-        )
-      }
-      return
-    }
-
-    // Web platform - use setInterval
-    // Clear any existing interval first to prevent leaks on repeated calls
-    const existingIntervalId = localStorage.getItem(`random_memory_interval_${userId}`)
-    if (existingIntervalId) {
-      clearInterval(Number(existingIntervalId))
-    }
-
-    const interval = 6 * 60 * 60 * 1000 // 6 hours in milliseconds
-
-    const intervalId = setInterval(async () => {
-      // This would fetch a random memory from IndexedDB
-      // For now, just show a generic reminder
-      notificationService.showNotification(i18n.t('randomMemoryReminderTitle'), {
-        body: i18n.t('randomMemoryReminderBody'),
-        tag: 'random-memory',
-        requireInteraction: false,
-      })
-    }, interval)
-
-    // Store interval ID for cancellation
-    localStorage.setItem(`random_memory_interval_${userId}`, intervalId.toString())
-  },
-
   async cancelReminder(userId: string) {
     // Native platform - cancel scheduled notifications
     if (isNativePlatform()) {
@@ -469,8 +390,10 @@ export const notificationService = {
   async scheduleStreakProtection(userId: string, lastMemoryDate: string | null, currentStreak: number) {
     if (!lastMemoryDate || currentStreak === 0) return
 
-    // Son anı tarihini kontrol et
-    const lastDate = new Date(lastMemoryDate)
+    // Son anı tarihini kontrol et. parseLocalDate builds the date at LOCAL
+    // midnight (new Date('YYYY-MM-DD') would parse as UTC and shift the day in
+    // negative-UTC zones, producing false "streak at risk" notifications).
+    const lastDate = parseLocalDate(lastMemoryDate)
     lastDate.setHours(0, 0, 0, 0)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -560,9 +483,9 @@ export const notificationService = {
           requireInteraction: false,
           badge: '/vite.svg',
         })
-
-        // Ertesi gün için tekrar kontrol et
-        notificationService.scheduleStreakProtection(userId, lastMemoryDate, currentStreak)
+        // No self-reschedule here: re-arming would use this closure's now-stale
+        // lastMemoryDate/currentStreak snapshot. Home re-schedules with fresh
+        // streak data on each load instead.
       }, timeUntilReminder)
 
       localStorage.setItem(`streak_protection_${userId}`, timeoutId.toString())

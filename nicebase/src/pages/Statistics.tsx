@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { motion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 import { BarChart3, TrendingUp, Calendar, Heart, Sparkles, Flame } from 'lucide-react'
 import { streakService } from '../services/streakService'
 import { Memory, MemoryCategory, LifeArea } from '../types'
@@ -9,6 +9,7 @@ import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import { useNotifications } from '../hooks/useNotifications'
 import { normalizeConnectionKey } from '../utils/connections'
+import { parseLocalDate } from '../utils/dateFormat'
 import {
   BarChart,
   Bar,
@@ -49,6 +50,7 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
 
 export default function Statistics() {
   const { t, i18n } = useTranslation()
+  const prefersReducedMotion = useReducedMotion()
   const userId = useUserId()
   const { memories, loading } = useMemories(userId)
   const { showError } = useNotifications()
@@ -142,7 +144,9 @@ export default function Statistics() {
       const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0)
       
       const count = memories.filter(m => {
-        const memoryDate = new Date(m.date)
+        // Parse the bare YYYY-MM-DD as a LOCAL date so boundary entries aren't
+        // mis-bucketed (new Date('YYYY-MM-DD') parses as UTC midnight).
+        const memoryDate = parseLocalDate(m.date)
         return memoryDate >= monthStart && memoryDate <= monthEnd
       }).length
       
@@ -207,8 +211,8 @@ export default function Statistics() {
           className="text-center py-20 sm:py-24 px-4"
         >
           <motion.div
-            animate={{ scale: [1, 1.1, 1] }}
-            transition={{ duration: 2, repeat: Infinity }}
+            animate={prefersReducedMotion ? undefined : { scale: [1, 1.1, 1] }}
+            transition={prefersReducedMotion ? undefined : { duration: 2, repeat: Infinity }}
             className="mb-6"
           >
             <BarChart3 className="mx-auto text-gray-400 dark:text-gray-500" size={80} />
@@ -334,8 +338,8 @@ export default function Statistics() {
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={stats.monthlyData}>
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis dataKey="month" className="text-xs sm:text-sm" />
-              <YAxis className="text-xs sm:text-sm" />
+              <XAxis dataKey="month" tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
+              <YAxis tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="count" fill="#FF6B35" radius={[8, 8, 0, 0]} />
             </BarChart>
@@ -395,8 +399,8 @@ export default function Statistics() {
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={stats.intensityDistribution}>
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis dataKey="intensity" className="text-xs sm:text-sm" />
-              <YAxis className="text-xs sm:text-sm" />
+              <XAxis dataKey="intensity" tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
+              <YAxis tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="count" fill="#FF6B35" radius={[8, 8, 0, 0]} />
             </BarChart>

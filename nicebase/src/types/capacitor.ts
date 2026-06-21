@@ -28,6 +28,7 @@ export interface AppPlugin {
   addListener(event: string, callback: (data: unknown) => void): { remove: () => void } | Promise<{ remove: () => Promise<void> }>
   removeAllListeners(): void
   getLaunchUrl(): Promise<{ url: string } | null>
+  exitApp(): Promise<void>
 }
 
 /**

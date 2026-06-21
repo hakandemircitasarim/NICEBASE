@@ -4,6 +4,7 @@
 
 // Try to import Capacitor modules - will work in native, fail gracefully in web
 import type { CapacitorGlobal, CapacitorPlugins, AppPlugin, StatusBarPlugin, HapticsPlugin, WindowWithCapacitor } from '../types/capacitor'
+import { isNativePlatform } from './platform'
 
 let CapacitorModule: CapacitorGlobal | null = null
 let StatusBarModule: StatusBarPlugin | null = null
@@ -82,6 +83,7 @@ async function loadApp() {
         },
         removeAllListeners: appPlugin.removeAllListeners.bind(appPlugin),
         getLaunchUrl: appPlugin.getLaunchUrl.bind(appPlugin),
+        exitApp: appPlugin.exitApp.bind(appPlugin),
       } as AppPlugin
       return AppModule
     }
@@ -93,6 +95,7 @@ async function loadApp() {
       },
       removeAllListeners: module.App.removeAllListeners.bind(module.App),
       getLaunchUrl: module.App.getLaunchUrl.bind(module.App),
+      exitApp: module.App.exitApp.bind(module.App),
     } as AppPlugin
     return AppModule
   } catch {
@@ -165,18 +168,12 @@ async function loadHaptics() {
 }
 
 /**
- * Check if app is running natively (iOS or Android)
+ * Check if app is running natively (iOS or Android).
+ * Single source of truth — re-uses isNativePlatform() from ./platform so the two
+ * helpers (which previously diverged on the CapacitorPlugins fallback) can't
+ * disagree about whether we're native.
  */
-export const isNative = () => {
-  // Check if Capacitor is available via window object (set by Capacitor runtime)
-  if (typeof window !== 'undefined') {
-    const capacitor = (window as WindowWithCapacitor).Capacitor
-    if (capacitor) {
-      return capacitor.isNativePlatform()
-    }
-  }
-  return false
-}
+export const isNative = isNativePlatform
 
 /**
  * Get current platform (web, ios, android)
@@ -377,17 +374,21 @@ export const setupAppListeners = async () => {
     // Handle back button on Android
     if (isAndroid()) {
       App.addListener('backButton', () => {
-        // If custom handler is provided and returns true, don't use default behavior
+        // If a custom handler is provided and returns true, it consumed the event
+        // (e.g. closed a modal) — do nothing further.
         if (backButtonHandler && backButtonHandler()) {
           return
         }
 
-        // Check if we can go back in history
+        // Otherwise navigate back if we can, or exit the app from the root route
+        // (without this, back on the home screen did nothing — the app felt stuck).
         if (window.history.length > 1) {
           window.history.back()
+        } else {
+          App.exitApp().catch((error) => {
+            if (import.meta.env.DEV) console.warn('exitApp failed:', error)
+          })
         }
-        // Note: exitApp is not available in our AppPlugin interface
-        // This should be handled by the native app configuration
       })
     }
   } catch (error) {

@@ -92,6 +92,76 @@ export function useOAuth() {
     let listener: { remove: () => Promise<void> } | { remove: () => void } | null = null
     let aborted = false
 
+    // De-dupe callback URLs: on a cold start the same deep link arrives via BOTH
+    // getLaunchUrl() and the appUrlOpen listener, so without this the single-use
+    // OAuth code would be exchanged twice — the second exchange fails ("code
+    // already used") and would flash a spurious error toast after a successful
+    // login.
+    const handledCallbacks = new Set<string>()
+
+    // Shared callback handler so the live deep-link listener AND the cold-start
+    // getLaunchUrl() path run the exact same token exchange.
+    const processCallback = async (urlString: string) => {
+      if (!urlString) return
+      if (handledCallbacks.has(urlString)) return
+      handledCallbacks.add(urlString)
+      try {
+        // Close the in-app browser if open
+        if (_browserRef) {
+          try { await _browserRef.close() } catch { /* already closed */ }
+        }
+
+        const url = new URL(urlString)
+        const searchParams = new URLSearchParams(url.search || '')
+        const hashParams = new URLSearchParams((url.hash || '').replace('#', ''))
+
+        const errorParam = searchParams.get('error') || hashParams.get('error')
+        if (errorParam) {
+          const desc = searchParams.get('error_description') || hashParams.get('error_description') || errorParam
+          errorLoggingService.logError(new Error(`OAuth provider error: ${desc}`), 'error')
+          // Show a localized message, not the raw provider/SDK string.
+          toast.error(t('oauthError'))
+          loadingRef.current = false
+          setLoading(false)
+          return
+        }
+
+        // PKCE flow
+        const code = searchParams.get('code') || hashParams.get('code')
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
+          if (error) {
+            errorLoggingService.logError(new Error(`OAuth code exchange failed: ${error.message}`), 'error')
+            toast.error(t('oauthError'))
+          }
+          loadingRef.current = false
+          setLoading(false)
+          return
+        }
+
+        // Implicit flow fallback
+        const accessToken = hashParams.get('access_token')
+        const refreshToken = hashParams.get('refresh_token')
+        if (accessToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken || '',
+          })
+          if (error) {
+            errorLoggingService.logError(new Error(`OAuth setSession failed: ${error.message}`), 'error')
+            toast.error(t('oauthError'))
+          }
+          loadingRef.current = false
+          setLoading(false)
+          return
+        }
+      } catch (error) {
+        errorLoggingService.logError(error instanceof Error ? error : new Error('OAuth callback error'), 'error')
+        loadingRef.current = false
+        setLoading(false)
+      }
+    }
+
     const setupListener = async () => {
       const App = await getAppPlugin()
       if (!App || aborted) return
@@ -99,62 +169,7 @@ export function useOAuth() {
       try {
         const listenerResult = (App.addListener as (event: string, callback: (data: unknown) => void) => { remove: () => void } | Promise<{ remove: () => Promise<void> }>)('appUrlOpen', async (data: unknown) => {
           const { url: urlString } = data as { url: string }
-          if (!urlString) return
-
-          try {
-            // Close the in-app browser if open
-            if (_browserRef) {
-              try { await _browserRef.close() } catch { /* already closed */ }
-            }
-
-            const url = new URL(urlString)
-            const searchParams = new URLSearchParams(url.search || '')
-            const hashParams = new URLSearchParams((url.hash || '').replace('#', ''))
-
-            const errorParam = searchParams.get('error') || hashParams.get('error')
-            if (errorParam) {
-              const desc = searchParams.get('error_description') || hashParams.get('error_description') || errorParam
-              errorLoggingService.logError(new Error(`OAuth provider error: ${desc}`), 'error')
-              toast.error(desc)
-              loadingRef.current = false
-              setLoading(false)
-              return
-            }
-
-            // PKCE flow
-            const code = searchParams.get('code') || hashParams.get('code')
-            if (code) {
-              const { error } = await supabase.auth.exchangeCodeForSession(code)
-              if (error) {
-                errorLoggingService.logError(new Error(`OAuth code exchange failed: ${error.message}`), 'error')
-                toast.error(t('oauthError'))
-              }
-              loadingRef.current = false
-              setLoading(false)
-              return
-            }
-
-            // Implicit flow fallback
-            const accessToken = hashParams.get('access_token')
-            const refreshToken = hashParams.get('refresh_token')
-            if (accessToken) {
-              const { error } = await supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: refreshToken || '',
-              })
-              if (error) {
-                errorLoggingService.logError(new Error(`OAuth setSession failed: ${error.message}`), 'error')
-                toast.error(t('oauthError'))
-              }
-              loadingRef.current = false
-              setLoading(false)
-              return
-            }
-          } catch (error) {
-            errorLoggingService.logError(error instanceof Error ? error : new Error('OAuth callback error'), 'error')
-            loadingRef.current = false
-            setLoading(false)
-          }
+          await processCallback(urlString)
         })
 
         if (listenerResult instanceof Promise) {
@@ -174,6 +189,16 @@ export function useOAuth() {
       } catch (error) {
         errorLoggingService.logError(error instanceof Error ? error : new Error('OAuth listener setup failed'), 'error')
       }
+
+      // Cold-start safety: the deep link that re-launched the app may have been
+      // delivered before the listener above was attached. Consult getLaunchUrl
+      // so a killed-app OAuth round-trip still completes instead of hanging.
+      try {
+        const launch = await App.getLaunchUrl()
+        if (launch?.url && launch.url.includes('oauth/callback')) {
+          await processCallback(launch.url)
+        }
+      } catch { /* ignore */ }
     }
 
     setupListener()
@@ -216,11 +241,12 @@ export function useOAuth() {
         }
 
         if (!_socialLoginInitialized) {
-          // Initialization failed (probably missing VITE_GOOGLE_WEB_CLIENT_ID)
-          // Show error as toast, do NOT silently fall back to browser
+          // Initialization failed (probably missing VITE_GOOGLE_WEB_CLIENT_ID).
+          // Keep the technical detail in logs only — never leak an env-var name
+          // to the user; show a localized, friendly message.
           const msg = 'Native Google Sign-In init failed. Check VITE_GOOGLE_WEB_CLIENT_ID.'
           errorLoggingService.logError(new Error(msg), 'error')
-          toast.error(msg)
+          toast.error(t('googleSignInUnavailable'))
           loadingRef.current = false
           setLoading(false)
           return
@@ -307,6 +333,17 @@ export function useOAuth() {
             windowName: '_self',
           })
 
+          // Safety net: if no deep-link callback ever arrives (user abandoned the
+          // flow, or the callback was lost on a cold start), stop the spinner
+          // after 60s instead of hanging forever.
+          window.setTimeout(() => {
+            if (loadingRef.current) {
+              loadingRef.current = false
+              setLoading(false)
+              toast.error(t('oauthError'))
+            }
+          }, 60000)
+
           try {
             const finishedListener = await Browser.addListener('browserFinished', () => {
               if (loadingRef.current) {
@@ -334,13 +371,11 @@ export function useOAuth() {
         'error'
       )
 
+      // Always surface a localized message; never the raw error string.
       let userMessage = t('oauthError')
       const errorMessage = error instanceof Error ? error.message : String(error)
-
       if (errorMessage.includes('popup_closed_by_user')) {
         userMessage = t('oauthCancelled')
-      } else if (errorMessage) {
-        userMessage = errorMessage
       }
 
       toast.error(userMessage)
