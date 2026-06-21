@@ -63,6 +63,8 @@ export class NicebaseDB extends Dexie {
         }>
 
         const v2Table = tx.table('syncQueueV2')
+        const memoriesTable = tx.table('memories')
+        let droppedLegacy = 0
         for (const item of legacy) {
           let entityId: string | undefined
           if (item.type === 'create' && 'id' in item.data) {
@@ -82,8 +84,22 @@ export class NicebaseDB extends Dexie {
             userId = item.data.updates.userId
           }
 
-          // Skip if we cannot determine userId/entityId; user can still manually sync later.
-          if (!entityId || !userId) continue
+          // For legacy deletes/edits that carry no userId, recover it from the
+          // owning memory row instead of silently dropping the queued op.
+          if (!userId && entityId) {
+            try {
+              const owner = await memoriesTable.get(entityId)
+              if (owner?.userId) userId = owner.userId
+            } catch {
+              // ignore — falls through to the skip+count below
+            }
+          }
+
+          // Still indeterminate — count it so the loss isn't fully silent.
+          if (!entityId || !userId) {
+            droppedLegacy++
+            continue
+          }
 
           const dedupeKey = `${userId}:${entityId}:${item.type}`
           await v2Table.add({
@@ -100,6 +116,9 @@ export class NicebaseDB extends Dexie {
             dependsOn: null,
             lastError: null,
           })
+        }
+        if (droppedLegacy > 0 && import.meta.env.DEV) {
+          console.warn(`[db] v1->v2 sync-queue migration dropped ${droppedLegacy} legacy item(s) with no resolvable userId`)
         }
       })
 

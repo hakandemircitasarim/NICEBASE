@@ -272,10 +272,24 @@ export const memoryService = {
       .and((item) => item.status === 'in_progress')
       .toArray()
     for (const stuck of stuckItems) {
-      await db.syncQueueV2.update(stuck.id, {
-        status: 'pending',
-        nextAttemptAt: Date.now(),
-      })
+      // A crash mid-sync (WebView OOM from a large base64 payload, the OS killing
+      // the process) leaves an item in_progress without ever hitting the catch
+      // block that bumps attemptCount. Treat the crash as a failed attempt so a
+      // poison item can't re-attempt — and re-crash — on every poll forever.
+      const nextAttempt = stuck.attemptCount + 1
+      if (nextAttempt >= 10) {
+        await db.syncQueueV2.update(stuck.id, {
+          status: 'abandoned',
+          attemptCount: nextAttempt,
+          lastError: `Abandoned after ${nextAttempt} attempts (repeated crash mid-sync)`,
+        })
+      } else {
+        await db.syncQueueV2.update(stuck.id, {
+          status: 'pending',
+          attemptCount: nextAttempt,
+          nextAttemptAt: Date.now(),
+        })
+      }
     }
 
     // Get pending sync items for this user.
@@ -305,21 +319,35 @@ export const memoryService = {
         // Mark as in progress
         await db.syncQueueV2.update(item.id, { status: 'in_progress' })
 
+        // Set when some local (base64/local:) photo refs could NOT be uploaded
+        // to Storage (e.g. the bucket isn't created yet). We still push the
+        // memory's text + any URL photos, but never the base64 blobs, and we
+        // throw at the end so the item retries the upload — instead of writing
+        // multi-MB base64 into Postgres and marking it permanently synced.
+        let photosIncomplete = false
+
         if (item.op === 'create') {
           const memory = item.payload as Memory
           // Upload inline (base64/local:) photos to Storage first; swap the
           // refs for URLs and persist them back so a re-sync doesn't re-upload.
           const remotePhotos = await uploadLocalPhotos(memory.userId, memory.id, memory.photos)
-          if (memory.photos?.some(isLocalPhotoRef) && !remotePhotos.some(isLocalPhotoRef)) {
+          photosIncomplete = remotePhotos.some(isLocalPhotoRef)
+          if (memory.photos?.some(isLocalPhotoRef) && !photosIncomplete) {
             await db.memories.update(memory.id, { photos: remotePhotos })
           }
-          const supabaseData = mapMemoryToSupabase({ ...memory, photos: remotePhotos })
+          // NEVER write base64/local refs to the cloud photos column — they bloat
+          // Postgres (multi-MB rows) and get re-downloaded to every device on
+          // each incremental pull. Strip any that failed to upload.
+          const cloudPhotos = photosIncomplete ? remotePhotos.filter((p) => !isLocalPhotoRef(p)) : remotePhotos
+          const supabaseData = mapMemoryToSupabase({ ...memory, photos: cloudPhotos })
           // Use upsert instead of insert — idempotent, handles retries gracefully
           const { error } = await supabase.from('memories').upsert(supabaseData, { onConflict: 'id' })
           if (error) throw error
 
-          // Cloud now matches local at this updated_at — record the base.
-          await db.memories.update(memory.id, { synced: true, baseUpdatedAt: supabaseData.updated_at })
+          if (!photosIncomplete) {
+            // Cloud now matches local at this updated_at — record the base.
+            await db.memories.update(memory.id, { synced: true, baseUpdatedAt: supabaseData.updated_at })
+          }
         } else if (item.op === 'update') {
           const extracted = extractUpdatesFromPayload(item.payload)
           if (!extracted) {
@@ -338,6 +366,12 @@ export const memoryService = {
             if (!remotePhotos.some(isLocalPhotoRef)) {
               updates.photos = remotePhotos
               await db.memories.update(id, { photos: remotePhotos })
+            } else {
+              // Some photos couldn't upload — never write base64 to the cloud.
+              // Strip the local refs from the cloud write, keep them locally, and
+              // retry the whole item later (see the photosIncomplete throw below).
+              photosIncomplete = true
+              updates.photos = remotePhotos.filter((p) => !isLocalPhotoRef(p))
             }
           }
 
@@ -388,8 +422,11 @@ export const memoryService = {
 
               if (cloudRow) {
                 const cloudMemory = mapSupabaseToMemory(cloudRow)
-                if (existingLocal && !existingLocal.conflict && memoriesContentDiffer(existingLocal, cloudMemory)) {
-                  // Real divergence — flag for the conflict-resolution UI.
+                if (existingLocal && memoriesContentDiffer(existingLocal, cloudMemory)) {
+                  // Real divergence — flag for the conflict-resolution UI, OR
+                  // refresh an already-pending conflict with the latest cloud
+                  // snapshot (a second cloud change before the user resolves must
+                  // not leave the dialog showing a stale version).
                   await db.memories.update(id, {
                     conflict: true,
                     conflictCloud: cloudMemory,
@@ -397,16 +434,22 @@ export const memoryService = {
                   })
                   if (import.meta.env.DEV) console.warn(`[sync] Conflict detected for memory ${id}`)
                 } else {
-                  // Same content (or already flagged) — adopt the cloud base.
+                  // Content matches the cloud — adopt the cloud base. Do NOT touch
+                  // the conflict flag here: if an unresolved conflict is pending,
+                  // only the user (via the dialog) or a genuine content match in the
+                  // if-branch should change it — auto-clearing here could silently
+                  // dismiss a conflict the user never saw.
                   await db.memories.update(id, { synced: true, baseUpdatedAt: cloudRow.updated_at })
                 }
               } else if (import.meta.env.DEV) {
                 console.warn(`[sync] Update target ${id} missing in cloud (deleted remotely?)`)
               }
             } else {
-              // Success — record the new base.
+              // Success — record the new base. Keep synced:false when photos
+              // still need uploading (the photosIncomplete throw below drives the
+              // retry), so the memory isn't mislabeled as fully backed up.
               const newBase = (supabaseUpdates.updated_at as string) ?? updRows[0].updated_at
-              await db.memories.update(id, { synced: true, baseUpdatedAt: newBase })
+              await db.memories.update(id, { synced: !photosIncomplete, baseUpdatedAt: newBase })
             }
           } else {
             // Legacy row with no known base — plain update (prior behaviour),
@@ -418,15 +461,45 @@ export const memoryService = {
               .select('updated_at')
             if (error) throw error
             const newBase = (supabaseUpdates.updated_at as string) ?? updRows?.[0]?.updated_at
-            await db.memories.update(id, { synced: true, baseUpdatedAt: newBase })
+            await db.memories.update(id, { synced: !photosIncomplete, baseUpdatedAt: newBase })
           }
         } else if (item.op === 'delete') {
           const { id } = item.payload as { id: string }
+          // Don't run a delete ahead of an unfinished create for the same memory.
+          // If a create is still pending/failed/in_progress (e.g. it was already
+          // in_progress when the user deleted, so the two weren't coalesced), a
+          // delete now would be a no-op while the create later RETRIES and
+          // re-inserts the row — resurrecting a memory the user deleted. Defer
+          // the delete to a later pass; the create will eventually reach 'done'
+          // (then the delete removes the row) or 'abandoned' (then nothing to
+          // resurrect and the delete proceeds).
+          const blockingCreate = await db.syncQueueV2
+            .where('entityId')
+            .equals(id)
+            .and((q) => q.op === 'create' && q.status !== 'done' && q.status !== 'abandoned')
+            .first()
+          if (blockingCreate) {
+            await db.syncQueueV2.update(item.id, { status: 'pending', nextAttemptAt: Date.now() + 5000 })
+            continue
+          }
           const { error } = await supabase
             .from('memories')
             .delete()
             .eq('id', id)
           if (error) throw error
+        } else {
+          // Unknown op — fail loudly (retry/abandon) instead of silently falling
+          // through to the success write below. Guards against a future op (e.g.
+          // 'photoUpload') being enqueued with no handler and marked done.
+          throw new Error(`Unsupported sync op: ${item.op}`)
+        }
+
+        if (photosIncomplete) {
+          // Memory text + URL photos are saved to the cloud, but some photos
+          // could not be uploaded. Keep retrying (the upsert/update are
+          // idempotent) instead of marking done, so the photos eventually land
+          // once Storage is reachable.
+          throw new Error('Photo upload incomplete — will retry')
         }
 
         // Mark as done
@@ -476,9 +549,14 @@ export const memoryService = {
       if (error) throw error
 
       if (data && data.length > 0) {
+        const applied: { iso: string; t: number }[] = []
+        let strandedMin: number | null = null
+
         for (const row of data) {
           const memory = mapSupabaseToMemory(row)
           const existing = await db.memories.get(memory.id)
+          const rowT = new Date(row.updated_at).getTime()
+          let stranded = false
 
           if (!existing) {
             // New memory from cloud
@@ -487,22 +565,45 @@ export const memoryService = {
             // Update if cloud version is newer
             const cloudTime = new Date(memory.updatedAt).getTime()
             const localTime = new Date(existing.updatedAt).getTime()
-            if (cloudTime > localTime && existing.synced) {
-              await db.memories.put(memory)
+            if (cloudTime > localTime) {
+              if (existing.synced) {
+                await db.memories.put(memory)
+              } else {
+                // Local has unsynced edits AND the cloud is newer — we skip
+                // writing it (the local edit wins until it's pushed/resolved).
+                // Mark it stranded so the watermark stays BEHIND this row and we
+                // re-evaluate it next pull instead of losing the newer cloud
+                // version forever.
+                stranded = true
+              }
             }
+          }
+
+          if (stranded) {
+            strandedMin = strandedMin === null ? rowT : Math.min(strandedMin, rowT)
+          } else {
+            applied.push({ iso: row.updated_at, t: rowT })
           }
         }
 
-        // Advance the watermark to the max updated_at in this batch (the query
-        // is ordered desc, so data[0] is the newest). Using the server's own
-        // value keeps it in the same clock-space as the values it is compared
-        // against. When the batch is EMPTY we intentionally leave the watermark
-        // unchanged — otherwise every no-change poll would force a full
-        // re-pull.
-        try {
-          const newest = (data[0] as { updated_at?: string }).updated_at
-          if (newest) localStorage.setItem(LAST_SYNC_KEY, newest)
-        } catch { /* ignore */ }
+        // Advance the watermark to the newest applied row that is still OLDER
+        // than any stranded row, so stranded rows are re-fetched next time but we
+        // don't force a full re-pull. Using the server's own updated_at keeps it
+        // in the same clock-space as the values it's compared against. When every
+        // row is stranded (or the batch is empty) we leave the watermark
+        // unchanged.
+        let nextWatermark: string | null = null
+        let nextWatermarkT = -Infinity
+        for (const a of applied) {
+          if (strandedMin !== null && a.t >= strandedMin) continue
+          if (a.t > nextWatermarkT) {
+            nextWatermarkT = a.t
+            nextWatermark = a.iso
+          }
+        }
+        if (nextWatermark) {
+          try { localStorage.setItem(LAST_SYNC_KEY, nextWatermark) } catch { /* ignore */ }
+        }
       }
 
       // Full reconciliation (check for remote deletions) once per day max.
@@ -567,14 +668,19 @@ export const memoryService = {
     }
   },
 
-  async getSyncStatus(userId: string): Promise<{ pending: number; failed: number; abandoned: number; total: number }> {
+  async getSyncStatus(userId: string): Promise<{ pending: number; inProgress: number; failed: number; abandoned: number; total: number }> {
     const items = await db.syncQueueV2
       .where('userId')
       .equals(userId)
       .and((item) => item.status !== 'done')
       .toArray()
 
-    const pending = items.filter((item) => item.status === 'pending' || item.status === 'in_progress').length
+    // Keep 'pending' meaning "queued but not started". Report 'in_progress'
+    // separately so a caller that reads status WITHOUT first running syncAll
+    // (e.g. a backup indicator on app open) doesn't mislabel a crashed-mid-sync
+    // orphan as freshly queued work.
+    const pending = items.filter((item) => item.status === 'pending').length
+    const inProgress = items.filter((item) => item.status === 'in_progress').length
     const failed = items.filter((item) => item.status === 'failed').length
     // 'abandoned' = permanently given up; report it so the UI doesn't claim
     // these items are backed up.
@@ -582,6 +688,7 @@ export const memoryService = {
 
     return {
       pending,
+      inProgress,
       failed,
       abandoned,
       total: items.length,
