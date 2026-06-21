@@ -27,6 +27,8 @@ export default function TimePicker({
   const [hours, setHours] = useState(9)
   const [minutes, setMinutes] = useState(0)
   const pickerRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
 
   // Lock body scroll when modal is open
   useBodyScrollLock(isOpen)
@@ -59,6 +61,74 @@ export default function TimePicker({
         document.removeEventListener('touchstart', handleClickOutside)
       }
     }
+  }, [isOpen])
+
+  // Focus trap + Escape-to-close + focus restore (mirrors ModalShell)
+  useEffect(() => {
+    if (!isOpen) return
+
+    previouslyFocusedRef.current = (document.activeElement as HTMLElement) || null
+
+    const getFocusable = () => {
+      const root = dialogRef.current
+      if (!root) return [] as HTMLElement[]
+      const nodes = Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'a[href],button:not([disabled]),textarea,input,select,[tabindex]:not([tabindex="-1"])'
+        )
+      )
+      return nodes.filter((el) => !el.hasAttribute('disabled') && !el.getAttribute('aria-hidden'))
+    }
+
+    const focusFirst = () => {
+      const focusables = getFocusable()
+      if (focusables.length > 0) {
+        focusables[0].focus()
+        return
+      }
+      dialogRef.current?.focus()
+    }
+
+    const timer = window.setTimeout(() => {
+      focusFirst()
+    }, 0)
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleClose()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const focusables = getFocusable()
+      if (focusables.length === 0) {
+        e.preventDefault()
+        dialogRef.current?.focus()
+        return
+      }
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey) {
+        if (!active || active === first || !dialogRef.current?.contains(active)) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else {
+        if (!active || active === last || !dialogRef.current?.contains(active)) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('keydown', onKeyDown)
+      // Restore focus to the element that opened the picker
+      previouslyFocusedRef.current?.focus?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
   const handleOpen = () => {
@@ -114,6 +184,38 @@ export default function TimePicker({
       hapticFeedback('light')
       return newValue
     })
+  }
+
+  const handleHoursKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      incrementHours()
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      decrementHours()
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      setHours(0)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      setHours(23)
+    }
+  }
+
+  const handleMinutesKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      incrementMinutes()
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      decrementMinutes()
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      setMinutes(0)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      setMinutes(55)
+    }
   }
 
   const displayValue = value ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}` : ''
@@ -191,11 +293,16 @@ export default function TimePicker({
               }}
             >
               <motion.div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-label={t('selectTime')}
+                tabIndex={-1}
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                className="bg-white dark:bg-gray-800 rounded-t-3xl sm:rounded-3xl shadow-2xl 
-                           border border-gray-200 dark:border-gray-700 
+                className="bg-white dark:bg-gray-800 rounded-t-3xl sm:rounded-3xl shadow-2xl
+                           border border-gray-200 dark:border-gray-700
                            w-full max-h-[85vh] overflow-y-auto
                            overflow-hidden flex flex-col"
               >
@@ -225,7 +332,17 @@ export default function TimePicker({
                     >
                       <ChevronUp size={24} className="text-gray-400" />
                     </button>
-                    <div className="text-5xl font-bold text-gray-900 dark:text-gray-100 my-2 min-w-[60px] text-center">
+                    <div
+                      role="spinbutton"
+                      tabIndex={0}
+                      aria-label={t('hoursLabel', { defaultValue: 'Hours' })}
+                      aria-valuemin={0}
+                      aria-valuemax={23}
+                      aria-valuenow={hours}
+                      aria-valuetext={String(hours).padStart(2, '0')}
+                      onKeyDown={handleHoursKeyDown}
+                      className="text-5xl font-bold text-gray-900 dark:text-gray-100 my-2 min-w-[60px] text-center outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg"
+                    >
                       {String(hours).padStart(2, '0')}
                     </div>
                     <button
@@ -251,7 +368,17 @@ export default function TimePicker({
                     >
                       <ChevronUp size={24} className="text-gray-400" />
                     </button>
-                    <div className="text-5xl font-bold text-gray-900 dark:text-gray-100 my-2 min-w-[60px] text-center">
+                    <div
+                      role="spinbutton"
+                      tabIndex={0}
+                      aria-label={t('minutesLabel', { defaultValue: 'Minutes' })}
+                      aria-valuemin={0}
+                      aria-valuemax={55}
+                      aria-valuenow={minutes}
+                      aria-valuetext={String(minutes).padStart(2, '0')}
+                      onKeyDown={handleMinutesKeyDown}
+                      className="text-5xl font-bold text-gray-900 dark:text-gray-100 my-2 min-w-[60px] text-center outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg"
+                    >
                       {String(minutes).padStart(2, '0')}
                     </div>
                     <button

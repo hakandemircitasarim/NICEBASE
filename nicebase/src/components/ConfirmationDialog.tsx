@@ -103,7 +103,7 @@ export default function ConfirmationDialog({
                 </div>
                 <button
                   onClick={handleCancel}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors p-1 touch-manipulation"
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors touch-manipulation touch-target inline-flex items-center justify-center"
                   aria-label={t('cancel')}
                 >
                   <X size={20} />

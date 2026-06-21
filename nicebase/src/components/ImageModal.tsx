@@ -20,6 +20,8 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
   const [isZoomed, setIsZoomed] = useState(false)
   const imageRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
   const lastTouchDistanceRef = useRef<number | null>(null)
   const lastTouchCenterRef = useRef<{ x: number; y: number } | null>(null)
   const isPanningRef = useRef(false)
@@ -32,6 +34,17 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
     setPosition({ x: 0, y: 0 })
     setIsZoomed(false)
   }, [initialIndex])
+
+  // Focus the dialog on open (so Escape/Arrow keys work immediately and screen
+  // readers announce it) and restore focus to the opener on close.
+  useEffect(() => {
+    previouslyFocusedRef.current = (document.activeElement as HTMLElement) || null
+    const timer = window.setTimeout(() => rootRef.current?.focus(), 0)
+    return () => {
+      window.clearTimeout(timer)
+      previouslyFocusedRef.current?.focus?.()
+    }
+  }, [])
 
   const nextImage = () => {
     if (currentIndex < images.length - 1 && !isZoomed) {
@@ -55,6 +68,33 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
         resetZoom()
       } else {
         onClose()
+      }
+    }
+    // Trap Tab within the dialog so focus can't escape to the page behind it.
+    if (e.key === 'Tab') {
+      const root = rootRef.current
+      if (!root) return
+      const focusables = Array.from(
+        root.querySelectorAll<HTMLElement>('button:not([disabled]),[tabindex]:not([tabindex="-1"])')
+      )
+      if (focusables.length === 0) {
+        e.preventDefault()
+        root.focus()
+        return
+      }
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey) {
+        if (!active || active === first || !root.contains(active)) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else {
+        if (!active || active === last || !root.contains(active)) {
+          e.preventDefault()
+          first.focus()
+        }
       }
     }
   }
@@ -176,6 +216,7 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
   return (
     <AnimatePresence>
       <motion.div
+        ref={rootRef}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}

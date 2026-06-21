@@ -38,6 +38,62 @@ interface SettingsSheetProps {
   onClose: () => void
 }
 
+// Collapsible section. Defined at MODULE scope (not inside SettingsSheet) so its
+// component identity is stable across renders. A render-defined component is a
+// brand-new type on every render, so React remounts its whole subtree — and any
+// focused input inside an expanded section loses focus on each keystroke.
+function Section({
+  id,
+  icon,
+  iconBg,
+  title,
+  children,
+  expandedSection,
+  onToggle,
+}: {
+  id: string
+  icon: React.ReactNode
+  iconBg: string
+  iconColor?: string
+  title: string
+  children: React.ReactNode
+  expandedSection: string | null
+  onToggle: (id: string) => void
+}) {
+  const isExpanded = expandedSection === id
+  return (
+    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden">
+      <button
+        onClick={() => onToggle(id)}
+        className="w-full flex items-center gap-3 p-4 touch-manipulation text-left"
+      >
+        <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}>
+          {icon}
+        </div>
+        <span className="flex-1 font-semibold text-gray-900 dark:text-gray-100">{title}</span>
+        {isExpanded ? (
+          <ChevronUp size={18} className="text-gray-400" />
+        ) : (
+          <ChevronDown size={18} className="text-gray-400" />
+        )}
+      </button>
+      {isExpanded && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="px-4 pb-4"
+        >
+          <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+            {children}
+          </div>
+        </motion.div>
+      )}
+    </div>
+  )
+}
+
 export default function SettingsSheet({ onClose }: SettingsSheetProps) {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
@@ -143,8 +199,19 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     if (dailyReminderTime) {
       updates.daily_reminder_time = dailyReminderTime
       notificationService.cancelReminder(user.id)
-      await notificationService.requestPermission()
-      notificationService.scheduleDailyReminder(dailyReminderTime, user.id)
+      const granted = await notificationService.requestPermission()
+      if (granted) {
+        notificationService.scheduleDailyReminder(dailyReminderTime, user.id)
+      } else {
+        // Don't silently claim success — the time is saved but no notification
+        // will fire until the user grants permission.
+        toast.error(t('notificationPermissionDenied'))
+      }
+    } else {
+      // Reminder disabled — cancel BOTH the daily reminder and the streak
+      // protection notification so neither keeps firing.
+      notificationService.cancelReminder(user.id)
+      notificationService.cancelStreakProtection(user.id)
     }
     if (weeklySummaryDay)
       updates.weekly_summary_day = parseInt(weeklySummaryDay)
@@ -230,7 +297,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       const isTimeout = errorMessage === 'Sync timeout'
       toast.error(
-        isTimeout ? t('syncTimeout', { defaultValue: 'Senkronizasyon zaman a\u015f\u0131m\u0131na u\u011frad\u0131' }) : (t('syncError') + (errorMessage ? `: ${errorMessage}` : '')),
+        // Show only localized copy \u2014 don't append the raw (untranslated) error.
+        isTimeout ? t('syncTimeout', { defaultValue: 'Senkronizasyon zaman a\u015f\u0131m\u0131na u\u011frad\u0131' }) : t('syncError'),
         { id: 'sync', duration: 5000 }
       )
       errorLoggingService.logError(
@@ -341,60 +409,6 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     }
   }
 
-  // Collapsible section component
-  const Section = ({
-    id,
-    icon,
-    iconBg,
-    iconColor,
-    title,
-    children,
-  }: {
-    id: string
-    icon: React.ReactNode
-    iconBg: string
-    iconColor: string
-    title: string
-    children: React.ReactNode
-  }) => {
-    const isExpanded = expandedSection === id
-    return (
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden">
-        <button
-          onClick={() => toggleSection(id)}
-          className="w-full flex items-center gap-3 p-4 touch-manipulation text-left"
-        >
-          <div
-            className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}
-          >
-            {icon}
-          </div>
-          <span className="flex-1 font-semibold text-gray-900 dark:text-gray-100">
-            {title}
-          </span>
-          {isExpanded ? (
-            <ChevronUp size={18} className="text-gray-400" />
-          ) : (
-            <ChevronDown size={18} className="text-gray-400" />
-          )}
-        </button>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="px-4 pb-4"
-          >
-            <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </div>
-    )
-  }
-
   return (
     <>
       {/* Backdrop */}
@@ -435,6 +449,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           {/* Theme */}
           <Section
             id="theme"
+            expandedSection={expandedSection}
+            onToggle={toggleSection}
             icon={<Sun size={18} className="text-yellow-600 dark:text-yellow-400" />}
             iconBg="bg-yellow-100 dark:bg-yellow-900/30"
             iconColor="text-yellow-600"
@@ -481,6 +497,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           {/* Language */}
           <Section
             id="language"
+            expandedSection={expandedSection}
+            onToggle={toggleSection}
             icon={<span className="text-base">🌐</span>}
             iconBg="bg-indigo-100 dark:bg-indigo-900/30"
             iconColor="text-indigo-600"
@@ -513,6 +531,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           {/* Notifications */}
           <Section
             id="notifications"
+            expandedSection={expandedSection}
+            onToggle={toggleSection}
             icon={<Bell size={18} className="text-purple-600 dark:text-purple-400" />}
             iconBg="bg-purple-100 dark:bg-purple-900/30"
             iconColor="text-purple-600"
@@ -597,6 +617,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           {/* Sync */}
           <Section
             id="sync"
+            expandedSection={expandedSection}
+            onToggle={toggleSection}
             icon={<RefreshCw size={18} className="text-cyan-600 dark:text-cyan-400" />}
             iconBg="bg-cyan-100 dark:bg-cyan-900/30"
             iconColor="text-cyan-600"
@@ -618,6 +640,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           {/* Export */}
           <Section
             id="export"
+            expandedSection={expandedSection}
+            onToggle={toggleSection}
             icon={<Download size={18} className="text-emerald-600 dark:text-emerald-400" />}
             iconBg="bg-emerald-100 dark:bg-emerald-900/30"
             iconColor="text-emerald-600"
@@ -661,6 +685,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           {user && (
             <Section
               id="security"
+              expandedSection={expandedSection}
+              onToggle={toggleSection}
               icon={<Shield size={18} className="text-blue-600 dark:text-blue-400" />}
               iconBg="bg-blue-100 dark:bg-blue-900/30"
               iconColor="text-blue-600"
@@ -758,6 +784,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           {import.meta.env.DEV && (
             <Section
               id="dev"
+              expandedSection={expandedSection}
+              onToggle={toggleSection}
               icon={<span className="text-base">🛠</span>}
               iconBg="bg-gray-100 dark:bg-gray-700"
               iconColor="text-gray-600"

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { hapticFeedback } from '../utils/haptic'
 
@@ -23,6 +24,7 @@ export default function RangeSlider({
   label,
   className = '',
 }: RangeSliderProps) {
+  const { t } = useTranslation()
   const [isDragging, setIsDragging] = useState(false)
   const [localValue, setLocalValue] = useState(value)
   const sliderRef = useRef<HTMLDivElement>(null)
@@ -182,7 +184,7 @@ export default function RangeSlider({
           ref={sliderRef}
           role="slider"
           tabIndex={0}
-          aria-label={label || 'value'}
+          aria-label={label || t('sliderValue')}
           aria-orientation="horizontal"
           aria-valuemin={min}
           aria-valuemax={max}
@@ -248,7 +250,7 @@ export default function RangeSlider({
                     ? 'text-primary'
                     : 'text-gray-400 dark:text-gray-600'
                 }`}
-                aria-label={`Set value to ${stepValue}`}
+                aria-label={t('setValueTo', { value: stepValue })}
               >
                 {stepValue}
               </button>

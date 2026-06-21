@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { motion } from 'framer-motion'
 import { hapticFeedback } from '../utils/haptic'
 
@@ -20,6 +21,9 @@ export default function Toggle({
   size = 'md',
   className = '',
 }: ToggleProps) {
+  const reactId = useId()
+  const buttonId = `toggle-${reactId}`
+
   const handleToggle = () => {
     if (disabled) return
     onChange(!checked)
@@ -50,19 +54,22 @@ export default function Toggle({
     <div className={`flex items-center ${label ? 'justify-between w-full' : 'gap-3'} ${className}`}>
       {label && (
         <label
+          htmlFor={buttonId}
           className={`text-sm sm:text-base font-semibold text-gray-700 dark:text-gray-300 cursor-pointer ${
             disabled ? 'opacity-50 cursor-not-allowed' : ''
           }`}
-          onClick={disabled ? undefined : handleToggle}
         >
           {label}
         </label>
       )}
       <button
+        id={buttonId}
         type="button"
         role="switch"
         aria-checked={checked}
-        aria-label={ariaLabel || label}
+        // When a visible <label> is associated via htmlFor it provides the
+        // accessible name; only fall back to ariaLabel when there's no label.
+        aria-label={label ? undefined : ariaLabel}
         disabled={disabled}
         onClick={handleToggle}
         className={`

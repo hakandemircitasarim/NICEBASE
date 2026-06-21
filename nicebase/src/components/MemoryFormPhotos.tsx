@@ -230,7 +230,7 @@ export default function MemoryFormPhotos({
                   hapticFeedback('warning')
                   onPhotoDelete(idx)
                 }}
-                className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-lg touch-manipulation"
+                className="absolute top-2 right-2 bg-red-500 text-white rounded-full opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-lg touch-manipulation touch-target inline-flex items-center justify-center"
               >
                 <X size={14} />
               </motion.button>

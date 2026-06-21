@@ -290,30 +290,38 @@ export default function MemoryForm({
     }
   }, [formData, memory, userId])
 
-  // Save form state to sessionStorage when app goes to background
+  // Keep the latest formData in a ref so the background-save effect below reads
+  // current values WITHOUT re-subscribing on every keystroke.
+  const formDataRef = useRef(formData)
+  formDataRef.current = formData
+
+  // Save form state to sessionStorage when the app goes to background. Stable
+  // deps [memory, userId] mean the interval + visibilitychange listener are set
+  // up ONCE for the form's lifetime instead of being torn down and recreated on
+  // every keystroke.
   useEffect(() => {
     if (!memory) {
       const saveToSession = () => {
         try {
           sessionStorage.setItem(`memory_form_state_${userId}`, JSON.stringify({
-            ...formData,
+            ...formDataRef.current,
             savedAt: Date.now(),
           }))
-        } catch (error) {
+        } catch {
           // Ignore sessionStorage errors
         }
       }
 
       // Save on visibility change (app goes to background)
       const handleVisibilityChange = () => {
-        if (document.hidden && formData.text.trim().length > 0) {
+        if (document.hidden && formDataRef.current.text.trim().length > 0) {
           saveToSession()
         }
       }
 
       // Save periodically while form is open
       const interval = setInterval(() => {
-        if (formData.text.trim().length > 0) {
+        if (formDataRef.current.text.trim().length > 0) {
           saveToSession()
         }
       }, 5000) // Save every 5 seconds
@@ -325,7 +333,7 @@ export default function MemoryForm({
         clearInterval(interval)
       }
     }
-  }, [formData, memory, userId])
+  }, [memory, userId])
 
   // Restore form state from sessionStorage on mount
   useEffect(() => {
@@ -614,7 +622,10 @@ export default function MemoryForm({
     try {
       for (let i = 0; i < Math.min(files.length, maxPhotos); i++) {
         const file = files[i]
-        const compressed = await compressImage(file, 1920, 0.8)
+        // 1280px / 0.7 keeps inline base64 photos much lighter pre-sync (they
+        // live in IndexedDB and, until uploaded, get pushed to Postgres) while
+        // staying sharp enough for a journaling thumbnail/detail view.
+        const compressed = await compressImage(file, 1280, 0.7)
         newPhotos.push(compressed)
       }
       setFormData(prev => ({ ...prev, photos: [...prev.photos, ...newPhotos] }))
@@ -765,7 +776,7 @@ export default function MemoryForm({
         </h2>
         <button
           onClick={requestClose}
-          className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors touch-manipulation"
+          className="touch-target inline-flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors touch-manipulation"
           aria-label={t('close')}
         >
           <X size={18} />
@@ -1303,7 +1314,7 @@ export default function MemoryForm({
                   </div>
                   <button
                     onClick={() => setShowDirtyConfirm(false)}
-                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors p-1 touch-manipulation"
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors touch-manipulation touch-target inline-flex items-center justify-center"
                     aria-label={t('cancel')}
                   >
                     <X size={20} />

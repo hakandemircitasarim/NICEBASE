@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import {
@@ -56,7 +56,9 @@ export default function VaultFilters({
   onConnectionsChange,
 }: VaultFiltersProps) {
   const { t } = useTranslation()
-  const uniqueConnections = getUniqueConnections(memories)
+  // Dedupe over all memories only when the list actually changes — not on every
+  // keystroke in the search box (which re-renders this component).
+  const uniqueConnections = useMemo(() => getUniqueConnections(memories), [memories])
   const [isExpanded, setIsExpanded] = useState(false)
 
   const hasActiveFilters = selectedCategory !== 'all' || 

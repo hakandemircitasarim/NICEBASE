@@ -148,6 +148,16 @@ function MemoryCard({
         onMouseDown={longPressHandlers.onMouseDown}
         onMouseUp={longPressHandlers.onMouseUp}
         onMouseLeave={longPressHandlers.onMouseLeave}
+        // In bulk mode the card acts as a checkbox — make it keyboard-operable.
+        role={bulkMode ? 'checkbox' : undefined}
+        aria-checked={bulkMode ? isSelected : undefined}
+        tabIndex={bulkMode ? 0 : undefined}
+        onKeyDown={bulkMode ? (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onSelect()
+          }
+        } : undefined}
       >
         {/* Long press ripple */}
         {isLongPressing && (
@@ -209,6 +219,9 @@ function MemoryCard({
             {memory.photos.map((photo, idx) => (
               <motion.div
                 key={idx}
+                role="button"
+                tabIndex={0}
+                aria-label={t('viewPhoto', { n: idx + 1 })}
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
                 className={`rounded-lg cursor-pointer touch-manipulation overflow-hidden bg-gray-100 dark:bg-gray-700 ${
@@ -217,6 +230,13 @@ function MemoryCard({
                 onClick={() => {
                   hapticFeedback('light')
                   onImageClick(memory.photos, idx)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    hapticFeedback('light')
+                    onImageClick(memory.photos, idx)
+                  }
                 }}
               >
                 <ProgressiveImage
