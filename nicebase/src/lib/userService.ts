@@ -3,6 +3,7 @@ import { mapUserFromSupabase } from './userMapper'
 import { User } from '../types'
 import { errorLoggingService } from '../services/errorLoggingService'
 import { SupabaseError } from '../types/supabase'
+import { DEFAULT_AIYA_LIMIT, DEFAULT_LANGUAGE, DEFAULT_THEME } from './userDefaults'
 
 /**
  * Fetches user data from Supabase by user ID
@@ -110,7 +111,14 @@ export async function ensureUserExists(
   let retries = maxRetries
 
   while (retries > 0 && !userCreated) {
-    // Use upsert to avoid 409 conflicts when the row exists but isn't readable yet
+    // Use upsert with ignoreDuplicates so PostgREST emits ON CONFLICT DO NOTHING
+    // (an INSERT-only statement). A plain upsert compiles to ON CONFLICT DO UPDATE
+    // SET <every column>, and Postgres checks column-level UPDATE privileges on that
+    // SET clause at executor startup regardless of whether a conflict fires. Since
+    // migration 20260620010000 REVOKEs UPDATE on the billing/identity columns from
+    // `authenticated`, the UPDATE form throws 42501 permission-denied and leaves new
+    // users with no public.users row. DO NOTHING has no SET clause, so no UPDATE
+    // privilege is required; the row is re-fetched below to honour the race intent.
     const { error: dbError } = await supabase.from('users').upsert(
       {
         id: userId,
@@ -119,14 +127,14 @@ export async function ensureUserExists(
         avatar_url: metadata?.avatarUrl || null,
         is_premium: false,
         aiya_messages_used: 0,
-        aiya_messages_limit: 50,
+        aiya_messages_limit: DEFAULT_AIYA_LIMIT,
         weekly_summary_day: null,
         daily_reminder_time: null,
-        language: 'tr',
-        theme: 'light',
+        language: DEFAULT_LANGUAGE,
+        theme: DEFAULT_THEME,
         created_at: new Date().toISOString(),
       },
-      { onConflict: 'id' }
+      { onConflict: 'id', ignoreDuplicates: true }
     )
 
     if (!dbError) {

@@ -49,6 +49,11 @@ const REQUEST_TIMEOUT_MS = 30000
 const MAX_CONTEXT_MEMORIES = 80
 const MAX_CONTEXT_CHARS = 16000
 const STATS_HEADER_BUDGET = 2000
+// Cap how many messages of a transcript we upsert to the cloud. The whole array
+// is re-uploaded every sync window, so an unbounded transcript means growing
+// write-amplification and egress. Keeping the last N is plenty for cross-device
+// continuity (the full history still lives locally).
+const MAX_SYNCED_CHAT_MESSAGES = 200
 
 // ─── Message Router — "Gearbox" Architecture ──────────────
 // Determines how much context is needed based on message content
@@ -64,11 +69,16 @@ type RouteResult = {
   includeProfile: boolean // whether to include profile in prompt
 }
 
-// Keywords for tier detection (Turkish + English)
+// Keywords for tier detection (Turkish + English).
+// NOTE: the edge function (supabase/functions/aiya-chat/index.ts) keeps its own
+// server-side copy of this list and re-scans every message — the server never
+// trusts the client crisis flag alone. Keep the two lists loosely in sync.
 const CRISIS_WORDS = [
   'intihar', 'suicide', 'ölmek istiyorum', 'kendime zarar', 'self-harm', 'self harm',
   'yaşamak istemiyorum', 'hayatıma son', 'want to die', 'kill myself', 'ending it all',
   'kendimi öldür', 'dayanamıyorum artık', 'can not take it anymore', 'hayatımı bitir',
+  'kendimi asaca', 'canıma kıy', 'end my life', 'no reason to live', 'overdose',
+  'better off dead', "don't want to live", 'dont want to live', 'take my own life',
 ]
 
 const DEEP_WORDS = [
@@ -124,7 +134,17 @@ function findRelevantMemories(memories: Memory[], message: string, limit: number
 
   const words = message.toLowerCase().split(/\s+/).filter(w => w.length > 3)
 
-  const scored = memories.map(m => {
+  // Always force-include the most-recent memories so the returned lines are a
+  // superset of the recent window the stats header summarizes (otherwise the
+  // model can be told "you wrote X this week" with no matching line to ground it).
+  const byDateDesc = [...memories].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  )
+  const forcedCount = Math.min(Math.ceil(limit / 3), byDateDesc.length)
+  const forced = byDateDesc.slice(0, forcedCount)
+  const forcedIds = new Set(forced.map(m => m.id))
+
+  const scored = memories.filter(m => !forcedIds.has(m.id)).map(m => {
     let score = 0
     const text = m.text.toLowerCase()
 
@@ -152,10 +172,12 @@ function findRelevantMemories(memories: Memory[], message: string, limit: number
     return { memory: m, score }
   })
 
-  return scored
+  const topScored = scored
     .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
+    .slice(0, Math.max(0, limit - forcedCount))
     .map(s => s.memory)
+
+  return [...forced, ...topScored]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()) // re-sort by date
 }
 
@@ -667,7 +689,9 @@ export const aiyaService = {
         id: chat.id,
         user_id: userId,
         title: chat.title,
-        messages: chat.messages,
+        messages: chat.messages.length > MAX_SYNCED_CHAT_MESSAGES
+          ? chat.messages.slice(-MAX_SYNCED_CHAT_MESSAGES)
+          : chat.messages,
         created_at: new Date(chat.createdAt).toISOString(),
         updated_at: new Date(chat.updatedAt).toISOString(),
       }))

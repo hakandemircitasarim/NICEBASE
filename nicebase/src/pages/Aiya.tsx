@@ -808,6 +808,8 @@ export default function Aiya() {
     setView('chat')
     setInput('')
     setErrorMessage(null)
+    // Crisis banner is per-conversation — don't let it bleed into a new chat.
+    setCrisisActive(false)
     hapticFeedback('light')
     setTimeout(() => textareaRef.current?.focus(), 200)
   }, [])
@@ -818,6 +820,9 @@ export default function Aiya() {
     // Restore draft if available
     setInput(loadDraft(id))
     setErrorMessage(null)
+    // Reset the crisis banner when switching chats; it re-triggers if the next
+    // message in this conversation is routed as a crisis.
+    setCrisisActive(false)
     hapticFeedback('light')
     // Use requestAnimationFrame + setTimeout for reliable scroll on Android
     requestAnimationFrame(() => {
@@ -862,7 +867,10 @@ export default function Aiya() {
         setProfileSummary(summary)
         setProfileMeta({ summary, messageCount: count, updatedAt: Date.now() })
       }
-      if (res.usage) setUsage(res.usage)
+      // NOTE: the profile build is unmetered and the edge function no longer
+      // returns `usage` for it. We deliberately do NOT touch setUsage here — the
+      // chat handler is the single source of truth for the quota counter, so a
+      // background profile build can never make it jump backward.
     } catch { /* silent */ }
   }, [memories, locale, profileMeta])
 
@@ -972,6 +980,17 @@ export default function Aiya() {
       else if (lower.includes('network') || lower.includes('timeout') || lower.includes('failed to fetch') || lower.includes('fetch')) friendly = t('aiyaNetworkError')
       else friendly = t('aiyaError')
       setErrorMessage(friendly)
+      // Roll back the optimistic user bubble (it would otherwise sit in the
+      // thread with no reply and pollute future model history) and restore the
+      // text to the input so the user can simply resend.
+      setChats((prev) => prev.map((c) => {
+        if (c.id !== targetChatId) return c
+        const msgs = [...c.messages]
+        const last = msgs[msgs.length - 1]
+        if (last && last.role === 'user' && last.content === text) msgs.pop()
+        return { ...c, messages: msgs }
+      }))
+      setInput((cur) => cur || text)
     } finally {
       setSending(false)
     }
@@ -1351,7 +1370,7 @@ export default function Aiya() {
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => scrollToBottom()}
             className="absolute right-4 sm:right-6 w-11 h-11 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 shadow-lg flex items-center justify-center z-20 touch-manipulation touch-target"
-            style={{ bottom: '100px' }}
+            style={{ bottom: 'calc(100px + var(--safe-area-inset-bottom, 0px))' }}
           >
             <ChevronDown size={20} className="text-gray-600 dark:text-gray-300" />
           </motion.button>

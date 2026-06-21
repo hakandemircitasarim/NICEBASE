@@ -20,6 +20,10 @@ const CHAT_FREQUENCY_PENALTY = 0.35
 const CHAT_PRESENCE_PENALTY = 0.5
 const CHAT_TOP_P = 0.92
 const DEFAULT_LIMIT = 50
+// Canonical new-user defaults. Mirror of src/lib/userDefaults.ts (separate
+// runtime — Deno vs the browser bundle — so the value is duplicated on purpose).
+const DEFAULT_LANGUAGE = 'tr'
+const DEFAULT_THEME = 'light'
 
 // Server-side burst rate limits (independent of the daily message quota).
 // chat/analysis/profile share the 'chat' bucket; classify/category share
@@ -116,6 +120,41 @@ function crisisSafetyMessage(locale: string | undefined): string {
     "In this situation do NOT use phrases like 'I am an AI' or 'I am always here'; instead point them",
     'to real human support. Never judge, minimize, or dismiss what they share.',
   ].join(' ')
+}
+
+// Server-side self-harm / crisis detection. The client ALSO flags crisis (as a
+// latency hint), but the server never trusts that flag alone: a stale client
+// build, a client that omits the flag, or anyone calling this function directly
+// with a valid bearer token must still receive the safety scaffolding. Keep this
+// list loosely in sync with CRISIS_WORDS in src/services/aiyaService.ts — it is
+// duplicated on purpose because the two run in different runtimes (Deno vs the
+// browser bundle) and cannot share an import.
+const CRISIS_WORDS = [
+  // Turkish
+  'intihar', 'ölmek istiyorum', 'yaşamak istemiyorum', 'hayatıma son',
+  'hayatımı bitir', 'kendimi öldür', 'kendime zarar', 'kendimi asaca',
+  'canıma kıy', 'yaşamanın anlamı yok', 'dayanamıyorum artık',
+  // English
+  'suicide', 'kill myself', 'want to die', 'end my life', 'ending it all',
+  'self-harm', 'self harm', 'no reason to live', 'overdose', "can't go on",
+  'cant go on', 'better off dead', "don't want to live", 'dont want to live',
+  'take my own life',
+]
+
+function serverDetectsCrisis(
+  text: string | undefined,
+  history: Array<{ role: 'user' | 'assistant'; content: string }>,
+): boolean {
+  const haystacks: string[] = []
+  if (text) haystacks.push(text.toLowerCase())
+  // Also scan the most recent user turn in the history.
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i]?.role === 'user') {
+      haystacks.push(String(history[i].content || '').toLowerCase())
+      break
+    }
+  }
+  return haystacks.some((h) => CRISIS_WORDS.some((w) => h.includes(w)))
 }
 
 function safeJsonParse(text: string) {
@@ -241,8 +280,8 @@ serve(async (req) => {
           aiya_messages_limit: DEFAULT_LIMIT,
           weekly_summary_day: null,
           daily_reminder_time: null,
-          language: 'tr',
-          theme: 'light',
+          language: DEFAULT_LANGUAGE,
+          theme: DEFAULT_THEME,
           created_at: new Date().toISOString(),
         },
         { onConflict: 'id' }
@@ -275,7 +314,20 @@ serve(async (req) => {
   const isCounted = COUNTED_ACTIONS.has(normalizedAction)
 
   // ── Server-side rate limiting + atomic metering ──────────────
-  async function enforceRateLimit(bucket: string, max: number, windowSeconds: number): Promise<boolean> {
+  // `failClosed` controls behaviour when the rate-limit RPC is unreachable:
+  //  - chat bucket (failClosed=false): fail OPEN — the daily quota enforced by
+  //    the atomic meterUsage() is the real ceiling, so a transient limiter
+  //    outage must not break legitimate chat.
+  //  - classify/category bucket (failClosed=true): fail CLOSED — this path is
+  //    NOT metered against the daily quota, so without the limiter it would have
+  //    no ceiling at all. A blocked classify degrades gracefully (the client
+  //    just skips auto-categorisation).
+  async function enforceRateLimit(
+    bucket: string,
+    max: number,
+    windowSeconds: number,
+    failClosed: boolean,
+  ): Promise<boolean> {
     try {
       const { data, error } = await supabaseAdmin.rpc('check_aiya_rate_limit', {
         p_user: userId,
@@ -284,51 +336,38 @@ serve(async (req) => {
         p_window_seconds: windowSeconds,
       })
       if (error) {
-        // Fail-open on infra error so a missing/old RPC doesn't break Aiya.
         console.error('Aiya rate-limit RPC failed', error)
-        return true
+        return !failClosed
       }
       return data !== false
     } catch (err) {
       console.error('Aiya rate-limit RPC threw', err)
-      return true
+      return !failClosed
     }
   }
 
-  // Atomically reserve one usage slot. Returns the new {used, limit}, or null
-  // if the user is already at/over their cap.
+  // Atomically reserve one usage slot via the SECURITY DEFINER RPC. Returns the
+  // new {used, limit}, or null if the user is already at/over their cap. THROWS
+  // if the RPC is unavailable — the caller turns that into a 503 rather than
+  // allowing un-metered overspend (PostgREST cannot express the atomic
+  // "increment only while under limit" as a plain UPDATE, so there is no safe
+  // non-atomic fallback).
   async function meterUsage(): Promise<{ used: number; limit: number } | null> {
-    try {
-      const { data, error } = await supabaseAdmin.rpc('increment_aiya_usage', { p_user: userId })
-      if (error) throw error
-      const row = Array.isArray(data) ? data[0] : data
-      if (!row) return null
-      return { used: row.used ?? usageUsed + 1, limit: row.lim ?? usageLimit }
-    } catch (err) {
-      // Fallback for the (rare) case the RPC isn't deployed yet: non-atomic
-      // read-then-write using the snapshot loaded above.
-      console.error('Aiya increment_aiya_usage RPC unavailable, falling back', err)
-      if (usageUsed >= usageLimit) return null
-      const { data: updated } = await supabaseAdmin
-        .from('users')
-        .update({ aiya_messages_used: usageUsed + 1 })
-        .eq('id', userId)
-        .select('aiya_messages_used, aiya_messages_limit')
-        .maybeSingle()
-      return {
-        used: updated?.aiya_messages_used ?? usageUsed + 1,
-        limit: updated?.aiya_messages_limit ?? usageLimit,
-      }
-    }
+    const { data, error } = await supabaseAdmin.rpc('increment_aiya_usage', { p_user: userId })
+    if (error) throw error
+    const row = Array.isArray(data) ? data[0] : data
+    if (!row) return null
+    return { used: row.used ?? usageUsed + 1, limit: row.lim ?? usageLimit }
   }
 
   // Best-effort refund if the OpenAI call fails AFTER we reserved a slot.
+  // Uses an atomic relative decrement RPC (GREATEST(0, used - 1)) so it can
+  // never clobber a concurrent request's legitimate +1 the way an absolute
+  // write of a stale snapshot would.
   async function refundUsage(): Promise<void> {
     try {
-      await supabaseAdmin
-        .from('users')
-        .update({ aiya_messages_used: Math.max(0, usageUsed) })
-        .eq('id', userId)
+      const { error } = await supabaseAdmin.rpc('decrement_aiya_usage', { p_user: userId })
+      if (error) throw error
     } catch (err) {
       console.error('Aiya usage refund failed', err)
     }
@@ -336,13 +375,16 @@ serve(async (req) => {
 
   // Apply the burst limiter up front.
   if (normalizedAction === 'classify' || normalizedAction === 'category') {
-    if (!(await enforceRateLimit('classify', RATE_CLASSIFY_MAX, RATE_CLASSIFY_WINDOW_S))) {
+    // Unmetered path → fail CLOSED so it always has a ceiling.
+    if (!(await enforceRateLimit('classify', RATE_CLASSIFY_MAX, RATE_CLASSIFY_WINDOW_S, true))) {
       return jsonResponse({ error: 'Rate limit exceeded' }, 429)
     }
   } else if (isCounted || normalizedAction === 'profile') {
     // chat/analysis (billed) and the background profile build (not billed, but
-    // an expensive gpt-4o call) all share the burst limiter.
-    if (!(await enforceRateLimit('chat', RATE_CHAT_MAX, RATE_CHAT_WINDOW_S))) {
+    // an expensive gpt-4o call) all share the burst limiter. Fail OPEN — the
+    // daily quota (meterUsage) is the authoritative ceiling for the billed
+    // actions, and profile is gated by being called only periodically.
+    if (!(await enforceRateLimit('chat', RATE_CHAT_MAX, RATE_CHAT_WINDOW_S, false))) {
       return jsonResponse({ error: 'Rate limit exceeded' }, 429)
     }
   }
@@ -360,7 +402,16 @@ serve(async (req) => {
   let metered = false
   let usage = { used: usageUsed, limit: usageLimit }
   if (isCounted) {
-    const reserved = await meterUsage()
+    let reserved: { used: number; limit: number } | null
+    try {
+      reserved = await meterUsage()
+    } catch (err) {
+      // Metering RPC unavailable → fail CLOSED (503) instead of letting the
+      // call through un-metered. Deploy migration 20260620050000 to enable
+      // server-authoritative metering.
+      console.error('Aiya metering unavailable', err)
+      return jsonResponse({ error: 'Service temporarily unavailable' }, 503)
+    }
     if (!reserved) {
       return jsonResponse({ error: 'Usage limit exceeded' }, 429)
     }
@@ -586,13 +637,19 @@ Language: ${langHint}.` +
         topP: 0.92,
       })
 
-      return jsonResponse({ profile: content, usage })
+      // The profile build is NOT metered, so it must NOT return `usage` — the
+      // pre-read snapshot here would otherwise overwrite the chat-authoritative
+      // counter on the client and make the quota display jump backward.
+      return jsonResponse({ profile: content })
     }
 
     if (normalizedAction === 'chat') {
       if (!message) return jsonResponse({ error: 'Message required' }, 400)
+      // Never trust the client crisis flag alone — re-scan server-side so at-risk
+      // users always get the safety scaffolding even if the client missed it.
+      const showCrisis = crisis === true || serverDetectsCrisis(message, history)
       const messages = [
-        ...(crisis === true ? [{ role: 'system' as const, content: crisisSafetyMessage(locale) }] : []),
+        ...(showCrisis ? [{ role: 'system' as const, content: crisisSafetyMessage(locale) }] : []),
         ...(system ? [{ role: 'system' as const, content: system }] : []),
         ...history.map((h) => ({ role: h.role, content: h.content })),
         { role: 'user' as const, content: message },
