@@ -28,7 +28,8 @@ export interface Achievement {
 
 export const gamificationService = {
   async getBadges(userId: string, memories: Memory[]): Promise<Badge[]> {
-    const streak = await streakService.calculateStreak(userId)
+    // Reuse the memories already passed in instead of re-querying Dexie.
+    const streak = await streakService.calculateStreak(userId, memories)
     const totalMemories = memories.length
     // Dexie returns rows in primary-key (UUID) order, NOT creation order, so
     // sort a copy by createdAt to pick the genuine 1st/10th/50th memory for the
@@ -148,7 +149,8 @@ export const gamificationService = {
   },
 
   async getAchievements(userId: string, memories: Memory[]): Promise<Achievement[]> {
-    const streak = await streakService.calculateStreak(userId)
+    // Reuse the memories already passed in instead of re-querying Dexie.
+    const streak = await streakService.calculateStreak(userId, memories)
     const totalMemories = memories.length
     const coreMemories = memories.filter(m => m.isCore).length
     const avgIntensity = memories.length > 0

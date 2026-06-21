@@ -28,10 +28,29 @@ export const streakService = {
       }
     }
 
-    // Get unique dates sorted ascending (oldest first)
+    // Local "today" at midnight — used both to drop future-dated entries below
+    // and to decide whether the latest streak is still active.
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    // Get unique dates sorted ascending (oldest first). Drop any entry whose
+    // calendar date is in the FUTURE relative to local today (clock skew or
+    // imported data), so a mistakenly future-dated memory can't keep a streak
+    // flagged active.
     const uniqueDates = Array.from(
       new Set(memories.map((m: Memory) => m.date.split('T')[0]))
-    ).sort()
+    )
+      .filter((d) => parseLocalDate(d).getTime() <= today.getTime())
+      .sort()
+
+    if (uniqueDates.length === 0) {
+      return {
+        currentStreak: 0,
+        longestStreak: 0,
+        lastMemoryDate: null,
+        streakStartDate: null,
+      }
+    }
 
     // Build streaks by walking forward through sorted dates
     const streaks: { start: string; end: string; length: number }[] = []
@@ -64,14 +83,15 @@ export const streakService = {
     const longestStreak = Math.max(...streaks.map((s) => s.length))
 
     // Current streak: the last streak segment, but only if it includes today or yesterday
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
     const lastStreak = streaks[streaks.length - 1]
     // Parse the stored calendar date at LOCAL midnight to match `today`.
     const lastStreakEnd = parseLocalDate(lastStreak.end)
     const daysSinceEnd = Math.round((today.getTime() - lastStreakEnd.getTime()) / (1000 * 60 * 60 * 24))
 
-    const isActive = daysSinceEnd <= 1 // today or yesterday
+    // Active only when the last entry is today or yesterday. Guard the negative
+    // side too: future-dated entries are already filtered out above, but this
+    // keeps the check correct if a future date ever slips through.
+    const isActive = daysSinceEnd >= 0 && daysSinceEnd <= 1
     const currentStreak = isActive ? lastStreak.length : 0
     const streakStartDate = isActive ? lastStreak.start : null
 

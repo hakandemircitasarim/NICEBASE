@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -17,10 +17,13 @@ import {
   LogOut,
   ChevronDown,
   ChevronUp,
+  PlayCircle,
+  AlertTriangle,
 } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { supabase, hasSupabaseConfig } from '../lib/supabase'
 import { memoryService } from '../services/memoryService'
+import { memorySyncService } from '../services/memorySyncService'
 import { mapUserFromSupabase } from '../lib/userMapper'
 import { notificationService } from '../services/notificationService'
 import { exportService } from '../services/exportService'
@@ -97,7 +100,15 @@ function Section({
 export default function SettingsSheet({ onClose }: SettingsSheetProps) {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
-  const { user, setUser, setTheme, setLanguage, theme, language } = useStore()
+  const {
+    user,
+    setUser,
+    setThemePreference,
+    setLanguage,
+    themePreference,
+    language,
+    resetOnboarding,
+  } = useStore()
   const [dailyReminderTime, setDailyReminderTime] = useState(
     user?.dailyReminderTime || ''
   )
@@ -105,6 +116,11 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     user?.weeklySummaryDay?.toString() || ''
   )
   const [expandedSection, setExpandedSection] = useState<string | null>(null)
+  // Backup-health cue (#8): items that failed or were abandoned aren't backed up.
+  const [backupIssues, setBackupIssues] = useState<{ failed: number; abandoned: number }>(
+    { failed: 0, abandoned: 0 }
+  )
+  const [retryingBackups, setRetryingBackups] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean
     title: string
@@ -127,6 +143,24 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     }
   }, [user])
 
+  // Load backup health so we can warn when memories failed/abandoned sync (#8).
+  const refreshBackupStatus = useCallback(async () => {
+    if (!user) {
+      setBackupIssues({ failed: 0, abandoned: 0 })
+      return
+    }
+    try {
+      const status = await memoryService.getSyncStatus(user.id)
+      setBackupIssues({ failed: status.failed, abandoned: status.abandoned })
+    } catch {
+      // Non-blocking — leave the previous value.
+    }
+  }, [user])
+
+  useEffect(() => {
+    refreshBackupStatus()
+  }, [refreshBackupStatus])
+
   // iOS-safe scroll lock with proper restore (replaces manual body.overflow).
   useBodyScrollLock(true)
   useEscapeKey(onClose, true)
@@ -135,8 +169,12 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     setExpandedSection(expandedSection === section ? null : section)
   }
 
-  const handleThemeChange = (newTheme: 'light' | 'dark') => {
-    setTheme(newTheme)
+  const handleThemeChange = (newPreference: 'light' | 'dark' | 'system') => {
+    setThemePreference(newPreference)
+    // Persist the *preference* to the cloud. The users.theme column supports
+    // 'auto', so map 'system' -> 'auto' (and back via the mapper) without losing
+    // the user's intent across devices.
+    const cloudTheme = newPreference === 'system' ? 'auto' : newPreference
     // Debounce cloud sync to prevent modal state issues
     setTimeout(async () => {
       // Persist to cloud only if config + network are available
@@ -144,7 +182,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
         try {
           const { error } = await supabase
             .from('users')
-            .update({ theme: newTheme })
+            .update({ theme: cloudTheme })
             .eq('id', user.id)
 
           if (!error) {
@@ -196,6 +234,9 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     if (!user) return
 
     const updates: Record<string, unknown> = {}
+    // Track whether the notification permission was denied so we don't ALSO
+    // claim success below (#55/#57): the time is saved but no notification fires.
+    let permissionDenied = false
     if (dailyReminderTime) {
       updates.daily_reminder_time = dailyReminderTime
       notificationService.cancelReminder(user.id)
@@ -203,9 +244,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
       if (granted) {
         notificationService.scheduleDailyReminder(dailyReminderTime, user.id)
       } else {
-        // Don't silently claim success — the time is saved but no notification
-        // will fire until the user grants permission.
-        toast.error(t('notificationPermissionDenied'))
+        permissionDenied = true
       }
     } else {
       // Reminder disabled — cancel BOTH the daily reminder and the streak
@@ -213,13 +252,30 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
       notificationService.cancelReminder(user.id)
       notificationService.cancelStreakProtection(user.id)
     }
-    if (weeklySummaryDay)
-      updates.weekly_summary_day = parseInt(weeklySummaryDay)
+    const weeklyDayValue = weeklySummaryDay ? parseInt(weeklySummaryDay) : null
+    if (weeklySummaryDay) updates.weekly_summary_day = weeklyDayValue
+
+    // Show the success/denied feedback once, after both the daily reminder and
+    // the weekly day have been handled — never both an error and a success.
+    const reportResult = () => {
+      if (permissionDenied) {
+        toast.error(t('notificationPermissionDenied'))
+      } else {
+        toast.success(t('settingsSaved'))
+      }
+    }
 
     // Only persist to cloud when Supabase is configured and online
     if (!hasSupabaseConfig || !navigator.onLine) {
-      // Still save local notification schedule
-      toast.success(t('settingsSaved'))
+      // Offline: still persist the weekly day + reminder locally so the choice
+      // survives (it was previously dropped offline). Cloud sync reconciles on
+      // reconnect via the normal user-update path.
+      setUser({
+        ...user,
+        dailyReminderTime: dailyReminderTime || null,
+        weeklySummaryDay: weeklyDayValue,
+      })
+      reportResult()
       return
     }
 
@@ -238,8 +294,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
 
         if (data) {
           setUser(mapUserFromSupabase(data))
-          toast.success(t('settingsSaved'))
         }
+        reportResult()
       } else {
         toast.error(t('settingsSaveError'))
       }
@@ -275,6 +331,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
 
       // Get sync status after sync
       const statusAfter = await memoryService.getSyncStatus(user.id)
+      setBackupIssues({ failed: statusAfter.failed, abandoned: statusAfter.abandoned })
 
       hapticFeedback('success')
 
@@ -306,6 +363,47 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
         'error',
         user?.id
       )
+    }
+  }
+
+  // Retry backups that failed or were abandoned (#8): reset them to pending,
+  // re-run sync, then refresh the cue.
+  const handleRetryBackups = async () => {
+    if (!user || retryingBackups) return
+    setRetryingBackups(true)
+    try {
+      hapticFeedback('light')
+      toast.loading(t('retryingBackups', { defaultValue: 'Retrying backups...' }), { id: 'retry-backups' })
+      await memoryService.resetAbandonedSyncItems(user.id)
+      await memorySyncService.syncNow()
+      const statusAfter = await memoryService.getSyncStatus(user.id)
+      setBackupIssues({ failed: statusAfter.failed, abandoned: statusAfter.abandoned })
+      hapticFeedback('success')
+      const remaining = statusAfter.failed + statusAfter.abandoned
+      if (remaining > 0) {
+        toast.error(
+          t('backupRetryPartial', {
+            count: remaining,
+            defaultValue: `${remaining} memory could not be backed up`,
+          }),
+          { id: 'retry-backups', duration: 4000 }
+        )
+      } else {
+        toast.success(t('backupRetrySuccess', { defaultValue: 'All memories backed up' }), {
+          id: 'retry-backups',
+          duration: 3000,
+        })
+      }
+    } catch (error) {
+      hapticFeedback('error')
+      toast.error(t('syncError'), { id: 'retry-backups', duration: 4000 })
+      errorLoggingService.logError(
+        error instanceof Error ? error : new Error('Backup retry error'),
+        'error',
+        user?.id
+      )
+    } finally {
+      setRetryingBackups(false)
     }
   }
 
@@ -460,7 +558,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
               <button
                 onClick={() => handleThemeChange('light')}
                 className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 transition-all ${
-                  theme === 'light'
+                  themePreference === 'light'
                     ? 'bg-primary/10 border-primary text-primary'
                     : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-primary/50'
                 }`}
@@ -471,7 +569,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
               <button
                 onClick={() => handleThemeChange('dark')}
                 className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 transition-all ${
-                  theme === 'dark'
+                  themePreference === 'dark'
                     ? 'bg-primary/10 border-primary text-primary'
                     : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-primary/50'
                 }`}
@@ -480,13 +578,12 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
                 <span className="text-xs font-medium">{t('dark')}</span>
               </button>
               <button
-                onClick={() => {
-                  const prefersDark = window.matchMedia(
-                    '(prefers-color-scheme: dark)'
-                  ).matches
-                  handleThemeChange(prefersDark ? 'dark' : 'light')
-                }}
-                className="flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 hover:border-primary/50 transition-all"
+                onClick={() => handleThemeChange('system')}
+                className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 transition-all ${
+                  themePreference === 'system'
+                    ? 'bg-primary/10 border-primary text-primary'
+                    : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-primary/50'
+                }`}
               >
                 <Monitor size={22} />
                 <span className="text-xs font-medium">{t('system')}</span>
@@ -527,6 +624,26 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
               </button>
             </div>
           </Section>
+
+          {/* Replay tutorial (#24): re-arm onboarding so a user who dismissed
+              the tour (or wants a refresher) can see it again. */}
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden">
+            <button
+              onClick={() => {
+                hapticFeedback('light')
+                resetOnboarding()
+                onClose()
+              }}
+              className="w-full flex items-center gap-3 p-4 touch-manipulation text-left"
+            >
+              <div className="w-9 h-9 rounded-lg bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center flex-shrink-0">
+                <PlayCircle size={18} className="text-pink-600 dark:text-pink-400" />
+              </div>
+              <span className="flex-1 font-semibold text-gray-900 dark:text-gray-100">
+                {t('replayTutorial', { defaultValue: 'Replay tutorial' })}
+              </span>
+            </button>
+          </div>
 
           {/* Notifications */}
           <Section
@@ -628,6 +745,39 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
                 {t('syncDescription')}
               </p>
+
+              {/* Backup-health cue (#8): warn when memories aren't backed up. */}
+              {user && (backupIssues.failed + backupIssues.abandoned) > 0 && (
+                <div className="mb-3 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle
+                      size={18}
+                      className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5"
+                    />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                        {t('backupIssuesTitle', { defaultValue: 'Some memories are not backed up' })}
+                      </p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                        {t('backupIssuesMessage', {
+                          count: backupIssues.failed + backupIssues.abandoned,
+                          defaultValue: `${backupIssues.failed + backupIssues.abandoned} memory failed to back up. Tap to retry.`,
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleRetryBackups}
+                    disabled={retryingBackups}
+                    className="w-full mt-3 bg-amber-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-amber-700 transition-colors touch-manipulation text-sm disabled:opacity-60"
+                  >
+                    {retryingBackups
+                      ? t('retryingBackups', { defaultValue: 'Retrying backups...' })
+                      : t('retryBackups', { defaultValue: 'Retry backups' })}
+                  </button>
+                </div>
+              )}
+
               <button
                 onClick={handleSync}
                 className="w-full bg-primary text-white px-4 py-2.5 rounded-xl font-semibold hover:bg-primary-dark transition-colors touch-manipulation text-sm"

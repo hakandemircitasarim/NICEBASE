@@ -56,6 +56,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     }
   }
 
+  // Dismissing the tour ('X' / Skip) closes it for now. It is NOT lost forever:
+  // the tour can be replayed from Settings -> Replay tutorial (resetOnboarding).
   const skip = () => {
     onComplete()
   }
@@ -79,6 +81,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           <div className="relative p-8">
             <button
               onClick={skip}
+              aria-label={t('skip')}
+              title={t('skip')}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors p-2"
             >
               <X size={20} />

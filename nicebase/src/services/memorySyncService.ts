@@ -25,6 +25,22 @@ async function safeSyncNow(userId: string) {
   syncInProgress = true
   try {
     await memoryService.syncAll(userId)
+
+    // Abandonment means items permanently gave up syncing (data the user may
+    // believe is backed up is NOT). Surface that at 'error' severity, not the
+    // 'warning' we use for ordinary transient sync hiccups.
+    try {
+      const status = await memoryService.getSyncStatus(userId)
+      if (status.abandoned > 0) {
+        errorLoggingService.logError(
+          new Error(`Background sync abandoned ${status.abandoned} item(s)`),
+          'error',
+          userId
+        )
+      }
+    } catch {
+      // Status read is best-effort; never let it break the sync flow.
+    }
   } catch (err) {
     // Log sync errors but don't throw - sync is best-effort
     errorLoggingService.logError(

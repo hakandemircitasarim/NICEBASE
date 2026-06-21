@@ -15,6 +15,11 @@ export function useSwipe(handlers: SwipeHandlers) {
 
   const onTouchStart = (e: TouchEvent) => {
     touchEnd.current = null
+    // Ignore multi-finger gestures (e.g. pinch-zoom) — they are not swipes.
+    if (e.touches.length > 1) {
+      touchStart.current = null
+      return
+    }
     touchStart.current = {
       x: e.targetTouches[0].clientX,
       y: e.targetTouches[0].clientY,
@@ -22,6 +27,13 @@ export function useSwipe(handlers: SwipeHandlers) {
   }
 
   const onTouchMove = (e: TouchEvent) => {
+    // A second finger landed mid-gesture (pinch): cancel any pending swipe so
+    // releasing the pinch can't be read as a left/right swipe.
+    if (e.touches.length > 1) {
+      touchStart.current = null
+      touchEnd.current = null
+      return
+    }
     touchEnd.current = {
       x: e.targetTouches[0].clientX,
       y: e.targetTouches[0].clientY,

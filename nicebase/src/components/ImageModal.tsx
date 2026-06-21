@@ -19,6 +19,7 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
   const [scale, setScale] = useState(1)
   const [position, setPosition] = useState({ x: 0, y: 0 })
   const [isZoomed, setIsZoomed] = useState(false)
+  const [showZoomHint, setShowZoomHint] = useState(false)
   const imageRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -43,6 +44,14 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
     setPosition({ x: 0, y: 0 })
     setIsZoomed(false)
   }, [initialIndex])
+
+  // Reveal the "double tap to zoom" hint briefly on open so it is discoverable
+  // on touch devices (which have no :hover), then auto-fade it.
+  useEffect(() => {
+    setShowZoomHint(true)
+    const timer = window.setTimeout(() => setShowZoomHint(false), 2500)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   // Focus the dialog on open (so Escape/Arrow keys work immediately and screen
   // readers announce it) and restore focus to the opener on close.
@@ -230,7 +239,12 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 bg-black/95 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-        onClick={onClose}
+        onClick={(e) => {
+          // Only the true backdrop (this element itself) dismisses. Clicks that
+          // bubble up from the image/content have a different target and must
+          // not close the viewer.
+          if (e.target === e.currentTarget) onClose()
+        }}
         onKeyDown={handleKeyDown}
         tabIndex={0}
         role="dialog"
@@ -342,7 +356,11 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
           </div>
 
           {!isZoomed && (
-            <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-10 bg-black/30 text-white px-3 py-1.5 rounded-full text-xs opacity-0 hover:opacity-100 transition-opacity pointer-events-none">
+            <div
+              className={`absolute bottom-16 left-1/2 -translate-x-1/2 z-10 bg-black/30 text-white px-3 py-1.5 rounded-full text-xs transition-opacity duration-500 pointer-events-none ${
+                showZoomHint ? 'opacity-100' : 'opacity-0 hover:opacity-100'
+              }`}
+            >
               {t('doubleTapToZoom')}
             </div>
           )}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { motion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 
 interface ProgressiveImageProps {
   src: string
@@ -12,8 +12,30 @@ interface ProgressiveImageProps {
   placeholder?: string
 }
 
-const DEFAULT_PLACEHOLDER =
-  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23e5e7eb"/%3E%3C/svg%3E'
+/**
+ * Dependency-free loading skeleton with a subtle moving shimmer, driven by
+ * Framer Motion (already a dependency). Reads as "loading" rather than a flat
+ * gray rect / broken image. Falls back to a static skeleton tone when the user
+ * prefers reduced motion.
+ */
+function ShimmerPlaceholder() {
+  const prefersReducedMotion = useReducedMotion()
+  return (
+    <div
+      aria-hidden="true"
+      className="absolute inset-0 w-full h-full overflow-hidden bg-gray-200 dark:bg-gray-700"
+    >
+      {!prefersReducedMotion && (
+        <motion.div
+          className="absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-white/40 dark:via-white/10 to-transparent"
+          initial={{ x: '-150%' }}
+          animate={{ x: '250%' }}
+          transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      )}
+    </div>
+  )
+}
 
 /**
  * Progressive image with a blur-up placeholder.
@@ -58,15 +80,20 @@ export default function ProgressiveImage({
 
   return (
     <div className={`relative overflow-hidden ${className}`}>
-      {/* Blur-up placeholder, shown until the real image finishes loading */}
-      {!isLoaded && (
-        <img
-          src={placeholder || DEFAULT_PLACEHOLDER}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-cover filter blur-sm scale-110"
-        />
-      )}
+      {/* Placeholder shown until the real image finishes loading. A real LQIP
+          (if provided) is blurred up; otherwise show a shimmer skeleton so it
+          reads as loading rather than a flat/broken rect. */}
+      {!isLoaded &&
+        (placeholder ? (
+          <img
+            src={placeholder}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 w-full h-full object-cover filter blur-sm scale-110"
+          />
+        ) : (
+          <ShimmerPlaceholder />
+        ))}
 
       {/* Real image — lazily fetched by the browser */}
       <motion.img

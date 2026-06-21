@@ -694,4 +694,33 @@ export const memoryService = {
       total: items.length,
     }
   },
+
+  /**
+   * Recovery path for sync items that have given up ('abandoned') or are stuck
+   * on a 'failed' status. Flips them back to a fresh 'pending' state so the next
+   * sync pass retries them from scratch. Returns the number of items reset.
+   */
+  async resetAbandonedSyncItems(userId: string): Promise<number> {
+    const items = await db.syncQueueV2
+      .where('userId')
+      .equals(userId)
+      .and((item) => item.status === 'abandoned' || item.status === 'failed')
+      .toArray()
+
+    if (items.length === 0) return 0
+
+    await db.syncQueueV2.bulkUpdate(
+      items.map((item) => ({
+        key: item.id,
+        changes: {
+          status: 'pending' as const,
+          attemptCount: 0,
+          nextAttemptAt: Date.now(),
+          lastError: null,
+        },
+      }))
+    )
+
+    return items.length
+  },
 }

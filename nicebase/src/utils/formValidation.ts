@@ -86,19 +86,41 @@ export function getPasswordStrengthLabel(strength: number): string {
 }
 
 /**
- * Validates memory text
+ * Maximum allowed length for a memory's text body.
+ * Keeps drafts/payloads bounded and avoids oversized localStorage/sync entries.
  */
-export function validateMemoryText(text: string, minLength: number = 10): {
+export const MAX_MEMORY_TEXT_LENGTH = 5000
+
+/**
+ * Validates memory text
+ * @param text - the memory text to validate
+ * @param minLength - minimum allowed length (defaults to 10)
+ * @param maxLength - maximum allowed length (defaults to MAX_MEMORY_TEXT_LENGTH)
+ */
+export function validateMemoryText(
+  text: string,
+  minLength: number = 10,
+  maxLength: number = MAX_MEMORY_TEXT_LENGTH
+): {
   isValid: boolean
   error?: string
 } {
-  if (!text.trim()) {
+  const trimmed = text.trim()
+  if (!trimmed) {
     return { isValid: false, error: t('pleaseEnterText') || 'Lütfen bir metin girin' }
   }
-  if (text.trim().length < minLength) {
+  if (trimmed.length < minLength) {
     return {
       isValid: false,
       error: t('textMinLength', { count: minLength }) || `Metin en az ${minLength} karakter olmalıdır`,
+    }
+  }
+  if (trimmed.length > maxLength) {
+    return {
+      isValid: false,
+      error:
+        t('textMaxLength', { count: maxLength }) ||
+        `Metin en fazla ${maxLength} karakter olabilir`,
     }
   }
   return { isValid: true }

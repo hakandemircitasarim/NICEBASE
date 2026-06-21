@@ -20,7 +20,7 @@ export default function ConflictResolutionDialog({
   onResolved,
   onClose,
 }: ConflictResolutionDialogProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [resolving, setResolving] = useState(false)
   const cloudMemory = memory.conflictCloud
 
@@ -95,7 +95,9 @@ export default function ConflictResolutionDialog({
   }
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('tr-TR', {
+    // Use the app language for the locale, not a hardcoded 'tr-TR'.
+    const locale = (i18n.language || 'tr').startsWith('tr') ? 'tr-TR' : 'en-US'
+    return new Date(dateStr).toLocaleString(locale, {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

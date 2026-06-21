@@ -49,7 +49,7 @@ export default function MigrationPrompt({
                 <p className="text-sm text-center text-gray-600 dark:text-gray-400 mb-6">
                   {t('migrationPromptMessage', {
                     count,
-                    defaultValue: `Giriş yapmadan önce eklediğiniz ${count} anı bulunuyor. Bunları hesabınıza aktarmak ister misiniz?`,
+                    defaultValue: `Giriş yapmadan önce eklediğiniz ${count} anı yalnızca bu cihazda kayıtlı. Bunları hesabınıza aktarıp yedeklemek ister misiniz?`,
                   })}
                 </p>
                 <div className="flex flex-col gap-2.5">
@@ -78,7 +78,7 @@ export default function MigrationPrompt({
                 <p className="text-sm text-center text-gray-600 dark:text-gray-400 mb-6">
                   {t('migrationDeleteMessage', {
                     count,
-                    defaultValue: `Bu ${count} anı sonsuza kadar silinecek ve bir daha geri getirilemeyecek.`,
+                    defaultValue: `Bu ${count} anı yalnızca bu cihazda kayıtlı ve henüz yedeklenmedi. Silerseniz sonsuza kadar kaybolur ve geri getirilemez. Aktarmak için "Vazgeç, Anılarımı Aktar" seçeneğine dokunun.`,
                   })}
                 </p>
                 <div className="flex flex-col gap-2.5">

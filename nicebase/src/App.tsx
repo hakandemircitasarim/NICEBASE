@@ -1,8 +1,10 @@
 import { useEffect, lazy, Suspense, useRef, useState, useCallback } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useStore } from './store/useStore'
+import { User } from './types'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import { fetchUserData, ensureUserExists } from './lib/userService'
 import { withTimeout } from './utils/timeout'
@@ -25,6 +27,32 @@ const Profile = lazy(() => import('./pages/Profile'))
 const Connections = lazy(() => import('./pages/Connections'))
 const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const AddMemory = lazy(() => import('./pages/AddMemory'))
+
+// Build a minimal, usable User from an authenticated Supabase session. Used as a
+// fallback when the user-record fetch times out (slow/quiet network) so a
+// genuinely-authenticated user keeps the logged-in shell instead of being
+// silently downgraded to the logged-out UI. Real data overwrites this once the
+// fetch (or a later auth event) succeeds.
+function minimalUserFromSession(session: Session): User {
+  const meta = session.user.user_metadata || {}
+  return {
+    id: session.user.id,
+    email: session.user.email ?? '',
+    displayName: meta.full_name || meta.name || null,
+    bio: null,
+    avatarUrl: meta.avatar_url || meta.picture || null,
+    birthday: null,
+    location: null,
+    isPremium: false,
+    aiyaMessagesUsed: 0,
+    aiyaMessagesLimit: 50,
+    weeklySummaryDay: null,
+    dailyReminderTime: null,
+    language: 'tr',
+    theme: 'light',
+    createdAt: session.user.created_at ?? new Date().toISOString(),
+  }
+}
 
 function App() {
   // Per-slice selectors so App doesn't re-render the whole routed tree on every
@@ -88,20 +116,41 @@ function App() {
           SESSION_TIMEOUT
         )
         if (session?.user) {
-          let user = await withTimeout(
-            fetchUserData(session.user.id),
-            FETCH_TIMEOUT
-          )
-          // If user record missing (e.g. first Google OAuth login), create it
-          if (!user) {
-            const meta = session.user.user_metadata || {}
-            user = await withTimeout(
-              ensureUserExists(session.user.id, session.user.email, 5, {
-                displayName: meta.full_name || meta.name || null,
-                avatarUrl: meta.avatar_url || meta.picture || null,
-              }),
-              FETCH_TIMEOUT
-            )
+          let user: User | null = null
+          try {
+            user = await withTimeout(fetchUserData(session.user.id), FETCH_TIMEOUT)
+            // If user record missing (e.g. first Google OAuth login), create it
+            if (!user) {
+              const meta = session.user.user_metadata || {}
+              user = await withTimeout(
+                ensureUserExists(session.user.id, session.user.email, 5, {
+                  displayName: meta.full_name || meta.name || null,
+                  avatarUrl: meta.avatar_url || meta.picture || null,
+                }),
+                FETCH_TIMEOUT
+              )
+            }
+          } catch (fetchErr) {
+            // The session is valid but the user-data fetch timed out (slow/quiet
+            // network). Do NOT leave a genuinely-authenticated user on the
+            // logged-out UI — seed a minimal user from the session so the app
+            // stays logged-in, then retry the fetch once with a short backoff to
+            // fill in the real data.
+            if (import.meta.env.DEV) {
+              console.warn('[App] session restore fetch failed, seeding minimal user:', fetchErr)
+            }
+            setUser(minimalUserFromSession(session))
+            if (syncStartedForRef.current !== session.user.id) {
+              memorySyncService.start(session.user.id)
+              syncStartedForRef.current = session.user.id
+            }
+            await new Promise((r) => setTimeout(r, 1500))
+            try {
+              user = await withTimeout(fetchUserData(session.user.id), FETCH_TIMEOUT)
+            } catch {
+              // Retry also failed — keep the minimal user; onAuthStateChange /
+              // a later online sync will reconcile the real record.
+            }
           }
           if (user) {
             setUser(user)
@@ -189,8 +238,20 @@ function App() {
             }
           }
         } catch (err) {
-          // Timeout or error — non-blocking
+          // Timeout or error fetching user data for a valid session (e.g.
+          // INITIAL_SESSION on a slow network). Seed a minimal user from the
+          // session so an authenticated user isn't shown the logged-out UI;
+          // a later fetch/sync reconciles the real record. Only seed if we
+          // don't already have this user set.
           if (import.meta.env.DEV) console.warn('[App] auth state user fetch failed:', err)
+          const sess = session
+          if (sess?.user && useStore.getState().user?.id !== sess.user.id) {
+            setUser(minimalUserFromSession(sess))
+            if (syncStartedForRef.current !== sess.user.id) {
+              memorySyncService.start(sess.user.id)
+              syncStartedForRef.current = sess.user.id
+            }
+          }
         }
       } else if (event !== 'INITIAL_SESSION') {
         // Only clear user for explicit sign-out events, not during init

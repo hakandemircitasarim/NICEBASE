@@ -26,7 +26,8 @@ import SettingsSheet from '../components/SettingsSheet'
 import EditProfileSheet from '../components/EditProfileSheet'
 
 export default function Profile() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = (i18n?.language || 'tr').startsWith('tr') ? 'tr-TR' : 'en-US'
   const navigate = useNavigate()
   const user = useStore((s) => s.user)
   const setUser = useStore((s) => s.setUser)
@@ -124,8 +125,8 @@ export default function Profile() {
   const birthdayDisplay = useMemo(() => {
     if (!user?.birthday) return null
     const bd = new Date(user.birthday)
-    return bd.toLocaleDateString(undefined, { day: 'numeric', month: 'long' })
-  }, [user?.birthday])
+    return bd.toLocaleDateString(locale, { day: 'numeric', month: 'long' })
+  }, [user?.birthday, locale])
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-8">
@@ -268,7 +269,13 @@ export default function Profile() {
           </p>
         </button>
 
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 text-center">
+        <button
+          onClick={() => {
+            hapticFeedback('light')
+            navigate('/statistics')
+          }}
+          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 text-center hover:border-primary/40 transition-all touch-manipulation"
+        >
           <div className="flex items-center justify-center mb-1.5">
             <Flame size={20} className="text-orange-500" />
           </div>
@@ -278,7 +285,7 @@ export default function Profile() {
           <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">
             {t('profileStreak')}
           </p>
-        </div>
+        </button>
 
         <button
           onClick={() => {
