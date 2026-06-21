@@ -5,6 +5,7 @@ import { hapticFeedback } from '../utils/haptic'
 import { useModalPresence } from '../hooks/useModalPresence'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useEscapeKey } from '../hooks/useEscapeKey'
+import { useBackButton } from '../hooks/useBackButton'
 
 interface ConfirmationDialogProps {
   isOpen: boolean
@@ -43,6 +44,7 @@ export default function ConfirmationDialog({
   }
 
   useEscapeKey(handleCancel, isOpen)
+  useBackButton(() => { handleCancel(); return true }, isOpen)
 
   const colors = {
     danger: 'bg-danger hover:bg-danger-dark',

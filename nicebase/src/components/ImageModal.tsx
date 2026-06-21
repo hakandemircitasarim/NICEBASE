@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { hapticFeedback } from '../utils/haptic'
 import { useSwipe } from '../hooks/useSwipe'
 import { useModalPresence } from '../hooks/useModalPresence'
+import { useBackButton } from '../hooks/useBackButton'
 
 interface ImageModalProps {
   images: string[]
@@ -26,6 +27,14 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
   const lastTouchCenterRef = useRef<{ x: number; y: number } | null>(null)
   const isPanningRef = useRef(false)
   useModalPresence(true)
+
+  // Android back: zoom-out first, otherwise close (mirrors the Escape handler)
+  // instead of letting the underlying page navigate away.
+  useBackButton(() => {
+    if (isZoomed) resetZoom()
+    else onClose()
+    return true
+  })
 
   useEffect(() => {
     setCurrentIndex(initialIndex)

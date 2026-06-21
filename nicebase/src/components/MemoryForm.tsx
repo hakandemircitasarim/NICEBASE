@@ -13,7 +13,7 @@ import { notificationService } from '../services/notificationService'
 import { compressImage } from '../utils/imageUtils'
 import ImageModal from './ImageModal'
 import { hapticFeedback } from '../utils/haptic'
-import { isNative, setBackButtonHandler } from '../utils/capacitor'
+import { useBackButton } from '../hooks/useBackButton'
 import { toLocalISODate } from '../utils/dateFormat'
 import { errorLoggingService } from '../services/errorLoggingService'
 import LoadingSpinner from './LoadingSpinner'
@@ -660,19 +660,17 @@ export default function MemoryForm({
     onClose()
   }
 
-  // Use a ref so the back button handler always calls the latest requestClose
-  const requestCloseRef = useRef(requestClose)
-  requestCloseRef.current = requestClose
-
-  // Handle Android back button to close the modal
-  useEffect(() => {
-    if (!isNative()) return
-    setBackButtonHandler(() => {
-      requestCloseRef.current()
+  // Android back: peel off the unsaved-changes confirm first; otherwise request
+  // close (which itself raises the confirm when dirty). Always consumes the
+  // event so back never falls through to the page handler while the form is open.
+  useBackButton(() => {
+    if (showDirtyConfirm) {
+      setShowDirtyConfirm(false)
       return true
-    })
-    return () => setBackButtonHandler(null)
-  }, [])
+    }
+    requestClose()
+    return true
+  })
 
   const questionText = dailyQuestion
     ? dailyQuestionService.getLocalizedQuestion(dailyQuestion)

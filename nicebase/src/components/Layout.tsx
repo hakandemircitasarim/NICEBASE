@@ -1,11 +1,11 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { useEffect, useCallback, useRef } from 'react'
+import { useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { Home, Archive, MessageCircle, User } from 'lucide-react'
 import { hapticFeedback } from '../utils/haptic'
 import { useStore } from '../store/useStore'
-import { setBackButtonHandler } from '../utils/capacitor'
+import { useBackButton } from '../hooks/useBackButton'
 import { RouteErrorBoundary } from './RouteErrorBoundary'
 
 export default function Layout() {
@@ -30,10 +30,9 @@ export default function Layout() {
     return true
   }, [navigate])
 
-  useEffect(() => {
-    setBackButtonHandler(handleBackButton)
-    return () => setBackButtonHandler(null)
-  }, [handleBackButton])
+  // Page-level back handler (bottom of the stack). Returns false on Home so the
+  // app exits; overlays/forms push their own handlers on top via useBackButton.
+  useBackButton(handleBackButton)
 
   const navItems = [
     { path: '/', icon: Home, label: t('appName') },

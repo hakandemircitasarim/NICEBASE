@@ -5,6 +5,7 @@ import { hapticFeedback } from '../utils/haptic'
 import { useModalPresence } from '../hooks/useModalPresence'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useEscapeKey } from '../hooks/useEscapeKey'
+import { useBackButton } from '../hooks/useBackButton'
 
 interface ActionSheetProps {
   isOpen: boolean
@@ -18,6 +19,7 @@ export default function ActionSheet({ isOpen, onClose, onQuickAdd, onFullAdd }: 
   useModalPresence(isOpen)
   useBodyScrollLock(isOpen)
   useEscapeKey(onClose, isOpen)
+  useBackButton(() => { onClose(); return true }, isOpen)
 
   const handleQuickAdd = () => {
     hapticFeedback('light')

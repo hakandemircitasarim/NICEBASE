@@ -15,13 +15,19 @@ export default function AddMemory() {
   // Daily question can be passed via navigation state from Home page
   const dailyQuestion = (location.state as LocationState | null)?.dailyQuestion ?? null
 
+  // Go back if there's history, otherwise land on Home — /add-memory can be the
+  // first navigation of a session (PWA shortcut, notification tap, refresh), in
+  // which case navigate(-1) would be a no-op and strand the user on the form.
+  const close = () => {
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/', { replace: true })
+  }
+
   return (
     <MemoryForm
       presentation="screen"
-      onClose={() => navigate(-1)}
-      onSave={() => {
-        navigate(-1)
-      }}
+      onClose={close}
+      onSave={close}
       userId={userId}
       dailyQuestion={dailyQuestion}
     />

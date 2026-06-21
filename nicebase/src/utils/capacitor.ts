@@ -341,14 +341,27 @@ export const nativeHapticFeedback = async (style: 'light' | 'medium' | 'heavy' =
   }
 }
 
-// Store back button handler in a ref so it can be updated
-let backButtonHandler: (() => boolean) | null = null
+// Stack of Android hardware-back handlers. The TOP-most handler runs first and
+// the first one that returns true CONSUMES the event. This lets overlays/forms
+// layer on top of the page-level (Layout) handler and auto-restore it when they
+// unmount. The previous single-slot setter permanently clobbered Layout's
+// handler the first time any modal set it to null.
+type BackButtonHandler = () => boolean
+const backButtonHandlers: BackButtonHandler[] = []
 
 /**
- * Set the back button handler (can be updated dynamically)
+ * Push a back-button handler onto the stack. Returns an unregister function
+ * (call it on unmount). Prefer the `useBackButton` hook in components.
  */
-export const setBackButtonHandler = (handler: (() => boolean) | null) => {
-  backButtonHandler = handler
+export const pushBackButtonHandler = (handler: BackButtonHandler): (() => void) => {
+  backButtonHandlers.push(handler)
+  let removed = false
+  return () => {
+    if (removed) return
+    removed = true
+    const i = backButtonHandlers.lastIndexOf(handler)
+    if (i >= 0) backButtonHandlers.splice(i, 1)
+  }
 }
 
 /**
@@ -374,14 +387,18 @@ export const setupAppListeners = async () => {
     // Handle back button on Android
     if (isAndroid()) {
       App.addListener('backButton', () => {
-        // If a custom handler is provided and returns true, it consumed the event
-        // (e.g. closed a modal) — do nothing further.
-        if (backButtonHandler && backButtonHandler()) {
-          return
+        // Run handlers top-of-stack first; the first that returns true consumed
+        // the event (e.g. closed an overlay or navigated within a page).
+        for (let i = backButtonHandlers.length - 1; i >= 0; i--) {
+          try {
+            if (backButtonHandlers[i]()) return
+          } catch (err) {
+            if (import.meta.env.DEV) console.warn('back handler threw:', err)
+          }
         }
 
-        // Otherwise navigate back if we can, or exit the app from the root route
-        // (without this, back on the home screen did nothing — the app felt stuck).
+        // No handler consumed it — navigate back if we can, else exit the app
+        // from the root route (without this, back on the home screen did nothing).
         if (window.history.length > 1) {
           window.history.back()
         } else {
