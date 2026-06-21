@@ -13,10 +13,13 @@ import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ConfirmationDialog from '../components/ConfirmationDialog'
+import MarkdownText from '../components/MarkdownText'
 import { aiyaService, routeMessage, buildTieredMemoryContext } from '../services/aiyaService'
 import { hapticFeedback } from '../utils/haptic'
 import { generateUUID } from '../utils/uuid'
 import { useDebounce } from '../hooks/useDebounce'
+import { useEscapeKey } from '../hooks/useEscapeKey'
+import { useBackButton } from '../hooks/useBackButton'
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -24,6 +27,7 @@ type AiyaMessage = {
   role: 'user' | 'assistant'
   content: string
   ts?: number
+  failed?: boolean // a user message whose send failed (kept for tap-to-retry)
 }
 
 type AiyaChat = {
@@ -121,14 +125,6 @@ function formatDate(ts: number, locale: string): string {
   }
 }
 
-function cleanMarkdown(text: string): string {
-  return text
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/_([^_]+)_/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/~~([^~]+)~~/g, '$1')
-}
 
 // ─── Aiya Avatar Component ──────────────────────────────
 
@@ -307,12 +303,16 @@ const MessageBubble = memo(function MessageBubble({
   message,
   isUser,
   showAvatar,
-  showTime
+  showTime,
+  retryLabel,
+  onRetry,
 }: {
   message: AiyaMessage
   isUser: boolean
   showAvatar: boolean
   showTime: boolean
+  retryLabel?: string
+  onRetry?: () => void
 }) {
   return (
     <div className={`flex items-end gap-2.5 sm:gap-3 ${isUser ? 'justify-end' : 'justify-start'} ${!showAvatar && !isUser ? 'ml-11 sm:ml-12' : ''}`}>
@@ -328,15 +328,29 @@ const MessageBubble = memo(function MessageBubble({
           transition={{ duration: 0.2, ease: 'easeOut' }}
           className={`px-4 py-3 sm:px-5 sm:py-3.5 rounded-3xl shadow-sm ${
             isUser
-              ? 'bg-gradient-to-br from-primary to-orange-500 text-white rounded-br-md shadow-md'
+              ? `bg-gradient-to-br from-primary to-orange-500 text-white rounded-br-md shadow-md ${message.failed ? 'opacity-60' : ''}`
               : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-md border border-gray-100 dark:border-gray-700/50'
           }`}
         >
-          <p className="text-[15px] sm:text-base leading-relaxed whitespace-pre-wrap break-words">
-            {message.content}
-          </p>
+          {isUser ? (
+            <p className="text-[15px] sm:text-base leading-relaxed whitespace-pre-wrap break-words">
+              {message.content}
+            </p>
+          ) : (
+            // Render assistant replies as markdown (lists/bold/links) instead of
+            // showing raw markers as literal text.
+            <MarkdownText text={message.content} className="text-[15px] sm:text-base" />
+          )}
         </motion.div>
-        {showTime && (
+        {message.failed && onRetry && (
+          <button
+            onClick={onRetry}
+            className="self-end text-[11px] sm:text-xs text-red-500 dark:text-red-400 font-medium px-1.5 hover:underline touch-manipulation"
+          >
+            {retryLabel}
+          </button>
+        )}
+        {showTime && !message.failed && (
           <p className={`text-[11px] sm:text-xs px-1.5 ${isUser ? 'text-right text-gray-400 dark:text-gray-500' : 'text-left text-gray-400 dark:text-gray-500'}`}>
             {formatTime(message.ts)}
           </p>
@@ -851,6 +865,16 @@ export default function Aiya() {
     hapticFeedback('light')
   }, [activeChatId, input, saveDraft])
 
+  // Escape closes the options menu.
+  useEscapeKey(() => setShowMenu(false), showMenu)
+  // Android back: close the menu first, then return chat -> list. In list view,
+  // return false so the page-level handler navigates away (Aiya is a tab).
+  useBackButton(() => {
+    if (showMenu) { setShowMenu(false); return true }
+    if (view === 'chat') { goToList(); return true }
+    return false
+  })
+
   // ─── Profile update ────────────────────────────────────
   const maybeUpdateProfile = useCallback(async (nextMessages: AiyaMessage[]) => {
     const count = nextMessages.length
@@ -879,6 +903,17 @@ export default function Aiya() {
     const text = (overrideText ?? input).trim()
     if (!text || sending) return
 
+    // Pre-flight: don't start an optimistic send that is guaranteed to dead-end
+    // (gives immediate, specific feedback instead of typing-dots → 30s → error).
+    if (usageInfo && usageInfo.used >= usageInfo.limit) {
+      setErrorMessage(t('aiyaLimitReached'))
+      return
+    }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setErrorMessage(t('aiyaNetworkError'))
+      return
+    }
+
     // Use overrideChatId if provided (from handleChip), otherwise use activeChatId from closure
     const targetChatId = overrideChatId ?? activeChatId
 
@@ -903,7 +938,8 @@ export default function Aiya() {
       // Read history from ref — React 18 batching defers setChats callbacks,
       // so the old approach of reading via setChats((prev) => ...) returned []
       const currentChat = chatsRef.current.find((c) => c.id === targetChatId)
-      const history = currentChat ? trimMessages(currentChat.messages) : []
+      // Exclude failed (un-replied) messages from the model history.
+      const history = currentChat ? trimMessages(currentChat.messages.filter((m) => !m.failed)) : []
 
       // ─── GEARBOX: Route message to determine context tier ───
       const messageCount = history.length
@@ -948,7 +984,8 @@ export default function Aiya() {
         throw new Error(t('aiyaError', { defaultValue: 'Aiya yanıt veremedi, tekrar dene.' }))
       }
 
-      const aiyaMsg: AiyaMessage = { role: 'assistant', content: cleanMarkdown(replyText), ts: Date.now() }
+      // Store raw reply — MessageBubble renders it via MarkdownText.
+      const aiyaMsg: AiyaMessage = { role: 'assistant', content: replyText.trim(), ts: Date.now() }
 
       setChats((prev) => {
         return prev.map((c) => {
@@ -968,7 +1005,8 @@ export default function Aiya() {
         }
       }
 
-      void maybeUpdateProfile([...history, aiyaMsg])
+      // Include the user's just-sent message so the profile reflects the latest turn.
+      void maybeUpdateProfile([...history, userMsg, aiyaMsg])
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err)
       if (import.meta.env.DEV) console.error('[Aiya] sendMessage failed:', raw, err)
@@ -980,37 +1018,49 @@ export default function Aiya() {
       else if (lower.includes('network') || lower.includes('timeout') || lower.includes('failed to fetch') || lower.includes('fetch')) friendly = t('aiyaNetworkError')
       else friendly = t('aiyaError')
       setErrorMessage(friendly)
-      // Roll back the optimistic user bubble (it would otherwise sit in the
-      // thread with no reply and pollute future model history) and restore the
-      // text to the input so the user can simply resend.
+      // Keep the user's bubble in the thread, flagged failed, with a tap-to-retry
+      // affordance (deleting it read as the message vanishing). It is excluded
+      // from model history above until it succeeds.
       setChats((prev) => prev.map((c) => {
         if (c.id !== targetChatId) return c
         const msgs = [...c.messages]
-        const last = msgs[msgs.length - 1]
-        if (last && last.role === 'user' && last.content === text) msgs.pop()
+        const lastIdx = msgs.length - 1
+        if (lastIdx >= 0 && msgs[lastIdx].role === 'user' && msgs[lastIdx].content === text && !msgs[lastIdx].failed) {
+          msgs[lastIdx] = { ...msgs[lastIdx], failed: true }
+        }
         return { ...c, messages: msgs }
       }))
-      setInput((cur) => cur || text)
     } finally {
       setSending(false)
     }
-  }, [input, sending, activeChatId, memories, locale, systemPromptFull, systemPromptCompact, t, maybeUpdateProfile, saveDraft, setUser])
+  }, [input, sending, activeChatId, memories, locale, systemPromptFull, systemPromptCompact, t, maybeUpdateProfile, saveDraft, setUser, usageInfo])
 
   // ─── Chip action ───────────────────────────────────────
   const handleChip = useCallback((text: string) => {
+    if (sending) return // guard against a double-tap firing two metered sends
     if (!activeChatId) {
       const id = generateUUID()
       const chat: AiyaChat = { id, title: '', messages: [], createdAt: Date.now(), updatedAt: Date.now() }
       setChats((prev) => [chat, ...prev])
       setActiveChatId(id)
       setView('chat')
-      // Pass the new chat ID explicitly to avoid stale closure — handleSend's
-      // activeChatId would still be null from the old closure
-      setTimeout(() => handleSend(text, id), 50)
+      // Call handleSend directly with the explicit new chat id — no setTimeout,
+      // which previously let two chips queue before `sending` committed.
+      handleSend(text, id)
     } else {
       handleSend(text)
     }
-  }, [activeChatId, handleSend])
+  }, [activeChatId, handleSend, sending])
+
+  // Retry a failed message: drop its failed bubble and re-send the text.
+  const handleRetry = useCallback((text: string, chatId: string) => {
+    setChats((prev) => prev.map((c) => {
+      if (c.id !== chatId) return c
+      return { ...c, messages: c.messages.filter((m) => !(m.failed && m.role === 'user' && m.content === text)) }
+    }))
+    setErrorMessage(null)
+    handleSend(text, chatId)
+  }, [handleSend])
 
   // ─── Not logged in ─────────────────────────────────────
   if (!user) {
@@ -1085,6 +1135,14 @@ export default function Aiya() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+        {!loaded && chats.length === 0 ? (
+          // Cloud chats still loading on a fresh device — show a spinner instead
+          // of the empty hero, which would otherwise flash "no chats" then pop in.
+          <div className="flex items-center justify-center h-full min-h-[400px]">
+            <LoadingSpinner size="lg" />
+          </div>
+        ) : (
+        <>
         {/* Hero / Start Chat section */}
         <div className={`flex flex-col items-center container-padding text-center ${chats.length === 0 ? 'justify-center h-full min-h-[400px]' : 'pt-8 sm:pt-10 pb-6'}`}>
           <motion.div
@@ -1174,6 +1232,8 @@ export default function Aiya() {
               })}
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
     </div>
@@ -1315,29 +1375,11 @@ export default function Aiya() {
                 isUser={isUser}
                 showAvatar={showAvatar}
                 showTime={Boolean(showTime)}
+                retryLabel={t('aiyaRetry')}
+                onRetry={msg.failed && isUser && activeChatId ? () => handleRetry(msg.content, activeChatId) : undefined}
               />
             )
           })}
-
-          {/* Crisis support resources — shown when a crisis-tier message is detected */}
-          {crisisActive && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              role="region"
-              aria-label={t('aiyaCrisisTitle')}
-              className="mx-1 my-2"
-            >
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-4 py-3 rounded-2xl flex items-start gap-3">
-                <LifeBuoy size={20} className="text-blue-500 dark:text-blue-300 flex-shrink-0 mt-0.5" />
-                <div className="min-w-0">
-                  <p className="font-semibold text-blue-800 dark:text-blue-200 text-sm mb-1">{t('aiyaCrisisTitle')}</p>
-                  <p className="text-blue-700 dark:text-blue-300 text-xs sm:text-sm leading-relaxed">{t('aiyaCrisisBody')}</p>
-                  <p className="text-blue-600 dark:text-blue-300 text-xs sm:text-sm leading-relaxed mt-1 font-medium">{t('aiyaCrisisResources')}</p>
-                </div>
-              </div>
-            </motion.div>
-          )}
 
           {/* Typing indicator */}
           {sending && <TypingDots />}
@@ -1361,9 +1403,9 @@ export default function Aiya() {
         </div>
       </div>
 
-      {/* Scroll-down FAB */}
+      {/* Scroll-down FAB — hidden while the keyboard is open so it can't overlap the composer */}
       <AnimatePresence>
-        {showScrollDown && (
+        {showScrollDown && !isKeyboardOpen && (
           <motion.button
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -1382,6 +1424,36 @@ export default function Aiya() {
         className="flex-shrink-0 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl z-50 shadow-lg"
         style={{ paddingBottom: isKeyboardOpen ? '0px' : 'var(--safe-area-inset-bottom, 0px)' }}
       >
+        {/* Pinned crisis resources — stay reachable above the composer for the
+            rest of the session instead of scrolling away with the conversation. */}
+        {crisisActive && (
+          <div role="region" aria-label={t('aiyaCrisisTitle')} className="container-padding pt-3 max-w-4xl mx-auto w-full">
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-4 py-3 rounded-2xl flex items-start gap-3">
+              <LifeBuoy size={20} className="text-blue-500 dark:text-blue-300 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="font-semibold text-blue-800 dark:text-blue-200 text-sm mb-1">{t('aiyaCrisisTitle')}</p>
+                <p className="text-blue-700 dark:text-blue-300 text-xs sm:text-sm leading-relaxed">{t('aiyaCrisisBody')}</p>
+                <p className="text-blue-600 dark:text-blue-300 text-xs sm:text-sm leading-relaxed mt-1 font-medium">{t('aiyaCrisisResources')}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Usage cap: at-limit banner, or a near-limit "N left" hint. */}
+        {usageInfo && usageInfo.used >= usageInfo.limit ? (
+          <div className="container-padding pt-3 max-w-4xl mx-auto w-full">
+            <p className="text-xs sm:text-sm text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 px-4 py-2.5 rounded-2xl text-center">
+              {t('aiyaLimitReached')}
+            </p>
+          </div>
+        ) : usageInfo && usageInfo.limit > 0 && usageInfo.used / usageInfo.limit >= 0.8 ? (
+          <div className="container-padding pt-2 max-w-4xl mx-auto w-full">
+            <p className="text-[11px] sm:text-xs text-orange-600 dark:text-orange-400 text-center font-medium">
+              {t('aiyaRemaining', { count: Math.max(0, usageInfo.limit - usageInfo.used) })}
+            </p>
+          </div>
+        ) : null}
+
         {/* Suggestion chips */}
         <AnimatePresence>
           {showChips && (
@@ -1416,14 +1488,14 @@ export default function Aiya() {
                   handleSend()
                 }
               }}
-              disabled={sending}
+              disabled={sending || (!!usageInfo && usageInfo.used >= usageInfo.limit)}
               rows={1}
             />
           </div>
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => handleSend()}
-            disabled={sending || !input.trim()}
+            disabled={sending || !input.trim() || (!!usageInfo && usageInfo.used >= usageInfo.limit)}
             className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl gradient-primary text-white flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-all touch-manipulation flex-shrink-0 shadow-lg touch-target"
             aria-label={t('aiyaSend', { defaultValue: 'Gönder' })}
           >
@@ -1439,7 +1511,7 @@ export default function Aiya() {
   // ═════════════════════════════════════════════════════════
 
   return (
-    <div className="relative bg-white dark:bg-gray-900 overflow-hidden" style={{ height: '100dvh' }}>
+    <div className="relative bg-white dark:bg-gray-900 overflow-hidden" style={{ height: `${viewportHeight}px` }}>
       <AnimatePresence mode="wait" initial={false}>
         {view === 'list' ? (
           <motion.div
