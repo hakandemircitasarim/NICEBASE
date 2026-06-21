@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Heart, Plus, Sparkles, Flame, Sun, Moon, Sunrise, Sunset, CheckCircle, RefreshCw, Image as ImageIcon, X, Calendar, ArrowRight } from 'lucide-react'
+import { Heart, Plus, Sparkles, Flame, Sun, Moon, Sunrise, Sunset, CheckCircle, RefreshCw, Image as ImageIcon, X, Calendar, ArrowRight, AlertCircle } from 'lucide-react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { useStore } from '../store/useStore'
 import { Memory, DailyQuestion } from '../types'
@@ -116,11 +116,19 @@ export default function Home() {
   }, [userId, user, t, showSuccess])
 
   // Use memories hook - loadStreak must be defined before this
-  const { memories, loading, refreshMemories } = useMemories(userId, {
+  const { memories, loading, error, refreshMemories } = useMemories(userId, {
     onLoadComplete: async (loadedMemories) => {
       await loadStreak(loadedMemories)
     }
   })
+
+  // Distinguish "still loading / not yet attempted" from "genuinely empty" so the
+  // first-run screen doesn't flash before the first load commits (useMemories
+  // starts loading=false and loads in an effect).
+  const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false)
+  useEffect(() => {
+    if (loading || error || memories.length > 0) setHasAttemptedLoad(true)
+  }, [loading, error, memories.length])
 
   // Core-memory count, computed once per memories change (was recomputed inline
   // twice every render — once for the animation key, once for the value).
@@ -364,11 +372,30 @@ export default function Home() {
     return <Onboarding onComplete={() => setHasCompletedOnboarding(true)} />
   }
 
-  if (loading) {
+  if (loading || !hasAttemptedLoad) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex items-center justify-center min-h-[60vh]">
           <LoadingSpinner size="lg" />
+        </div>
+      </div>
+    )
+  }
+
+  // A failed load must not masquerade as the first-run "no memories" screen —
+  // show a distinct error + retry instead (mirrors the other list pages).
+  if (error) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center gap-4">
+          <AlertCircle size={40} className="text-gray-400" />
+          <p className="text-gray-600 dark:text-gray-400">{t('loadError')}</p>
+          <button
+            onClick={() => refreshMemories()}
+            className="px-5 py-2.5 rounded-xl bg-primary text-white font-semibold hover:bg-primary-dark transition-colors touch-manipulation"
+          >
+            {t('tryAgain')}
+          </button>
         </div>
       </div>
     )

@@ -29,9 +29,10 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
     } else if (tok.startsWith('_')) {
       nodes.push(<em key={key}>{tok.slice(1, -1)}</em>)
     } else {
-      // [text](url)
+      // [text](url) — only allow safe schemes; otherwise render as plain text
+      // so a javascript:/data: link can't execute.
       const mm = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(tok)
-      if (mm) {
+      if (mm && /^(https?:|mailto:)/i.test(mm[2])) {
         nodes.push(
           <a key={key} href={mm[2]} target="_blank" rel="noopener noreferrer" className="underline text-primary break-all">{mm[1]}</a>
         )

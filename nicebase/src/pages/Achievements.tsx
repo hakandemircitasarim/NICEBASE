@@ -18,6 +18,12 @@ export default function Achievements() {
   const [badges, setBadges] = useState<Badge[]>([])
   const [achievements, setAchievements] = useState<Achievement[]>([])
   const [activeTab, setActiveTab] = useState<'badges' | 'achievements'>('badges')
+  // Avoid flashing the empty/get-started screen before the first load commits
+  // (useMemories starts loading=false and loads in an effect).
+  const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false)
+  useEffect(() => {
+    if (loading || error || memories.length > 0) setHasAttemptedLoad(true)
+  }, [loading, error, memories.length])
 
   useEffect(() => {
     let cancelled = false
@@ -47,7 +53,7 @@ export default function Achievements() {
 
   const lang = (i18n?.language || 'tr').startsWith('tr') ? 'tr' : 'en'
 
-  if (loading) {
+  if (loading || !hasAttemptedLoad) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         <div className="flex items-center justify-center min-h-[60vh]">

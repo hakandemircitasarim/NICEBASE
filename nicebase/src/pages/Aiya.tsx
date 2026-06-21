@@ -1055,15 +1055,22 @@ export default function Aiya() {
     }
   }, [activeChatId, handleSend, sending])
 
-  // Retry a failed message: drop its failed bubble and re-send the text.
+  // Retry a failed message. Check the same guards handleSend uses FIRST and bail
+  // before removing the failed bubble — otherwise an offline/at-limit/in-flight
+  // retry would delete the bubble and then early-return, losing the message.
   const handleRetry = useCallback((text: string, chatId: string) => {
+    if (sending) return
+    if (usageInfo && usageInfo.used >= usageInfo.limit) { setErrorMessage(t('aiyaLimitReached')); return }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) { setErrorMessage(t('aiyaNetworkError')); return }
+    // Guards passed — the send will proceed, so it's safe to drop the failed
+    // bubble (handleSend re-adds it) and clear the error.
     setChats((prev) => prev.map((c) => {
       if (c.id !== chatId) return c
       return { ...c, messages: c.messages.filter((m) => !(m.failed && m.role === 'user' && m.content === text)) }
     }))
     setErrorMessage(null)
     handleSend(text, chatId)
-  }, [handleSend])
+  }, [handleSend, sending, usageInfo, t])
 
   // ─── Not logged in ─────────────────────────────────────
   if (!user) {

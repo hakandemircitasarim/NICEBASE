@@ -139,7 +139,12 @@ function App() {
             if (import.meta.env.DEV) {
               console.warn('[App] session restore fetch failed, seeding minimal user:', fetchErr)
             }
-            setUser(minimalUserFromSession(session))
+            // Don't downgrade an already-loaded real user (e.g. the concurrent
+            // INITIAL_SESSION path may have set the full record first) to the
+            // minimal seed.
+            if (useStore.getState().user?.id !== session.user.id) {
+              setUser(minimalUserFromSession(session))
+            }
             if (syncStartedForRef.current !== session.user.id) {
               memorySyncService.start(session.user.id)
               syncStartedForRef.current = session.user.id

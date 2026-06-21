@@ -470,12 +470,19 @@ export default function MemoryForm({
     autoResize()
   }, [formData.text])
 
+  // When editing a legacy memory whose body already exceeds the cap, grandfather
+  // its original length so the user isn't locked out of editing (they can still
+  // trim it down); new memories use the hard cap.
+  const effectiveMaxTextLength = memory
+    ? Math.max(MAX_MEMORY_TEXT_LENGTH, memory.text.length)
+    : MAX_MEMORY_TEXT_LENGTH
+
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {}
-    
+
     // Validate text using utility function (enforces both min length and the
-    // MAX_MEMORY_TEXT_LENGTH cap so oversized bodies can't be saved)
-    const textValidation = validateMemoryText(formData.text, 10, MAX_MEMORY_TEXT_LENGTH)
+    // effective max cap so oversized bodies can't be saved)
+    const textValidation = validateMemoryText(formData.text, 10, effectiveMaxTextLength)
     if (!textValidation.isValid) {
       newErrors.text = textValidation.error || t('pleaseEnterText')
     }
@@ -545,7 +552,12 @@ export default function MemoryForm({
         hapticFeedback('success')
         savedMemory = memory
       } else {
-        const created = await withTimeout(memoryService.create({
+        // NOTE: create is intentionally NOT wrapped in withTimeout. It generates
+        // a fresh UUID, so a timeout that fires while the (usually fast) Dexie
+        // write actually completes would let the user retry and create a
+        // DUPLICATE. update (above) is idempotent on its id, so it keeps the
+        // anti-hang timeout.
+        const created = await memoryService.create({
           text: formData.text,
           category: primaryCategory, // Backward compatibility
           categories, // New multi-select
@@ -556,7 +568,7 @@ export default function MemoryForm({
           isCore: formData.isCore,
           photos: formData.photos,
           userId,
-        }), 12000)
+        })
         savedMemory = created
         hapticFeedback('success')
         
@@ -898,7 +910,7 @@ export default function MemoryForm({
                 autoResize()
               }}
               rows={4}
-              maxLength={MAX_MEMORY_TEXT_LENGTH}
+              maxLength={effectiveMaxTextLength}
               className={`w-full px-4 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-700/40 focus:outline-none resize-none touch-manipulation leading-relaxed text-[15px] text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 transition-all ${
                 errors.text
                   ? 'ring-2 ring-red-400/50 bg-red-50/50 dark:bg-red-900/10'
@@ -922,15 +934,15 @@ export default function MemoryForm({
               )}
               </AnimatePresence>
               {/* Character counter — only surfaces as the user nears the cap */}
-              {formData.text.length >= MAX_MEMORY_TEXT_LENGTH * 0.9 && (
+              {formData.text.length >= effectiveMaxTextLength * 0.9 && (
                 <span
                   className={`ml-auto flex-shrink-0 text-xs tabular-nums ${
-                    formData.text.length >= MAX_MEMORY_TEXT_LENGTH
+                    formData.text.length >= effectiveMaxTextLength
                       ? 'text-red-500 font-semibold'
                       : 'text-gray-400 dark:text-gray-500'
                   }`}
                 >
-                  {formData.text.length}/{MAX_MEMORY_TEXT_LENGTH}
+                  {formData.text.length}/{effectiveMaxTextLength}
                 </span>
               )}
             </div>

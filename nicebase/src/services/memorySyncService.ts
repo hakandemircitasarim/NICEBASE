@@ -19,6 +19,10 @@ const state: SyncState = {
 }
 
 let syncInProgress = false
+// Last abandoned-count we logged, so we only surface abandonment on a CHANGE —
+// otherwise every poll (every 5 min, on resume, on online) would re-log the same
+// 'error' forever once any item reaches the permanent 'abandoned' state.
+let lastReportedAbandoned = 0
 
 async function safeSyncNow(userId: string) {
   if (syncInProgress) return // Skip if another sync is already running
@@ -27,17 +31,19 @@ async function safeSyncNow(userId: string) {
     await memoryService.syncAll(userId)
 
     // Abandonment means items permanently gave up syncing (data the user may
-    // believe is backed up is NOT). Surface that at 'error' severity, not the
-    // 'warning' we use for ordinary transient sync hiccups.
+    // believe is backed up is NOT). Surface that at 'error' severity, but only
+    // when the count GROWS — 'abandoned' is terminal, so logging every poll
+    // would spam the log/endpoint indefinitely.
     try {
       const status = await memoryService.getSyncStatus(userId)
-      if (status.abandoned > 0) {
+      if (status.abandoned > lastReportedAbandoned) {
         errorLoggingService.logError(
           new Error(`Background sync abandoned ${status.abandoned} item(s)`),
           'error',
           userId
         )
       }
+      lastReportedAbandoned = status.abandoned
     } catch {
       // Status read is best-effort; never let it break the sync flow.
     }
