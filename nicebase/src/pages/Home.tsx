@@ -104,15 +104,28 @@ export default function Home() {
     }
   })
 
+  // Core-memory count, computed once per memories change (was recomputed inline
+  // twice every render — once for the animation key, once for the value).
+  const coreCount = useMemo(() => memories.filter((m) => m.isCore).length, [memories])
+
   // Find memories with conflicts
   const conflictedMemory = memories.find((m) => m.conflict && m.conflictCloud)
   const [showConflictDialog, setShowConflictDialog] = useState(false)
+  // Remember a conflict the user dismissed WITHOUT resolving — the conflict flag
+  // stays on the memory until full resolution, so without this the effect would
+  // instantly reopen the dialog and the user could never close it.
+  const dismissedConflictIdRef = useRef<string | null>(null)
 
-  // Show conflict dialog when conflicts are detected
+  // Show conflict dialog when conflicts are detected (unless this exact conflict
+  // was already dismissed). Clearing the ref when no conflict remains lets the
+  // same memory surface again if it ever re-conflicts later.
   useEffect(() => {
-    if (conflictedMemory && !showConflictDialog) {
-      setShowConflictDialog(true)
+    if (!conflictedMemory) {
+      dismissedConflictIdRef.current = null
+      return
     }
+    if (dismissedConflictIdRef.current === conflictedMemory.id) return
+    if (!showConflictDialog) setShowConflictDialog(true)
   }, [conflictedMemory, showConflictDialog])
 
   const handleAddMemory = useCallback(() => {
@@ -684,12 +697,12 @@ export default function Home() {
           <p className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-300 mb-1.5 font-semibold uppercase tracking-wider">{t('coreMemories')}</p>
           <div className="flex items-end gap-2">
             <motion.p
-              key={memories.filter(m => m.isCore).length}
+              key={coreCount}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-gray-100 tracking-tight"
             >
-              {memories.filter(m => m.isCore).length}
+              {coreCount}
             </motion.p>
             <span className="text-yellow-500 mb-1">⭐</span>
           </div>
@@ -927,10 +940,15 @@ export default function Home() {
         <ConflictResolutionDialog
           memory={conflictedMemory}
           onResolved={async () => {
+            dismissedConflictIdRef.current = null
             setShowConflictDialog(false)
             await refreshMemories()
           }}
-          onClose={() => setShowConflictDialog(false)}
+          onClose={() => {
+            // Mark THIS conflict dismissed so the effect doesn't reopen it.
+            if (conflictedMemory) dismissedConflictIdRef.current = conflictedMemory.id
+            setShowConflictDialog(false)
+          }}
         />
       )}
     </div>

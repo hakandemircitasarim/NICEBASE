@@ -121,7 +121,15 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setHasCompletedOnboarding: (completed) => {
-    localStorage.setItem('hasCompletedOnboarding', completed.toString())
+    try {
+      localStorage.setItem('hasCompletedOnboarding', completed.toString())
+    } catch (e) {
+      // localStorage might be disabled, fail silently (consistent with the
+      // other setters) — but still update state below.
+      if (import.meta.env.DEV) {
+        console.warn('Failed to save onboarding status to localStorage:', e)
+      }
+    }
     set({ hasCompletedOnboarding: completed })
   },
 

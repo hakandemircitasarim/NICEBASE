@@ -1,5 +1,4 @@
 import { useCallback } from 'react'
-import { useTranslation } from 'react-i18next'
 import toast from 'react-hot-toast'
 import { hapticFeedback } from '../utils/haptic'
 
@@ -15,7 +14,9 @@ interface NotificationOptions {
  * Provides consistent patterns for success, error, and info notifications
  */
 export function useNotifications() {
-  const { t } = useTranslation()
+  // No i18n subscription here on purpose: callers pass already-translated
+  // messages, so subscribing to useTranslation() would re-render every consumer
+  // on each language change for nothing.
 
   const showSuccess = useCallback(
     (message: string, options: NotificationOptions = {}) => {

@@ -37,6 +37,14 @@ export function useMemories(
     onLoadCompleteRef.current = onLoadComplete
   }, [onLoadComplete])
 
+  // Keep `t` in a ref too, so loadMemories doesn't depend on it. Otherwise every
+  // language toggle changes loadMemories' identity and re-runs the autoLoad
+  // effect, refetching the whole table from Dexie for nothing.
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  }, [t])
+
   const loadMemories = useCallback(async () => {
     if (!userId) return
 
@@ -49,11 +57,11 @@ export function useMemories(
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to load memories')
       setError(error)
-      toast.error(t('memoriesLoadError'))
+      toast.error(tRef.current('memoriesLoadError'))
     } finally {
       setLoading(false)
     }
-  }, [userId, t])
+  }, [userId])
 
   const refreshMemories = useCallback(async () => {
     await loadMemories()
