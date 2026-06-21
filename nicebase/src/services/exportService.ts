@@ -4,6 +4,22 @@ import { isNative } from '../utils/capacitor'
 import { formatMemoryDate } from '../utils/dateFormat'
 
 /**
+ * Localized, multi-category cell value. Counts EVERY tagged category so
+ * multi-tagged memories aren't under-reported, falling back to the deprecated
+ * single `category` only when the array is empty/missing. Each value is
+ * localized via the same i18n keys the app UI uses (categories.<key>).
+ */
+function formatCategoryCell(m: Memory): string {
+  const cats = m.categories && m.categories.length > 0 ? m.categories : [m.category]
+  return cats.map(c => i18n.t(`categories.${c}`)).join(', ')
+}
+
+/** Localized life-area cell value, matching how the UI renders it. */
+function formatLifeAreaCell(m: Memory): string {
+  return i18n.t(`lifeAreas.${m.lifeArea}`)
+}
+
+/**
  * Convert blob to base64 data URL
  */
 function blobToDataUrl(blob: Blob): Promise<string> {
@@ -95,9 +111,9 @@ export const exportService = {
     const tableData = memories.map(m => [
       formatMemoryDate(m.date, dateLocale),
       m.text.substring(0, 50) + (m.text.length > 50 ? '...' : ''),
-      m.category,
+      formatCategoryCell(m),
       m.intensity.toString(),
-      m.lifeArea,
+      formatLifeAreaCell(m),
       m.isCore ? i18n.t('yes') : i18n.t('no'),
     ])
     
@@ -133,10 +149,10 @@ export const exportService = {
     const rows = memories.map(m => [
       escapeCSV(formatMemoryDate(m.date, dateLocale)),
       escapeCSV(m.text),
-      escapeCSV(m.category),
+      escapeCSV(formatCategoryCell(m)),
       escapeCSV(m.intensity.toString()),
       escapeCSV(m.connections.join('; ')),
-      escapeCSV(m.lifeArea),
+      escapeCSV(formatLifeAreaCell(m)),
       escapeCSV(m.isCore ? i18n.t('yes') : i18n.t('no')),
       escapeCSV(m.photos.length.toString()),
     ])

@@ -8,6 +8,7 @@ import {
 import { Memory } from '../types'
 import { hapticFeedback } from '../utils/haptic'
 import { useLongPress } from '../hooks/useLongPress'
+import { parseLocalDate, toLocalISODate } from '../utils/dateFormat'
 import ProgressiveImage from './ProgressiveImage'
 
 // Category icon/color mapping
@@ -24,26 +25,23 @@ const CATEGORY_META: Record<string, { icon: typeof Sparkles; color: string }> = 
 }
 
 function getRelativeTime(dateStr: string, locale: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
-  // Extract just the date part (YYYY-MM-DD) to avoid timezone issues
-  const dateOnly = dateStr.split('T')[0]
-  const now = new Date()
-  const todayStr = now.toISOString().split('T')[0]
-  
-  // Parse dates as local dates (not UTC) to avoid timezone issues
-  const [year, month, day] = dateOnly.split('-').map(Number)
-  const [todayYear, todayMonth, todayDay] = todayStr.split('-').map(Number)
-  
-  const date = new Date(year, month - 1, day)
-  const today = new Date(todayYear, todayMonth - 1, todayDay)
-  
+  // Parse both the memory date and "today" in the user's LOCAL calendar so the
+  // day never drifts in non-UTC timezones (consistent with the rest of the app).
+  const date = parseLocalDate(dateStr)
+  const today = parseLocalDate(toLocalISODate())
+
   const diffTime = today.getTime() - date.getTime()
   const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
 
+  // Future-dated memory (clock skew / imported data): never show "-N days ago".
+  // Treat as "today", falling through to the absolute date for further-future.
   if (diffDays === 0) return t('today', { defaultValue: 'Bugün' })
-  if (diffDays === 1) return t('yesterday', { defaultValue: 'Dün' })
-  if (diffDays < 7) return t('daysAgo', { count: diffDays, defaultValue: `${diffDays} gün önce` })
+  if (diffDays > 0) {
+    if (diffDays === 1) return t('yesterday', { defaultValue: 'Dün' })
+    if (diffDays < 7) return t('daysAgo', { count: diffDays, defaultValue: `${diffDays} gün önce` })
+  }
 
-  return new Date(year, month - 1, day).toLocaleDateString(locale, {
+  return date.toLocaleDateString(locale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -93,6 +91,21 @@ function MemoryCard({
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000
     return createdAt < fiveMinutesAgo
   }, [memory.synced, memory.createdAt])
+
+  // Aiya classification only realistically runs shortly after a memory syncs.
+  // If a memory is still 'uncategorized' well past that window (rate limit,
+  // rejected/failed edge function, offline), stop implying perpetual progress —
+  // fall back to a static "Uncategorized" terminal state instead of pulsing.
+  const isClassifying = useMemo(() => {
+    if (memory.category !== 'uncategorized') return false
+    if (isLocalUser || isSyncStale) return false
+    // Unsynced-but-recent: still queued for sync, classification will follow.
+    if (!memory.synced) return true
+    const createdAt = new Date(memory.createdAt).getTime()
+    if (!Number.isFinite(createdAt)) return false
+    const tenMinutesAgo = Date.now() - 10 * 60 * 1000
+    return createdAt >= tenMinutesAgo
+  }, [memory.category, memory.synced, memory.createdAt, isLocalUser, isSyncStale])
 
   const relativeDate = useMemo(
     () => getRelativeTime(memory.date, locale, t),
@@ -191,7 +204,7 @@ function MemoryCard({
         {(isSyncStale || memory.conflict || memory.isCore) && (
           <div className="mb-3 flex flex-wrap gap-1.5">
             {memory.isCore && (
-              <span className="inline-flex items-center gap-1 text-xs font-bold bg-gradient-to-r from-primary to-primary-dark text-white px-2.5 py-1 rounded-full shadow-sm">
+              <span className="inline-flex items-center gap-1 text-xs font-bold bg-gradient-to-r from-yellow-400 to-yellow-500 text-white px-2.5 py-1 rounded-full shadow-sm">
                 ⭐ {t('coreMemory')}
               </span>
             )}
@@ -254,13 +267,13 @@ function MemoryCard({
         <div className="flex flex-wrap gap-1.5 mb-4">
           {/* Category badge with icon */}
           <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full ${catMeta.color} ${
-            memory.category === 'uncategorized' && !isSyncStale && !isLocalUser ? 'animate-pulse' : ''
+            isClassifying ? 'animate-pulse' : ''
           }`}>
             <CatIcon size={12} />
             {memory.category === 'uncategorized'
               ? (isLocalUser
                 ? t('aiyaLoginToClassify', { defaultValue: 'Giriş yapın, Aiya sınıflandırsın' })
-                : (!isSyncStale
+                : (isClassifying
                   ? t('aiyaClassifying', { defaultValue: 'Aiya kategorize ediyor...' })
                   : t(`categories.${memory.category}`)))
               : t(`categories.${memory.category}`)}
@@ -273,11 +286,14 @@ function MemoryCard({
             </span>
           )}
 
-          {/* Intensity */}
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-primary/8 text-primary px-2.5 py-1 rounded-full">
-            <Zap size={11} />
-            {memory.intensity}/10
-          </span>
+          {/* Intensity — hide the chip when missing/non-finite (e.g. legacy
+              cloud rows) so it never renders "null/10". */}
+          {Number.isFinite(memory.intensity) && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-primary/8 text-primary px-2.5 py-1 rounded-full">
+              <Zap size={11} />
+              {memory.intensity}/10
+            </span>
+          )}
 
           {/* Connections */}
           {memory.connections.map((conn, idx) => (

@@ -89,9 +89,14 @@ export function useMemoryFilters(
       filtered = filtered.filter(m => m.connections.some(c => selectedKeys.has(normalizeConnectionKey(c))))
     }
 
-    // Category filter
+    // Category filter — match against the multi-select categories array,
+    // falling back to the deprecated single category when it's empty, so
+    // filtering by a secondary tag still finds multi-tagged memories.
     if (selectedCategory !== 'all') {
-      filtered = filtered.filter(m => m.category === selectedCategory)
+      filtered = filtered.filter(m => {
+        const cats = m.categories && m.categories.length > 0 ? m.categories : [m.category]
+        return cats.includes(selectedCategory)
+      })
     }
 
     // Life area filter

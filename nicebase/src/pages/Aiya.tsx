@@ -17,6 +17,7 @@ import MarkdownText from '../components/MarkdownText'
 import { aiyaService, routeMessage, buildTieredMemoryContext } from '../services/aiyaService'
 import { hapticFeedback } from '../utils/haptic'
 import { generateUUID } from '../utils/uuid'
+import { parseLocalDate } from '../utils/dateFormat'
 import { useDebounce } from '../hooks/useDebounce'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { useBackButton } from '../hooks/useBackButton'
@@ -186,7 +187,9 @@ function SuggestionChips({
 
     const now = new Date()
     const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-    const recentMemories = memories.filter(m => new Date(m.date) >= oneWeekAgo)
+    // parseLocalDate: a bare YYYY-MM-DD must be compared in the LOCAL calendar,
+    // not as UTC midnight, so the 7-day window doesn't drift in non-UTC zones.
+    const recentMemories = memories.filter(m => parseLocalDate(m.date) >= oneWeekAgo)
     const allCategories = new Set(memories.slice(0, 30).map(m => m.category))
 
     // Count connections across all memories

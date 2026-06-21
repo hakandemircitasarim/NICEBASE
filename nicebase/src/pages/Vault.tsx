@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
-import { AnimatePresence } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { memoryService } from '../services/memoryService'
 import { Memory } from '../types'
 import MemoryForm from '../components/MemoryForm'
@@ -22,7 +23,7 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog'
 export default function Vault() {
   const { t } = useTranslation()
   const userId = useUserId()
-  const { memories, loading, refreshMemories } = useMemories(userId)
+  const { memories, loading, error, refreshMemories } = useMemories(userId)
   const { showSuccess, showError, hapticFeedback } = useNotifications()
   const [searchParams, setSearchParams] = useSearchParams()
   const [showForm, setShowForm] = useState(false)
@@ -33,7 +34,12 @@ export default function Vault() {
   const [selectedImages, setSelectedImages] = useState<string[]>([])
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [displayCount, setDisplayCount] = useState(20)
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  // True once an initial load has begun. useMemories starts with loading=false
+  // before its effect kicks in, so on the very first paint memories=[] and
+  // loading=false would briefly satisfy the empty-state condition and flash
+  // the "no memories" illustration before skeletons appear. Gating on this
+  // flag keeps the loading/skeleton state as the first thing the user sees.
+  const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false)
   const { openConfirm, confirmDialogProps } = useConfirmDialog()
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
@@ -54,6 +60,21 @@ export default function Vault() {
     setSearchConnections,
     clearFilters,
   } = useMemoryFilters(memories)
+
+  // Mark that a real load has started (or finished) so the empty state can't
+  // flash before the first skeleton frame.
+  useEffect(() => {
+    if (loading || error || memories.length > 0) {
+      setHasAttemptedLoad(true)
+    }
+  }, [loading, error, memories.length])
+
+  // Reset the "load more" window whenever the active filters/search/sort/
+  // dateRange/connections change, so a deep expansion from a previous view
+  // doesn't carry into a freshly filtered (possibly smaller) result set.
+  useEffect(() => {
+    setDisplayCount(20)
+  }, [searchQuery, selectedCategory, selectedLifeArea, sortBy, dateRange.start, dateRange.end, searchConnections])
 
   useEffect(() => {
     const action = searchParams.get('action')
@@ -181,12 +202,10 @@ export default function Vault() {
     setShowImageModal(false)
   }, [])
 
-  const handleLoadMore = useCallback(async () => {
-    setIsLoadingMore(true)
+  const handleLoadMore = useCallback(() => {
+    // Data is fully client-side — bump the window immediately, no fake latency.
     hapticFeedback('light')
-    await new Promise(resolve => setTimeout(resolve, 300))
     setDisplayCount(prev => Math.min(prev + 20, filteredMemories.length))
-    setIsLoadingMore(false)
   }, [filteredMemories.length, hapticFeedback])
 
   const handleClearFilters = useCallback(() => {
@@ -222,7 +241,34 @@ export default function Vault() {
         onConnectionsChange={setSearchConnections}
       />
 
-      {filteredMemories.length === 0 && !loading ? (
+      {error && !loading ? (
+        // Distinct error state — a failed load must not masquerade as
+        // "no memories yet". Offer a retry instead of an "add memory" CTA.
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col items-center justify-center py-16 sm:py-20 px-4"
+        >
+          <div className="w-24 h-24 sm:w-32 sm:h-32 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-6">
+            <AlertTriangle className="w-12 h-12 sm:w-16 sm:h-16 text-red-500 dark:text-red-400" />
+          </div>
+          <h3 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2 text-center">
+            {t('error')}
+          </h3>
+          <p className="text-gray-600 dark:text-gray-400 text-center mb-6 max-w-md leading-relaxed">
+            {t('memoriesLoadError')}
+          </p>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => refreshMemories()}
+            className="gradient-primary text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all touch-manipulation min-h-[48px] flex items-center justify-center gap-2"
+          >
+            <RefreshCw size={20} />
+            {t('tryAgain')}
+          </motion.button>
+        </motion.div>
+      ) : filteredMemories.length === 0 && !loading && hasAttemptedLoad ? (
         <VaultEmptyState
           hasFilters={Boolean(
             searchQuery ||
@@ -237,10 +283,10 @@ export default function Vault() {
         />
       ) : (
         <VaultMemoryList
-          loading={loading}
+          loading={loading || !hasAttemptedLoad}
           memories={filteredMemories}
           displayCount={displayCount}
-          isLoadingMore={isLoadingMore}
+          isLoadingMore={false}
           bulkMode={bulkMode}
           selectedMemories={selectedMemories}
           onLoadMore={handleLoadMore}

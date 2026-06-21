@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
-import { ChevronLeft, Search, Pencil, Trash2, Users } from 'lucide-react'
+import { ChevronLeft, Search, Pencil, Trash2, Users, AlertCircle, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -29,14 +29,19 @@ export default function Connections() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const userId = useUserId()
-  const { memories, loading, refreshMemories } = useMemories(userId)
+  const { memories, loading, error, refreshMemories } = useMemories(userId)
 
   const [query, setQuery] = useState('')
   const [renameTarget, setRenameTarget] = useState<ConnectionStat | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<ConnectionStat | null>(null)
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null)
   useModalPresence(!!renameTarget)
+
+  // Locale-aware comparison/case-folding so Turkish names (İ/ı) sort and search
+  // correctly regardless of the host/device default locale.
+  const locale = (i18n.language || 'tr').startsWith('tr') ? 'tr' : 'en'
 
   const stats = useMemo<ConnectionStat[]>(() => {
     const allConnections = memories.flatMap(m => m.connections)
@@ -61,13 +66,13 @@ export default function Connections() {
 
     const list = Array.from(map.values()).sort((a, b) => {
       if (b.count !== a.count) return b.count - a.count
-      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      return a.name.localeCompare(b.name, locale, { sensitivity: 'base' })
     })
 
-    const q = query.trim().toLocaleLowerCase()
+    const q = query.trim().toLocaleLowerCase(locale)
     if (!q) return list
-    return list.filter(s => s.name.toLocaleLowerCase().includes(q))
-  }, [memories, query])
+    return list.filter(s => s.name.toLocaleLowerCase(locale).includes(q))
+  }, [memories, query, locale])
 
   const openRename = (stat: ConnectionStat) => {
     setRenameTarget(stat)
@@ -91,11 +96,15 @@ export default function Connections() {
     try {
       // Update every memory where any connection matches oldKey (normalized).
       const affected = memories.filter(m => m.connections.some(c => normalizeConnectionKey(c) === oldKey))
+      setProgress({ current: 0, total: affected.length })
+      let done = 0
       for (const m of affected) {
         const next = dedupeConnections(
           m.connections.map(c => (normalizeConnectionKey(c) === oldKey ? newName : c))
         )
         await memoryService.update(m.id, { connections: next })
+        done += 1
+        setProgress({ current: done, total: affected.length })
       }
 
       // If rename turns into an existing key, this effectively "merges" them.
@@ -111,6 +120,7 @@ export default function Connections() {
       toast.error(t('saveErrorRetry'))
     } finally {
       setBusy(false)
+      setProgress(null)
     }
   }
 
@@ -121,17 +131,30 @@ export default function Connections() {
     setBusy(true)
     try {
       const affected = memories.filter(m => m.connections.some(c => normalizeConnectionKey(c) === targetKey))
+      setProgress({ current: 0, total: affected.length })
+      let done = 0
+      // The confirmation dialog closes on confirm, so surface progress via a
+      // persistent toast for multi-memory deletes.
+      if (affected.length > 1) {
+        toast.loading(`${t('updating')} 0/${affected.length}`, { id: 'connection-bulk' })
+      }
       for (const m of affected) {
         const next = dedupeConnections(m.connections.filter(c => normalizeConnectionKey(c) !== targetKey))
         await memoryService.update(m.id, { connections: next })
+        done += 1
+        setProgress({ current: done, total: affected.length })
+        if (affected.length > 1) {
+          toast.loading(`${t('updating')} ${done}/${affected.length}`, { id: 'connection-bulk' })
+        }
       }
-      toast.success(t('connectionDeleted'))
+      toast.success(t('connectionDeleted'), { id: 'connection-bulk' })
       setDeleteTarget(null)
       await refreshMemories()
     } catch {
-      toast.error(t('saveErrorRetry'))
+      toast.error(t('saveErrorRetry'), { id: 'connection-bulk' })
     } finally {
       setBusy(false)
+      setProgress(null)
     }
   }
 
@@ -140,6 +163,41 @@ export default function Connections() {
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex items-center justify-center min-h-[60vh]">
           <LoadingSpinner size="lg" />
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-6 sm:py-8">
+        <div className="flex items-center gap-3 mb-6">
+          <button
+            onClick={() => navigate('/profile')}
+            className="icon-btn bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-primary/40 touch-manipulation"
+            aria-label={t('back')}
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <h1 className="text-2xl sm:text-3xl font-bold">{t('connections')}</h1>
+        </div>
+        <div className="flex flex-col items-center justify-center text-center py-16 px-4">
+          <div className="p-4 rounded-full bg-red-50 dark:bg-red-900/20 mb-4">
+            <AlertCircle className="text-red-500 dark:text-red-400" size={40} />
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+            {t('loadError')}
+          </h3>
+          <p className="text-gray-600 dark:text-gray-400 text-base mb-6 max-w-md">
+            {t('errorOccurred')}
+          </p>
+          <button
+            onClick={() => refreshMemories()}
+            className="inline-flex items-center gap-2 px-6 py-3 gradient-primary text-white rounded-xl font-semibold hover:shadow-lg transition-all touch-manipulation"
+          >
+            <RefreshCw size={18} />
+            {t('tryAgain')}
+          </button>
         </div>
       </div>
     )
@@ -285,10 +343,21 @@ export default function Connections() {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={applyRename}
-                  className="flex-1 px-4 py-3 bg-primary hover:bg-primary-dark text-white rounded-xl font-semibold transition-colors touch-manipulation shadow-lg disabled:opacity-60"
+                  className="flex-1 px-4 py-3 bg-primary hover:bg-primary-dark text-white rounded-xl font-semibold transition-colors touch-manipulation shadow-lg disabled:opacity-60 flex items-center justify-center gap-2"
                   disabled={busy || !cleanConnectionName(renameValue)}
                 >
-                  {t('save')}
+                  {busy ? (
+                    <>
+                      <LoadingSpinner size="sm" />
+                      <span>
+                        {progress && progress.total > 0
+                          ? `${t('saving')} ${progress.current}/${progress.total}`
+                          : t('saving')}
+                      </span>
+                    </>
+                  ) : (
+                    t('save')
+                  )}
                 </motion.button>
               </div>
             </div>

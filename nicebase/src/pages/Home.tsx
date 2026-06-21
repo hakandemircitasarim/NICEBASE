@@ -17,6 +17,14 @@ import { useNotifications } from '../hooks/useNotifications'
 import ConflictResolutionDialog from '../components/ConflictResolutionDialog'
 import { toLocalISODate, parseLocalDate, formatMemoryDate } from '../utils/dateFormat'
 
+// Intensity can be null/undefined/out-of-range on legacy or cloud-synced rows.
+// Normalize to a sensible 1-10 value (default 5) so nothing renders "null/10" or NaN.
+function safeIntensity(value: number | null | undefined): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return 5
+  return Math.min(10, Math.max(1, Math.round(n)))
+}
+
 export default function Home() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
@@ -35,6 +43,10 @@ export default function Home() {
   const [editingMemory, setEditingMemory] = useState<Memory | undefined>()
   const [fabBottom, setFabBottom] = useState('calc(88px + var(--safe-area-inset-bottom, 0px))')
   const skipBreathingRef = useRef<null | (() => void)>(null)
+  // Tracks whether the component is still mounted. The "need support" flow awaits
+  // a breathing delay before resolving; if the user navigates away during that
+  // pause we must NOT fire the success toast/animation or update state.
+  const isMountedRef = useRef(true)
 
   // Daily question state
   const [dailyQuestion, setDailyQuestion] = useState<DailyQuestion>(() => getDefaultQuestion())
@@ -64,6 +76,12 @@ export default function Home() {
     }).catch(() => {})
     return () => { cancelled = true }
   }, [userId])
+
+  // Keep the mounted flag accurate across the component lifecycle.
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => { isMountedRef.current = false }
+  }, [])
 
   // Load streak function - must be defined before useMemories hook
   // Accepts pre-loaded memories to avoid a duplicate DB/network call
@@ -211,7 +229,7 @@ export default function Home() {
 
     // Prioritize: Core memories > High intensity (8+) > Recent memories > Others
     const coreMemories = availableMemories.filter(m => m.isCore)
-    const highIntensityMemories = availableMemories.filter(m => m.intensity >= 8)
+    const highIntensityMemories = availableMemories.filter(m => safeIntensity(m.intensity) >= 8)
     const recentMemories = availableMemories.filter(m => {
       const memoryDate = parseLocalDate(m.date)
       const daysSince = (Date.now() - memoryDate.getTime()) / (1000 * 60 * 60 * 24)
@@ -261,6 +279,13 @@ export default function Home() {
           resolve()
         }
       })
+    }
+
+    // If the user navigated away during the breathing pause, bail out: don't fire
+    // the success toast/haptic or update state on an unmounted component.
+    if (!isMountedRef.current) {
+      skipBreathingRef.current = null
+      return
     }
 
     const selectedMemory = selectRandomMemory(memories, skipBreathing)
@@ -345,6 +370,89 @@ export default function Home() {
         <div className="flex items-center justify-center min-h-[60vh]">
           <LoadingSpinner size="lg" />
         </div>
+      </div>
+    )
+  }
+
+  // Focused first-run state: a brand-new user with no memories sees one clear
+  // "add your first memory" CTA instead of a dashboard of empty/disabled cards
+  // (support, random-memory and streak widgets only make sense once data exists).
+  if (memories.length === 0) {
+    return (
+      <div className="max-w-4xl mx-auto px-5 sm:px-6 lg:px-8 py-8 sm:py-10">
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center mb-8 sm:mb-10"
+        >
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <greeting.Icon size={18} className="text-primary" />
+            <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+              {greeting.text}{user?.displayName ? `, ${user.displayName}` : ''}
+            </p>
+          </div>
+          <h1 className="text-display bg-gradient-to-r from-primary to-primary-dark bg-clip-text text-transparent mb-2 sm:mb-3 tracking-tight">
+            {t('appName')}
+          </h1>
+          <p className="text-body text-gray-700 dark:text-gray-300 font-medium">{t('tagline')}</p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="flex flex-col items-center text-center bg-white dark:bg-gray-800 border-2 border-primary/30 dark:border-primary/40 rounded-3xl p-8 sm:p-12 shadow-card-elevated"
+        >
+          <motion.div
+            animate={prefersReducedMotion ? undefined : { scale: [1, 1.06, 1] }}
+            transition={prefersReducedMotion ? undefined : { duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+            className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center shadow-lg mb-6"
+          >
+            <Sparkles className="text-white" size={40} strokeWidth={2} />
+          </motion.div>
+          <h2 className="font-bold text-2xl sm:text-3xl text-gray-900 dark:text-gray-100 mb-3 tracking-tight">
+            {t('welcomeToNicebase')}
+          </h2>
+          <p className="text-base text-gray-600 dark:text-gray-300 mb-8 max-w-md mx-auto leading-relaxed">
+            {t('addFirstMemoryDescription')}
+          </p>
+          <motion.button
+            onClick={handleAddMemory}
+            whileHover={prefersReducedMotion ? {} : { scale: 1.03 }}
+            whileTap={prefersReducedMotion ? {} : { scale: 0.97 }}
+            className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-2xl gradient-primary text-white text-base font-bold shadow-lg hover:shadow-primary-glow transition-all duration-300 touch-manipulation"
+          >
+            <Plus size={20} strokeWidth={2.5} />
+            {t('addFirstMemory')}
+          </motion.button>
+        </motion.div>
+
+        {/* Memory Form */}
+        {showForm && (
+          <MemoryForm
+            memory={editingMemory}
+            dailyQuestion={dailyQuestionForForm}
+            onClose={() => {
+              setShowForm(false)
+              setEditingMemory(undefined)
+              setDailyQuestionForForm(null)
+            }}
+            onSave={async () => {
+              try {
+                await refreshMemories()
+                await loadStreak()
+                if (dailyQuestion?.id) {
+                  dailyQuestionService.hasAnsweredToday(userId, dailyQuestion.id).then(setHasAnsweredToday).catch(() => {})
+                }
+              } catch (error) {
+                if (import.meta.env.DEV) {
+                  console.error('Error loading memories after save:', error)
+                }
+              }
+            }}
+            userId={userId}
+          />
+        )}
       </div>
     )
   }
@@ -565,7 +673,10 @@ export default function Home() {
                     onError={(e) => {
                       const target = e.currentTarget
                       target.onerror = null
-                      target.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="256" fill="%23e5e7eb"><rect width="400" height="256"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%239ca3af" font-size="14">📷</text></svg>')
+                      // Build the SVG with literal characters and encode exactly once.
+                      // (Previously the SVG used pre-encoded %23/% entities and was then
+                      // run through encodeURIComponent again, double-encoding the URI.)
+                      target.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="256" fill="#e5e7eb"><rect width="400" height="256"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="#9ca3af" font-size="14">📷</text></svg>')
                       target.className = 'w-full h-48 sm:h-64 object-cover bg-gray-200 dark:bg-gray-700'
                     }}
                   />
@@ -585,7 +696,7 @@ export default function Home() {
                 )}
                 <span className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary-light rounded-full text-xs font-semibold">
                   <Flame size={12} />
-                  {randomMemory.intensity}/10
+                  {safeIntensity(randomMemory.intensity)}/10
                 </span>
                 {randomMemory.category !== 'uncategorized' && (
                   <span className="inline-flex items-center px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium">
@@ -858,7 +969,7 @@ export default function Home() {
                 <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                   <span>{parseLocalDate(memory.date).getFullYear()}</span>
                   {memory.isCore && <span className="text-yellow-500">⭐</span>}
-                  <span className="ml-auto">{memory.intensity}/10</span>
+                  <span className="ml-auto">{safeIntensity(memory.intensity)}/10</span>
                 </div>
               </div>
             ))}

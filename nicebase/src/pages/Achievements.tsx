@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Trophy, Award, Sparkles, CheckCircle2, Circle } from 'lucide-react'
+import { Trophy, Award, Sparkles, CheckCircle2, Circle, AlertCircle, RefreshCw } from 'lucide-react'
 import { gamificationService, Badge, Achievement } from '../services/gamificationService'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { useUserId } from '../hooks/useUserId'
@@ -10,8 +11,9 @@ import { useNotifications } from '../hooks/useNotifications'
 
 export default function Achievements() {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const userId = useUserId()
-  const { memories, loading } = useMemories(userId)
+  const { memories, loading, error, refreshMemories } = useMemories(userId)
   const { showError, hapticFeedback } = useNotifications()
   const [badges, setBadges] = useState<Badge[]>([])
   const [achievements, setAchievements] = useState<Achievement[]>([])
@@ -32,11 +34,11 @@ export default function Achievements() {
         if (!cancelled) showError(t('loadError'))
       }
     }
-    if (memories.length > 0 || !loading) {
+    if (!error && (memories.length > 0 || !loading)) {
       loadData()
     }
     return () => { cancelled = true }
-  }, [userId, memories, loading, t, showError])
+  }, [userId, memories, loading, error, t, showError])
 
   const unlockedBadges = badges.filter(b => b.unlocked).length
   const totalBadges = badges.length
@@ -50,6 +52,57 @@ export default function Achievements() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         <div className="flex items-center justify-center min-h-[60vh]">
           <LoadingSpinner size="lg" />
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-4xl mx-auto px-5 sm:px-6 lg:px-8 py-8 sm:py-10">
+        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+          <div className="p-4 rounded-full bg-red-50 dark:bg-red-900/20 mb-4">
+            <AlertCircle className="text-red-500 dark:text-red-400" size={40} />
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+            {t('loadError')}
+          </h3>
+          <p className="text-gray-600 dark:text-gray-400 text-base mb-6 max-w-md">
+            {t('errorOccurred')}
+          </p>
+          <button
+            onClick={() => refreshMemories()}
+            className="inline-flex items-center gap-2 px-6 py-3 gradient-primary text-white rounded-xl font-semibold hover:shadow-lg transition-all touch-manipulation"
+          >
+            <RefreshCw size={18} />
+            {t('tryAgain')}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (memories.length === 0) {
+    return (
+      <div className="max-w-4xl mx-auto px-5 sm:px-6 lg:px-8 py-8 sm:py-10">
+        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+          <div className="p-4 rounded-full bg-primary/10 border-2 border-primary mb-5">
+            <Trophy className="text-primary" size={40} />
+          </div>
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-3">
+            {t('badgesAndAchievements')}
+          </h3>
+          <p className="text-gray-600 dark:text-gray-400 text-base mb-8 max-w-md leading-relaxed">
+            {t('addFirstMemory')}
+          </p>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => navigate('/vault?action=add')}
+            className="px-8 py-4 gradient-primary text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl transition-all touch-manipulation"
+          >
+            {t('addMemory')}
+          </motion.button>
         </div>
       </div>
     )

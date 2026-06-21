@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, useReducedMotion } from 'framer-motion'
-import { BarChart3, TrendingUp, Calendar, Heart, Sparkles, Flame } from 'lucide-react'
+import { BarChart3, TrendingUp, Calendar, Heart, Sparkles, Flame, AlertCircle } from 'lucide-react'
 import { streakService } from '../services/streakService'
-import { Memory, MemoryCategory, LifeArea } from '../types'
+import { MemoryCategory, LifeArea } from '../types'
+import { useStore } from '../store/useStore'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
@@ -26,24 +27,38 @@ import {
   Line,
 } from 'recharts'
 
-// Type for Pie chart label entry
+// Type for Pie chart label entry. Recharts also passes SVG positioning props to
+// a label render function, which we use to draw a theme-aware <text>.
 type PieLabelEntry = {
   name?: string
   value?: number
   percent?: number
+  x?: number
+  y?: number
+  textAnchor?: 'start' | 'middle' | 'end' | 'inherit'
 }
 
 const COLORS = ['#FF6B35', '#F7931E', '#FFD23F', '#06FFA5', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7']
 
-// Custom tooltip that shows clean labels instead of raw dataKey
-function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string }>; label?: string }) {
+// Custom tooltip that shows clean labels instead of raw dataKey.
+// `seriesLabel` names the metric (e.g. "Memories") so a bare number never shows
+// without context; pie slices already carry their category name in payload.name.
+function CustomTooltip({ active, payload, label, seriesLabel }: { active?: boolean; payload?: Array<{ value: number; name?: string }>; label?: string; seriesLabel?: string }) {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 shadow-lg text-sm">
       {label && <p className="font-medium text-gray-900 dark:text-gray-100 mb-1">{label}</p>}
-      {payload.map((entry, i) => (
-        <p key={i} className="text-gray-600 dark:text-gray-400">{entry.value}</p>
-      ))}
+      {payload.map((entry, i) => {
+        // Prefer the per-entry series/category name (pie slices), fall back to a
+        // shared series label for axis charts that don't carry one.
+        const name = entry.name || seriesLabel
+        return (
+          <p key={i} className="text-gray-600 dark:text-gray-400">
+            {name ? <span className="font-medium text-gray-900 dark:text-gray-100">{name}: </span> : null}
+            {entry.value}
+          </p>
+        )
+      })}
     </div>
   )
 }
@@ -52,8 +67,9 @@ export default function Statistics() {
   const { t, i18n } = useTranslation()
   const prefersReducedMotion = useReducedMotion()
   const userId = useUserId()
-  const { memories, loading } = useMemories(userId)
+  const { memories, loading, error, refreshMemories } = useMemories(userId)
   const { showError } = useNotifications()
+  const theme = useStore(state => state.theme)
   const [streak, setStreak] = useState({ currentStreak: 0, longestStreak: 0, lastMemoryDate: null as string | null, streakStartDate: null as string | null })
 
   useEffect(() => {
@@ -72,6 +88,28 @@ export default function Statistics() {
 
   const lang = (i18n?.language || 'tr').startsWith('tr') ? 'tr' : 'en'
 
+  // Recharts draws pie labels with a default mid-gray SVG fill that fails WCAG
+  // contrast on dark cards. Render the label ourselves with a theme-aware fill
+  // (matching the gray-700/gray-300 text scale used elsewhere on these cards).
+  const pieLabelFill = theme === 'dark' ? '#d1d5db' : '#374151'
+  const renderPieLabel = (entry: PieLabelEntry) => {
+    if (!entry) return null
+    const name = entry.name || ''
+    const percent = typeof entry.percent === 'number' ? entry.percent : 0
+    return (
+      <text
+        x={entry.x}
+        y={entry.y}
+        fill={pieLabelFill}
+        textAnchor={entry.textAnchor}
+        dominantBaseline="central"
+        className="text-xs"
+      >
+        {`${name} ${(percent * 100).toFixed(0)}%`}
+      </text>
+    )
+  }
+
   // Calculate statistics
   const stats = useMemo(() => {
     if (memories.length === 0) {
@@ -83,13 +121,22 @@ export default function Statistics() {
         categoryData: [],
         lifeAreaData: [],
         monthlyData: [],
+        monthlyHasData: false,
         intensityDistribution: [],
       }
     }
 
     const totalMemories = memories.length
     const coreMemories = memories.filter(m => m.isCore).length
-    const avgIntensity = memories.reduce((sum, m) => sum + m.intensity, 0) / totalMemories
+    // Guard against null/undefined/out-of-range intensity from legacy cloud rows
+    // so averages and the distribution never render NaN. Default missing values
+    // to 5 (the documented write-path default in mapMemoryToSupabase).
+    const normalizeIntensity = (raw: number | null | undefined): number => {
+      const n = Number(raw)
+      if (!Number.isFinite(n)) return 5
+      return Math.min(10, Math.max(1, Math.round(n)))
+    }
+    const avgIntensity = memories.reduce((sum, m) => sum + normalizeIntensity(m.intensity), 0) / totalMemories
     const totalConnections = new Set(memories.flatMap(m => m.connections).map(normalizeConnectionKey)).size
 
     // Category distribution
@@ -105,7 +152,13 @@ export default function Statistics() {
       adventure: 0,
     }
     memories.forEach(m => {
-      categoryCount[m.category]++
+      // Count EVERY tagged category so multi-tagged memories aren't under-counted.
+      // Fall back to the deprecated single `category` only when the array is
+      // empty/missing.
+      const cats = m.categories && m.categories.length > 0 ? m.categories : [m.category]
+      cats.forEach(c => {
+        if (c in categoryCount) categoryCount[c]++
+      })
     })
     const categoryData = Object.entries(categoryCount).map(([key, value]) => ({
       name: t(`categories.${key}`) || key,
@@ -152,6 +205,9 @@ export default function Statistics() {
       
       monthlyData.push({ month: monthKey, count })
     }
+    // Every bucket is zero when all memories predate the last 6 months — the bar
+    // chart would render empty, so flag it to show a friendly note instead.
+    const monthlyHasData = monthlyData.some(d => d.count > 0)
 
     // Intensity distribution
     const intensityCount: Record<number, number> = {}
@@ -159,7 +215,9 @@ export default function Statistics() {
       intensityCount[i] = 0
     }
     memories.forEach(m => {
-      intensityCount[m.intensity]++
+      // Normalize so a null/out-of-range intensity lands in a real 1..10 bucket
+      // instead of creating a stray NaN/undefined key.
+      intensityCount[normalizeIntensity(m.intensity)]++
     })
     const intensityDistribution = Object.entries(intensityCount).map(([key, value]) => ({
       intensity: parseInt(key),
@@ -174,6 +232,7 @@ export default function Statistics() {
       categoryData,
       lifeAreaData,
       monthlyData,
+      monthlyHasData,
       intensityDistribution,
     }
   }, [memories, t, lang])
@@ -184,6 +243,47 @@ export default function Statistics() {
         <div className="flex items-center justify-center min-h-[60vh]">
           <LoadingSpinner size="lg" />
         </div>
+      </div>
+    )
+  }
+
+  // A failed load leaves memories empty too, so show a distinct error+retry
+  // state BEFORE the "no statistics yet" empty state — otherwise the UI lies
+  // about the data state.
+  if (error) {
+    return (
+      <div className="max-w-4xl mx-auto px-5 sm:px-6 lg:px-8 py-8 sm:py-10">
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center mb-10 sm:mb-12"
+        >
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <div className="p-3 rounded-full bg-primary/10 border-2 border-primary">
+              <BarChart3 className="text-primary" size={32} />
+            </div>
+            <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-primary to-primary-dark bg-clip-text text-transparent">
+              {t('statistics') || 'İstatistikler'}
+            </h1>
+          </div>
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center py-20 sm:py-24 px-4"
+        >
+          <AlertCircle className="mx-auto text-red-400 dark:text-red-500 mb-6" size={80} />
+          <h3 className="font-bold text-gray-700 dark:text-gray-300 mb-3 sm:mb-4 text-xl sm:text-2xl">
+            {t('memoriesLoadError') || 'Anılar yüklenirken bir hata oluştu'}
+          </h3>
+          <button
+            type="button"
+            onClick={() => { void refreshMemories() }}
+            className="mt-2 inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-white font-medium hover:bg-primary-dark transition-colors"
+          >
+            {t('tryAgain') || 'Tekrar Dene'}
+          </button>
+        </motion.div>
       </div>
     )
   }
@@ -335,15 +435,21 @@ export default function Statistics() {
             <Calendar className="text-primary" size={24} />
             {t('monthlyTrend') || 'Aylık Trend'}
           </h2>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={stats.monthlyData}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis dataKey="month" tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
-              <YAxis tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="count" fill="#FF6B35" radius={[8, 8, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {stats.monthlyHasData ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={stats.monthlyData}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                <XAxis dataKey="month" tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
+                <YAxis tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
+                <Tooltip content={<CustomTooltip seriesLabel={t('memories')} />} />
+                <Bar dataKey="count" fill="#FF6B35" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center text-center text-gray-500 dark:text-gray-400 text-sm sm:text-base" style={{ height: 250 }}>
+              {t('noRecentMonthlyData') || 'Son 6 ayda eklenmiş anı yok'}
+            </div>
+          )}
         </motion.div>
 
         {/* Category Distribution */}
@@ -365,12 +471,7 @@ export default function Statistics() {
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={(entry: PieLabelEntry) => {
-                    if (!entry) return ''
-                    const name = entry.name || ''
-                    const percent = typeof entry.percent === 'number' ? entry.percent : 0
-                    return `${name} ${(percent * 100).toFixed(0)}%`
-                  }}
+                  label={renderPieLabel}
                   outerRadius={80}
                   fill="#8884d8"
                   dataKey="value"
@@ -401,7 +502,7 @@ export default function Statistics() {
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
               <XAxis dataKey="intensity" tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
               <YAxis tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<CustomTooltip seriesLabel={t('memories')} />} />
               <Bar dataKey="count" fill="#FF6B35" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -426,12 +527,7 @@ export default function Statistics() {
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={(entry: PieLabelEntry) => {
-                    if (!entry) return ''
-                    const name = entry.name || ''
-                    const percent = typeof entry.percent === 'number' ? entry.percent : 0
-                    return `${name} ${(percent * 100).toFixed(0)}%`
-                  }}
+                  label={renderPieLabel}
                   outerRadius={80}
                   fill="#8884d8"
                   dataKey="value"

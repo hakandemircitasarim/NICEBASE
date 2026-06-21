@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -14,7 +15,8 @@ import { compressImage } from '../utils/imageUtils'
 import ImageModal from './ImageModal'
 import { hapticFeedback } from '../utils/haptic'
 import { useBackButton } from '../hooks/useBackButton'
-import { toLocalISODate } from '../utils/dateFormat'
+import { toLocalISODate, parseLocalDate } from '../utils/dateFormat'
+import { withTimeout } from '../utils/timeout'
 import { errorLoggingService } from '../services/errorLoggingService'
 import LoadingSpinner from './LoadingSpinner'
 import ConfirmationDialog from './ConfirmationDialog'
@@ -22,12 +24,13 @@ import ModalShell from './ModalShell'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import Toggle from './Toggle'
 import ConnectionsInput from './ConnectionsInput'
-import { 
-  validateMemoryText, 
-  validateDate, 
-  validateIntensity, 
+import {
+  validateMemoryText,
+  validateDate,
+  validateIntensity,
   validateConnections,
-  validatePhotoCount 
+  validatePhotoCount,
+  MAX_MEMORY_TEXT_LENGTH
 } from '../utils/formValidation'
 
 /* ═══════════════════════════════════════════════════
@@ -282,7 +285,19 @@ export default function MemoryForm({
             savedAt: Date.now(),
           }))
         } catch (error) {
-          if (import.meta.env.DEV) console.warn('[MemoryForm] draft save failed:', error)
+          // Base64 photos can push the draft past the ~5MB localStorage quota.
+          // Rather than silently losing the whole draft, retry WITHOUT photos so
+          // at least the text + metadata survive. Never throw out of the timer.
+          try {
+            localStorage.setItem(`memory_draft_${userId}`, JSON.stringify({
+              ...formData,
+              photos: [],
+              savedAt: Date.now(),
+            }))
+          } catch (innerError) {
+            if (import.meta.env.DEV) console.warn('[MemoryForm] draft save failed:', innerError)
+          }
+          if (import.meta.env.DEV) console.warn('[MemoryForm] draft save without photos (quota):', error)
         }
       }, 30000) // Save every 30 seconds
 
@@ -421,8 +436,13 @@ export default function MemoryForm({
         formData.date !== (memory.date ? String(memory.date).split('T')[0] : initialDate) ||
         formData.connections !== memory.connections.join(', ') ||
         formData.isCore !== memory.isCore ||
-        formData.photos.length !== memory.photos.length ||
-        JSON.stringify(formData.categories?.sort()) !== JSON.stringify((memory.categories || (memory.category ? [memory.category] : ['uncategorized'])).sort()) ||
+        // Compare photo arrays by CONTENT, not just length — an equal-length
+        // swap (remove one, add another) must still mark the form dirty.
+        JSON.stringify(formData.photos) !== JSON.stringify(memory.photos) ||
+        // Sort COPIES, never the live state array: sort() mutates in place and
+        // formData.categories is the live React-state reference — re-sorting it
+        // would silently flip the saved primary category.
+        JSON.stringify([...(formData.categories ?? [])].sort()) !== JSON.stringify([...(memory.categories || (memory.category ? [memory.category] : ['uncategorized']))].sort()) ||
         formData.lifeArea !== memory.lifeArea
       )
     }
@@ -453,8 +473,9 @@ export default function MemoryForm({
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {}
     
-    // Validate text using utility function
-    const textValidation = validateMemoryText(formData.text, 10)
+    // Validate text using utility function (enforces both min length and the
+    // MAX_MEMORY_TEXT_LENGTH cap so oversized bodies can't be saved)
+    const textValidation = validateMemoryText(formData.text, 10, MAX_MEMORY_TEXT_LENGTH)
     if (!textValidation.isValid) {
       newErrors.text = textValidation.error || t('pleaseEnterText')
     }
@@ -505,8 +526,12 @@ export default function MemoryForm({
         : [formData.category]
       const primaryCategory = categories[0] // Keep category for backward compatibility
 
+      // Local IndexedDB writes can wedge (another tab holding a versionchange
+      // transaction, private-mode quota stalls) and hang rather than throw —
+      // bound them with withTimeout so the Save button can't spin forever; on
+      // timeout the catch surfaces t('saveErrorRetry') and re-enables the button.
       if (memory) {
-        await memoryService.update(memory.id, {
+        await withTimeout(memoryService.update(memory.id, {
           text: formData.text,
           intensity: formData.intensity,
           date: formData.date,
@@ -516,11 +541,11 @@ export default function MemoryForm({
           category: primaryCategory, // Backward compatibility
           categories, // New multi-select
           lifeArea: formData.lifeArea,
-        })
+        }), 12000)
         hapticFeedback('success')
         savedMemory = memory
       } else {
-        const created = await memoryService.create({
+        const created = await withTimeout(memoryService.create({
           text: formData.text,
           category: primaryCategory, // Backward compatibility
           categories, // New multi-select
@@ -531,7 +556,7 @@ export default function MemoryForm({
           isCore: formData.isCore,
           photos: formData.photos,
           userId,
-        })
+        }), 12000)
         savedMemory = created
         hapticFeedback('success')
         
@@ -681,7 +706,9 @@ export default function MemoryForm({
     formData.isCore,
     formData.photos.length > 0,
     formData.date !== toLocalISODate(),
-    formData.category !== 'uncategorized',
+    // Read the multi-select categories[] (not the deprecated single category):
+    // "set" means any chosen category other than the default 'uncategorized'.
+    formData.categories.some((c) => c !== 'uncategorized'),
     formData.lifeArea !== 'uncategorized',
   ].filter(Boolean).length
 
@@ -764,7 +791,7 @@ export default function MemoryForm({
    * ═══════════════════════════════════════════════════ */
   /* ── MODAL HEADER — rendered outside scroll container via ModalShell header prop ── */
   const modalHeader = (
-    <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700/50">
+    <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700/50" inert={showImageModal}>
       <div className="flex justify-center pt-2.5 pb-1 sm:hidden">
         <div className="w-9 h-1 rounded-full bg-gray-200 dark:bg-gray-600" />
       </div>
@@ -785,7 +812,7 @@ export default function MemoryForm({
 
   /* ── MODAL FOOTER — rendered outside scroll container via ModalShell footer prop ── */
   const modalFooter = (
-    <div className="bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3">
+    <div className="bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700/50 px-5 py-3" inert={showImageModal}>
       <div className="flex items-center gap-3">
         <button
           onClick={requestClose}
@@ -830,8 +857,12 @@ export default function MemoryForm({
 
   const formContent = (
     <>
-      {/* ── FORM BODY — scrolls inside ModalShell's scroll container ── */}
-      <div className="px-5 space-y-5 pt-2 pb-4">
+      {/* ── FORM BODY — scrolls inside ModalShell's scroll container ──
+          While the image viewer is open it is marked `inert` so the form's
+          fields drop out of the tab order: this neutralizes ModalShell's own
+          Tab focus trap (its .focus() calls become no-ops on inert nodes) and
+          leaves ImageModal's trap as the only active one. */}
+      <div className="px-5 space-y-5 pt-2 pb-4" inert={showImageModal}>
 
           {/* Daily Question Banner */}
           <AnimatePresence>
@@ -867,27 +898,42 @@ export default function MemoryForm({
                 autoResize()
               }}
               rows={4}
+              maxLength={MAX_MEMORY_TEXT_LENGTH}
               className={`w-full px-4 py-3.5 rounded-2xl bg-gray-50 dark:bg-gray-700/40 focus:outline-none resize-none touch-manipulation leading-relaxed text-[15px] text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 transition-all ${
-                errors.text 
+                errors.text
                   ? 'ring-2 ring-red-400/50 bg-red-50/50 dark:bg-red-900/10'
                   : 'focus:bg-gray-100/80 dark:focus:bg-gray-700/60 focus:ring-2 focus:ring-primary/15'
               }`}
               placeholder={questionText || t('memoryTextPlaceholder')}
               aria-label={t('memoryTextPlaceholder')}
             />
-            <AnimatePresence>
-            {errors.text && (
-              <motion.p 
-                  initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  className="mt-1.5 text-xs text-red-500 flex items-center gap-1"
-              >
-                  <AlertCircle size={12} className="flex-shrink-0" />
-                <span>{errors.text}</span>
-              </motion.p>
-            )}
-            </AnimatePresence>
+            <div className="mt-1.5 flex items-start justify-between gap-2">
+              <AnimatePresence>
+              {errors.text && (
+                <motion.p
+                    initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    className="text-xs text-red-500 flex items-center gap-1"
+                >
+                    <AlertCircle size={12} className="flex-shrink-0" />
+                  <span>{errors.text}</span>
+                </motion.p>
+              )}
+              </AnimatePresence>
+              {/* Character counter — only surfaces as the user nears the cap */}
+              {formData.text.length >= MAX_MEMORY_TEXT_LENGTH * 0.9 && (
+                <span
+                  className={`ml-auto flex-shrink-0 text-xs tabular-nums ${
+                    formData.text.length >= MAX_MEMORY_TEXT_LENGTH
+                      ? 'text-red-500 font-semibold'
+                      : 'text-gray-400 dark:text-gray-500'
+                  }`}
+                >
+                  {formData.text.length}/{MAX_MEMORY_TEXT_LENGTH}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* ═══ INTENSITY SLIDER ═══ */}
@@ -1157,7 +1203,7 @@ export default function MemoryForm({
                     <div className="flex items-center gap-2.5">
                       <Calendar size={15} className="text-gray-400" />
                       <span className="text-sm text-gray-700 dark:text-gray-300">
-                        {new Date(formData.date).toLocaleDateString(
+                        {parseLocalDate(formData.date).toLocaleDateString(
                           t('locale', { defaultValue: 'tr-TR' }),
                           { day: 'numeric', month: 'long', year: 'numeric' }
                         )}
@@ -1255,14 +1301,6 @@ export default function MemoryForm({
         </div>
 
       {/* Modals */}
-        {showImageModal && (
-          <ImageModal
-            images={formData.photos}
-            currentIndex={selectedImageIndex}
-            onClose={() => setShowImageModal(false)}
-          />
-        )}
-
         <ConfirmationDialog
           isOpen={confirmDialog.isOpen}
           onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
@@ -1324,27 +1362,36 @@ export default function MemoryForm({
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={async () => {
-                      // Save as draft
+                      // Save as draft. Base64 photos can exceed the localStorage
+                      // quota; if the full draft throws, retry without photos so
+                      // the text/metadata still persist instead of being lost.
                       try {
-                        const connections = formData.connections.split(',').map(c => c.trim()).filter(c => c)
-                        const categories = formData.categories && formData.categories.length > 0 
-                          ? formData.categories 
-                          : [formData.category]
-                        const primaryCategory = categories[0]
-                        
-                        // Save to localStorage as draft
                         localStorage.setItem(`memory_draft_${userId}`, JSON.stringify({
                           ...formData,
                           savedAt: Date.now(),
                         }))
-                        
+
                         hapticFeedback('success')
                         toast.success(t('draftSaved', { defaultValue: 'Taslak olarak kaydedildi' }), { duration: 2000 })
                         setShowDirtyConfirm(false)
                         onClose()
                       } catch (error) {
-                        hapticFeedback('error')
-                        toast.error(t('draftSaveError', { defaultValue: 'Taslak kaydedilemedi' }))
+                        if (import.meta.env.DEV) console.warn('[MemoryForm] draft save without photos (quota):', error)
+                        try {
+                          localStorage.setItem(`memory_draft_${userId}`, JSON.stringify({
+                            ...formData,
+                            photos: [],
+                            savedAt: Date.now(),
+                          }))
+                          hapticFeedback('success')
+                          toast.success(t('draftSaved', { defaultValue: 'Taslak olarak kaydedildi' }), { duration: 2000 })
+                          setShowDirtyConfirm(false)
+                          onClose()
+                        } catch (innerError) {
+                          if (import.meta.env.DEV) console.warn('[MemoryForm] draft save failed:', innerError)
+                          hapticFeedback('error')
+                          toast.error(t('draftSaveError', { defaultValue: 'Taslak kaydedilemedi' }))
+                        }
                       }
                     }}
                     className="w-full px-4 py-3 bg-primary text-white rounded-xl font-semibold transition-colors touch-manipulation shadow-lg hover:bg-primary-dark"
@@ -1379,38 +1426,58 @@ export default function MemoryForm({
     </>
   )
 
+  // Image viewer is portaled to <body> so it lives OUTSIDE the (inert) form
+  // subtree and the ModalShell panel — keeping its own focus trap the only one
+  // active while it is open (see the `inert` note on the form body above).
+  const imageViewer = showImageModal
+    ? createPortal(
+        <ImageModal
+          images={formData.photos}
+          currentIndex={selectedImageIndex}
+          onClose={() => setShowImageModal(false)}
+        />,
+        document.body
+      )
+    : null
+
   if (presentation === 'screen') {
     return (
-      <div
-        className="fixed inset-0 flex flex-col bg-white dark:bg-gray-800 z-50"
-        style={{
-          paddingTop: 'var(--safe-area-inset-top, 0px)',
-          paddingBottom: 'var(--safe-area-inset-bottom, 0px)',
-        }}
-      >
-        <div className="flex-shrink-0">{modalHeader}</div>
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-          <div className="max-w-2xl mx-auto w-full">
-            {formContent}
+      <>
+        <div
+          className="fixed inset-0 flex flex-col bg-white dark:bg-gray-800 z-50"
+          style={{
+            paddingTop: 'var(--safe-area-inset-top, 0px)',
+            paddingBottom: 'var(--safe-area-inset-bottom, 0px)',
+          }}
+        >
+          <div className="flex-shrink-0">{modalHeader}</div>
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            <div className="max-w-2xl mx-auto w-full">
+              {formContent}
+            </div>
           </div>
+          <div className="flex-shrink-0">{modalFooter}</div>
         </div>
-        <div className="flex-shrink-0">{modalFooter}</div>
-      </div>
+        {imageViewer}
+      </>
     )
   }
 
   return (
-    <ModalShell
-      isOpen={true}
-      onClose={requestClose}
-      scroll={true}
-      autoHeight={true}
-      panelClassName="p-0"
-      className="z-[100]"
-      header={modalHeader}
-      footer={modalFooter}
-    >
-      {formContent}
-    </ModalShell>
+    <>
+      <ModalShell
+        isOpen={true}
+        onClose={requestClose}
+        scroll={true}
+        autoHeight={true}
+        panelClassName="p-0"
+        className="z-[100]"
+        header={modalHeader}
+        footer={modalFooter}
+      >
+        {formContent}
+      </ModalShell>
+      {imageViewer}
+    </>
   )
 }

@@ -57,7 +57,7 @@ export function useMemories(
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to load memories')
       setError(error)
-      toast.error(tRef.current('memoriesLoadError'))
+      toast.error(tRef.current('memoriesLoadError'), { id: 'memories-load-error' })
     } finally {
       setLoading(false)
     }

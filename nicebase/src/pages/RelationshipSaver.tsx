@@ -20,7 +20,7 @@ export default function RelationshipSaver() {
   const userId = useUserId()
   const location = useLocation()
   const navigate = useNavigate()
-  const { memories, loading } = useMemories(userId)
+  const { memories, loading, error, refreshMemories } = useMemories(userId)
   const { hapticFeedback } = useNotifications()
   const [connections, setConnections] = useState<ConnectionOption[]>([])
   const [selectedConnectionKey, setSelectedConnectionKey] = useState<string>('')
@@ -148,7 +148,10 @@ export default function RelationshipSaver() {
         })
         toast.success(t('shared', { defaultValue: 'Paylaşıldı!' }), { duration: 2000 })
       } catch (error) {
-        // User cancelled or error
+        // AbortError = user cancelled the share sheet; not a real failure.
+        if (error instanceof Error && error.name === 'AbortError') return
+        console.error('Share failed:', error)
+        toast.error(t('shareError', { defaultValue: 'Paylaşım hatası' }))
       }
     } else {
       // Fallback: copy to clipboard
@@ -164,30 +167,35 @@ export default function RelationshipSaver() {
   // Export as text
   const handleExport = () => {
     if (filteredMemories.length === 0) return
-    
-    const connectionName = connections.find(c => c.key === selectedConnectionKey)?.label || 'Connection'
-    let exportText = `${t('shareTitle', { connection: connectionName })}\n`
-    exportText += `${'='.repeat(40)}\n\n`
 
-    filteredMemories.forEach((memory, index) => {
-      exportText += `${t('exportMemoryLabel')} ${index + 1}/${filteredMemories.length}\n`
-      exportText += `${t('exportDateLabel')}: ${new Date(memory.date).toLocaleDateString()}\n`
-      exportText += `${t('exportIntensityLabel')}: ${memory.intensity}/10\n`
-      exportText += `${t('exportCategoryLabel')}: ${t(`categories.${memory.category}`)}\n`
-      exportText += `\n${memory.text}\n\n`
-      exportText += `${'-'.repeat(40)}\n\n`
-    })
-    
-    const blob = new Blob([exportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${connectionName}_anilari_${new Date().toISOString().split('T')[0]}.txt`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    toast.success(t('exported', { defaultValue: 'Dışa aktarıldı!' }), { duration: 2000 })
+    try {
+      const connectionName = connections.find(c => c.key === selectedConnectionKey)?.label || 'Connection'
+      let exportText = `${t('shareTitle', { connection: connectionName })}\n`
+      exportText += `${'='.repeat(40)}\n\n`
+
+      filteredMemories.forEach((memory, index) => {
+        exportText += `${t('exportMemoryLabel')} ${index + 1}/${filteredMemories.length}\n`
+        exportText += `${t('exportDateLabel')}: ${new Date(memory.date).toLocaleDateString()}\n`
+        exportText += `${t('exportIntensityLabel')}: ${memory.intensity}/10\n`
+        exportText += `${t('exportCategoryLabel')}: ${t(`categories.${memory.category}`)}\n`
+        exportText += `\n${memory.text}\n\n`
+        exportText += `${'-'.repeat(40)}\n\n`
+      })
+
+      const blob = new Blob([exportText], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${connectionName}_anilari_${new Date().toISOString().split('T')[0]}.txt`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success(t('exported', { defaultValue: 'Dışa aktarıldı!' }), { duration: 2000 })
+    } catch (error) {
+      console.error('Export failed:', error)
+      toast.error(t('exportError'))
+    }
   }
 
   // currentMemory is computed here for use in render
@@ -198,6 +206,24 @@ export default function RelationshipSaver() {
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex items-center justify-center min-h-[60vh]">
           <LoadingSpinner size="lg" />
+        </div>
+      </div>
+    )
+  }
+
+  // Distinguish a failed load from "no connections" — offer a retry instead of
+  // silently showing the empty state.
+  if (error) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center gap-4">
+          <p className="text-gray-600 dark:text-gray-400">{t('loadError')}</p>
+          <button
+            onClick={() => refreshMemories()}
+            className="px-5 py-2.5 rounded-xl bg-primary text-white font-semibold hover:bg-primary-dark transition-colors touch-manipulation"
+          >
+            {t('tryAgain')}
+          </button>
         </div>
       </div>
     )
