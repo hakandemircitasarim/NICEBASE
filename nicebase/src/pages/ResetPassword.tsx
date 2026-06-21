@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -16,6 +16,26 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  // Only allow the form once a valid session exists — established by the recovery
+  // link (PASSWORD_RECOVERY) or an already-authenticated user. Without this, the
+  // page would call updateUser with no recovery context (a stale/expired link
+  // silently does nothing useful).
+  const [sessionReady, setSessionReady] = useState(false)
+  const [sessionChecked, setSessionChecked] = useState(false)
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY' || (session && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION'))) {
+        setSessionReady(true)
+      }
+    })
+    // The recovery link may have been processed before the listener attached.
+    supabase.auth.getSession()
+      .then(({ data }) => { if (data.session) setSessionReady(true) })
+      .catch(() => { /* ignore — falls through to the invalid-link state */ })
+      .finally(() => setSessionChecked(true))
+    return () => subscription.unsubscribe()
+  }, [])
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -64,7 +84,15 @@ export default function ResetPassword() {
           </h1>
         </div>
 
-        {success ? (
+        {!sessionChecked ? (
+          <div className="flex justify-center py-8">
+            <LoadingSpinner size="md" />
+          </div>
+        ) : !sessionReady ? (
+          <div className="text-center py-4">
+            <p className="text-red-500 font-semibold">{t('resetLinkInvalid')}</p>
+          </div>
+        ) : success ? (
           <div className="text-center py-4">
             <p className="text-green-600 dark:text-green-400 font-semibold">
               {t('passwordResetSuccess')}

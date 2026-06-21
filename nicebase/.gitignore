@@ -23,15 +23,12 @@ dist-ssr
 *.sln
 *.sw?
 
-# Environment variables
+# Environment variables — catch every variant; keep only the committed examples.
 .env
-.env.*.local
-.env.local
-.env.production
-.env.development
-.env.test
-.env.broken
-.env.supabase
+.env.*
+!.env.example
+!env.example
+!env.supabase.example
 
 # Supabase local / debug artifacts
 supabase/migration_history_dump.sql
