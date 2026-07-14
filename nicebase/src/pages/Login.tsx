@@ -15,6 +15,7 @@ import ForgotPasswordForm from '../components/ForgotPasswordForm'
 import { useOAuth } from '../hooks/useOAuth'
 import { hapticFeedback } from '../utils/haptic'
 import { withTimeout } from '../utils/timeout'
+import { getPublicWebBaseUrl } from '../utils/publicUrl'
 import { isValidEmail as validateEmail } from '../utils/formValidation'
 
 const AUTH_TIMEOUT_MS = 15000
@@ -163,7 +164,9 @@ export default function Login() {
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        // Must be a hosted https URL: in the native WebView window.location.origin
+        // is "https://localhost", which made the emailed link a dead end.
+        redirectTo: `${getPublicWebBaseUrl()}/reset-password`,
       })
 
       if (error) throw error
@@ -212,7 +215,13 @@ export default function Login() {
     try {
       if (isSignUp) {
         const { data, error } = await withTimeout(
-          supabase.auth.signUp({ email, password }),
+          supabase.auth.signUp({
+            email,
+            password,
+            // If e-mail confirmation is (re)enabled in Supabase, the link must
+            // land on the hosted web app, not the WebView's https://localhost.
+            options: { emailRedirectTo: getPublicWebBaseUrl() },
+          }),
           AUTH_TIMEOUT_MS
         )
 

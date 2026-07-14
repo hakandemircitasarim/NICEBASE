@@ -22,12 +22,14 @@ import {
 } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { supabase, hasSupabaseConfig } from '../lib/supabase'
+import { db } from '../lib/db'
 import { memoryService } from '../services/memoryService'
 import { memorySyncService } from '../services/memorySyncService'
 import { mapUserFromSupabase } from '../lib/userMapper'
 import { notificationService } from '../services/notificationService'
 import { exportService } from '../services/exportService'
 import { hapticFeedback } from '../utils/haptic'
+import { getPublicWebBaseUrl } from '../utils/publicUrl'
 import { errorLoggingService } from '../services/errorLoggingService'
 import { performanceService } from '../services/performanceService'
 import ConfirmationDialog from './ConfirmationDialog'
@@ -430,36 +432,39 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     try {
       hapticFeedback('error')
 
-      const { error: memoriesError } = await supabase
-        .from('memories')
-        .delete()
-        .eq('user_id', user.id)
-
-      if (memoriesError) {
-        errorLoggingService.logError(
-          new Error(
-            `Failed to delete memories: ${memoriesError.message}`
-          ),
-          'error',
-          user.id
-        )
+      // Server-side deletion via the delete-account edge function: it removes
+      // auth.users with the service role, and the FK CASCADE chain wipes every
+      // public row. The client CANNOT do this itself (users has no DELETE RLS
+      // policy and auth.users is unreachable) — the old direct .delete() calls
+      // silently affected 0 rows while still showing a success toast.
+      const { data, error } = await supabase.functions.invoke('delete-account', {
+        method: 'POST',
+      })
+      if (error) throw error
+      if (!data?.success) {
+        throw new Error(`delete-account failed: ${JSON.stringify(data)}`)
       }
 
-      const { error: userError } = await supabase
-        .from('users')
-        .delete()
-        .eq('id', user.id)
-
-      if (userError) {
+      // Server data is gone — now clear every local trace of the account.
+      try {
+        await Promise.all([
+          db.memories.clear(),
+          db.connections.clear(),
+          db.syncQueue.clear(),
+          db.syncQueueV2.clear(),
+        ])
+      } catch (dbError) {
         errorLoggingService.logError(
-          new Error(`Failed to delete user: ${userError.message}`),
-          'error',
-          user.id
+          dbError instanceof Error ? dbError : new Error('Local DB clear failed after account deletion'),
+          'warning'
         )
       }
-
       localStorage.clear()
-      await supabase.auth.signOut()
+      // The auth user no longer exists; the server-side revoke may 4xx — only
+      // the local session cleanup matters here.
+      try {
+        await supabase.auth.signOut({ scope: 'local' })
+      } catch { /* session already invalid — local state is cleared below */ }
       setUser(null)
 
       toast.success(t('accountDeletedSuccessfully'), { duration: 3000 })
@@ -858,7 +863,9 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
                             await supabase.auth.resetPasswordForEmail(
                               user.email,
                               {
-                                redirectTo: `${window.location.origin}/reset-password`,
+                                // Hosted https URL — the WebView origin
+                                // (https://localhost) makes the link a dead end.
+                                redirectTo: `${getPublicWebBaseUrl()}/reset-password`,
                               }
                             )
                           if (error) throw error
