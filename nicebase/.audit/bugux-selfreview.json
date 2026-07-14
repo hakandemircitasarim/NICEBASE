@@ -1,0 +1,91 @@
+[
+  {
+    "rank": 1,
+    "title": "Aiya handleRetry deletes the failed bubble before handleSend's guards can bail, permanently losing the message",
+    "severity": "high",
+    "files": [
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/pages/Aiya.tsx"
+    ],
+    "problem": "handleRetry (Aiya.tsx:1059-1066) unconditionally filters the failed user bubble out of state, then calls handleSend(text, chatId). handleSend has three early-return paths that re-add nothing: line 907 `if (!text || sending) return`, lines 911-914 at-limit, lines 915-918 offline `!navigator.onLine`. The old restore line `setInput((cur)=>cur||text)` was removed in this pass, so there is no fallback holding the text. The Retry button (Aiya.tsx:348-355) has onClick={onRetry} with NO disabled guard, so it stays tappable while a concurrent send is in flight. Two loss repros both hold: (1) offline retry hits the navigator.onLine guard and returns after the bubble is already removed; (2) concurrent retry while another send has sending=true returns at line 907 after removal. Text survives only in the synchronous handleRetry closure; after the early return nothing restores it.",
+    "fix": "Make bubble removal conditional on the send actually proceeding. Cleanest: do NOT remove the bubble in handleRetry — just clear errorMessage and call handleSend(text, chatId); leave the message flagged failed on guard returns and replace/clear the failed flag only on the success path. Alternatively replicate the three guards (sending / at-limit / navigator.onLine) in handleRetry before filtering and bail with the matching setErrorMessage. Also add disabled={sending} to the Retry button (Aiya.tsx:348-355) to close the concurrent-retry race."
+  },
+  {
+    "rank": 2,
+    "title": "Minimal-user seed in initializeApp can clobber the real (premium) user record — no same-id guard, races INITIAL_SESSION",
+    "severity": "high",
+    "files": [
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/App.tsx"
+    ],
+    "problem": "On app open with a stored session, two paths fetch the user concurrently and both call setUser. The onAuthStateChange listener fires INITIAL_SESSION and lands in the `else if (session?.user)` branch (App.tsx:229-255), whose catch correctly guards its minimal seed with `useStore.getState().user?.id !== sess.user.id` (line 248). The competing path, initializeApp() (App.tsx:108-163), does NOT guard: its fetch-timeout catch unconditionally calls setUser(minimalUserFromSession(session)) at line 142. minimalUserFromSession returns isPremium:false, aiyaMessagesUsed:0, language:'tr', theme:'light'. Because initializeApp first awaits initializeNativeApp() (line 110), the INITIAL_SESSION listener can set the REAL user first; if initializeApp's fetchUserData then times out, line 142 overwrites it with the minimal seed. The 1500ms retry (147-149) can also fail; INITIAL_SESSION won't re-run, TOKEN_REFRESHED skips the DB fetch (182-189), and the 5-min poll never refetches user data — so the user is stuck on default/non-premium state until manual reload or re-login.",
+    "fix": "Mirror the INITIAL_SESSION guard in the initializeApp catch: wrap line 142 with `if (useStore.getState().user?.id !== session.user.id) setUser(minimalUserFromSession(session))`. Better: factor a helper that refuses to overwrite an existing real user for the same id with a minimal seed and use it in both code paths, so a fuller fetched record is never downgraded to the seed."
+  },
+  {
+    "rank": 3,
+    "title": "Home ignores useMemories error: a failed load shows the first-run \"add your first memory\" screen instead of an error/retry",
+    "severity": "high",
+    "files": [
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/pages/Home.tsx",
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/hooks/useMemories.ts"
+    ],
+    "problem": "Home.tsx:119 destructures only `{ memories, loading, refreshMemories }` from useMemories — not `error`. Render guards run: onboarding gate (363) -> `if (loading)` (367) -> NEW `if (memories.length === 0)` first-run block (380-461). useMemories (useMemories.ts:48-64) sets `error` on a failed load but leaves memories=[] and loading=false. So a real load failure for a returning user who has memories falls into the empty branch and renders the brand-new 'Welcome / Add your first memory' CTA — a persistent wrong state with no error message and no in-page retry. Achievements, Vault, and Statistics all added an explicit error branch before their empty branch; Home is the only touched page missing it. A one-time toast.error (useMemories.ts:60) is the only signal, but the page stays stuck.",
+    "fix": "Destructure `error` from useMemories at Home.tsx:119, then add an error+Retry branch BEFORE the memories.length===0 block (after the `if (loading)` block, ~line 376), mirroring Achievements: AlertCircle, t('loadError'), t('errorOccurred'), and a button calling refreshMemories() labelled t('tryAgain'). All four i18n keys already exist in tr and en."
+  },
+  {
+    "rank": 4,
+    "title": "safeSyncNow logs an 'error' on every sync trigger while any item is abandoned (unbounded error-log spam)",
+    "severity": "medium",
+    "files": [
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/services/memorySyncService.ts",
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/services/memoryService.ts",
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/services/errorLoggingService.ts"
+    ],
+    "problem": "safeSyncNow (memorySyncService.ts:32-43) calls getSyncStatus after every syncAll and logs at 'error' severity whenever status.abandoned > 0. getSyncStatus (memoryService.ts:687) counts every non-done item with status==='abandoned', a permanent terminal state, so the condition stays true on every subsequent poll once any item abandons. safeSyncNow runs from many triggers: 5-min setInterval (79-83), window 'online' (70-74), native appStateChange resume (90-94), initial attempt (103), and manual syncNow (106-108). errorLoggingService.logError (errorLoggingService.ts:16-53) has no dedupe/throttle — it pushes to the 100-cap in-memory logs (churning/evicting other diagnostics) and, when PROD + VITE_ERROR_LOGGING_ENDPOINT set, POSTs the identical error on every trigger indefinitely.",
+    "fix": "Surface abandonment only on state transition. Keep module-level state in memorySyncService (lastReportedAbandoned count or a set of abandoned ids) and call logError only when the set grows/changes; reset on resetAbandonedSyncItems. Defense-in-depth: add a dedupe/throttle for repeated identical messages in errorLoggingService."
+  },
+  {
+    "rank": 5,
+    "title": "Home & Achievements flash the empty/first-run screen on first paint for users who DO have memories",
+    "severity": "medium",
+    "files": [
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/pages/Home.tsx",
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/pages/Achievements.tsx",
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/hooks/useMemories.ts"
+    ],
+    "problem": "useMemories initializes loading=false (useMemories.ts:31) and only calls loadMemories() from a useEffect (70-74) that runs after the first render commits; loadMemories sets loading=true on the next tick. So the first committed render has loading=false, memories=[], error=null. Both new full-page empty branches gate on memories.length===0 with no hasAttemptedLoad guard: Home.tsx:380 and Achievements.tsx:81. On first paint both render their empty/first-run screen for one frame, then a spinner, then real content. Returning users with memories see a misleading empty/first-run flash on every open/navigation. Vault.tsx guards this exact case with a hasAttemptedLoad flag (Vault.tsx:42, 67-70, gated at 271) that was NOT applied to Home or Achievements.",
+    "fix": "Add a hasAttemptedLoad flag to Home and Achievements mirroring Vault: `const [hasAttemptedLoad,setHasAttemptedLoad]=useState(false)` plus an effect `if (loading||error||memories.length>0) setHasAttemptedLoad(true)`. Gate the empty branch as `if (hasAttemptedLoad && memories.length===0)` and show the spinner when `loading || !hasAttemptedLoad`."
+  },
+  {
+    "rank": 6,
+    "title": "withTimeout(create) reject path can produce duplicate memories on slow IndexedDB writes",
+    "severity": "low",
+    "files": [
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/components/MemoryForm.tsx",
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/services/memoryService.ts",
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/utils/timeout.ts"
+    ],
+    "problem": "handleSave (MemoryForm.tsx:548) wraps memoryService.create() in withTimeout(...,12000). withTimeout (timeout.ts:11) is a Promise.race against a 12s timer that REJECTS without cancelling the underlying work. create() (memoryService.ts:144-171) mints a fresh UUID per call and awaits db.memories.add(memory). If that IndexedDB add is merely slow (versionchange lock, private-mode quota stall) and exceeds 12s but eventually completes, the race rejects first; the catch (618-625) shows toast.error and the finally (626-629) re-enables Save. The user retries, a SECOND create() runs with a NEW UUID, and when the wedge clears both rows land. No idempotency key on create, so they cannot collapse. The update branch is id-keyed (put), so it correctly does not duplicate.",
+    "fix": "Give create an idempotency key: generate the UUID once in handleSave (useRef set on first submit), pass it into create(), and have create use db.memories.put keyed on that id instead of generateUUID()+add. Alternatively skip withTimeout for create(), or make the timeout cosmetic (show 'still saving…' without rejecting the in-flight write)."
+  },
+  {
+    "rank": 7,
+    "title": "Legacy memories longer than MAX_MEMORY_TEXT_LENGTH become un-saveable after edit",
+    "severity": "low",
+    "files": [
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/components/MemoryForm.tsx",
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/utils/formValidation.ts"
+    ],
+    "problem": "validateForm (MemoryForm.tsx:478) now calls validateMemoryText(formData.text, 10, MAX_MEMORY_TEXT_LENGTH) and the textarea (901) sets maxLength=5000. validateMemoryText (formValidation.ts:118-125) returns isValid:false with t('textMaxLength') when trimmed.length>5000. On main the old validateMemoryText had no maxLength param and no upper-bound check, so any-length memory saved fine. The HTML maxLength attribute does not truncate a programmatically-set existing value (formData.text bound from memory.text); it only blocks new keystrokes/paste. So a legacy memory whose body exceeds 5000 chars loads fine, but any edit — even a one-char typo fix — fails validateForm and cannot be saved unless the user manually deletes the overflow. Real behavioral regression vs main, bounded by needing pre-cap oversized entries to exist.",
+    "fix": "Grandfather over-length legacy bodies: when editing (memory truthy), pass an effective max of Math.max(MAX_MEMORY_TEXT_LENGTH, memory.text.length) to validateMemoryText, or allow save when the new length does not exceed the original. Relax/remove the hard textarea maxLength when editing so the user can edit-down, and surface a 'trim to N characters' affordance."
+  },
+  {
+    "rank": 8,
+    "title": "MarkdownText renders [text](url) links with no URL-scheme validation",
+    "severity": "low",
+    "files": [
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/components/MarkdownText.tsx",
+      "C:/Users/demir/Desktop/NICABASE/nicebase/src/pages/Aiya.tsx"
+    ],
+    "problem": "MarkdownText.tsx:36 renders `<a href={mm[2]} target=\"_blank\" rel=\"noopener noreferrer\">` with mm[2] taken verbatim from the regex capture ([^)\\s]+) and no scheme allow-list anywhere in the file. Assistant replies are model-generated and rendered as real clickable anchors (Aiya.tsx:345 -> MarkdownText), which is new in this pass (old cleanMarkdown produced plain text). A reply like [tap](javascript:...) or [x](data:...) parses and renders as a clickable link. Genuinely low: content is model-generated/self-targeted, requires prompt-injection via stored memory context, and browsers neutralize many javascript: navigations — but the safeguard is absent and data: hrefs are not blocked.",
+    "fix": "In renderInline, before building the anchor, validate the scheme and only allow http:, https:, and mailto:, e.g. `if (/^(https?:|mailto:)/i.test(mm[2])) { render <a> } else { nodes.push(tok) }` so disallowed-scheme links fall back to plain text."
+  }
+]

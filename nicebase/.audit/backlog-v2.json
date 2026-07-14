@@ -1,0 +1,862 @@
+[
+  {
+    "rank": 1,
+    "title": "ensureUserExists upsert breaks user-row creation (42501 on revoked billing columns)",
+    "severity": "critical",
+    "area": "database / auth",
+    "files": [
+      "nicebase/src/lib/userService.ts:114-152",
+      "nicebase/supabase/migrations/20260620010000_lock_users_billing_and_policies.sql:48-61"
+    ],
+    "problem": "ensureUserExists() calls supabase.from('users').upsert({...is_premium, aiya_messages_used, aiya_messages_limit, email, id, created_at}, { onConflict: 'id' }). PostgREST compiles this to INSERT ... ON CONFLICT (id) DO UPDATE SET <every supplied column>. Migration 20260620010000 REVOKEd UPDATE on public.users from authenticated and re-GRANTed UPDATE only on profile columns (display_name, bio, avatar_url, birthday, location, weekly_summary_day, daily_reminder_time, language, theme). Postgres checks column-level UPDATE privileges on the DO UPDATE SET clause at executor startup regardless of whether a conflict fires, so the statement throws 42501 permission-denied on the billing/identity columns. The error handler only retries on 23505/duplicate/409, NOT 42501, so it falls through to retries-- and returns null. New users (and even fresh inserts, since the privilege check is conflict-independent) end up with no public.users row, breaking profile load, memory FK inserts, and metering.",
+    "fix": "Change the upsert to { onConflict: 'id', ignoreDuplicates: true } so PostgREST emits ON CONFLICT DO NOTHING (no UPDATE clause, no UPDATE-column privilege check). The code already re-fetches the row afterward (userService.ts:137) so the race intent is preserved. Do NOT re-add billing columns to the GRANT. Verify the RLS INSERT policy still passes: payload sets is_premium:false and id=auth.uid(), satisfying WITH CHECK (auth.uid()=id AND is_premium IS NOT TRUE).",
+    "effort": "trivial"
+  },
+  {
+    "rank": 2,
+    "title": "Aiya usage refund is a blind absolute write of a stale snapshot — grants free messages under concurrency",
+    "severity": "high",
+    "area": "billing / edge function",
+    "files": [
+      "nicebase/supabase/functions/aiya-chat/index.ts:255,300-335,617",
+      "nicebase/supabase/migrations/20260620050000_aiya_usage_and_rate_limit.sql:29-33"
+    ],
+    "problem": "DEDUP of SEC-01 + aiya-refund-clobber + hyg-01 (same root issue across security/db/hygiene dimensions). meterUsage() reserves a slot via the atomic increment_aiya_usage RPC, but the local usageUsed snapshot (set once at index.ts:255) is never reassigned afterward (line 368 only mutates the separate `usage` object). refundUsage() then does a non-atomic absolute write update({ aiya_messages_used: Math.max(0, usageUsed) }) of the pre-increment snapshot. With RATE_CHAT_MAX=20/60s, two concurrent requests both read snapshot N, both atomically increment (N+1, N+2); if one OpenAI call fails, its refund SETs the column back to N, clobbering the other request's legitimate charge. A user who can force their own OpenAI call to fail (oversized payload/timeout) mints free metered messages. Even single-flight, the absolute write corrupts the counter if anything else touched the row.",
+    "fix": "Add a SECURITY DEFINER RPC decrement_aiya_usage(p_user uuid) doing UPDATE public.users SET aiya_messages_used = GREATEST(0, aiya_messages_used - 1) WHERE id = p_user, mirroring increment_aiya_usage's grants (REVOKE from public/anon/authenticated, GRANT EXECUTE TO service_role) in a new migration. Replace the absolute update in refundUsage() with supabaseAdmin.rpc('decrement_aiya_usage', { p_user: userId }). A relative -1 can never clobber a concurrent +1. Keep the catch-and-log.",
+    "effort": "small"
+  },
+  {
+    "rank": 3,
+    "title": "Crisis safety-resource injection is fully client-trusted; edge function does no server-side self-harm scan",
+    "severity": "high",
+    "area": "safety / edge function",
+    "files": [
+      "nicebase/supabase/functions/aiya-chat/index.ts:595",
+      "nicebase/src/services/aiyaService.ts:91-119,557",
+      "nicebase/src/pages/Aiya.tsx:934"
+    ],
+    "problem": "DEDUP of SEC-02 + aiya-crisis-client-trusted. index.ts:595 prepends crisisSafetyMessage ONLY when the client sends crisis===true. CRISIS_WORDS detection lives entirely client-side (aiyaService.ts:91-119, list at 68-72) and Aiya.tsx:934 forwards crisis: route.tier==='crisis'. The edge function never scans `message` itself, so a stale build, a client omitting the flag, anyone calling the function directly with a valid bearer token, or any phrasing the small exact-substring list misses ('I want to end my life', 'overdose', 'kendimi asacağım', 'no reason to live') reaches gpt-4o with no safety scaffolding/resources — defeating a deliberate safety net for at-risk users.",
+    "fix": "In the edge function compute showCrisis = (crisis === true) || serverDetectsCrisis(message, locale), scanning the actual message (and ideally the last user turn of history) before building chat messages at 594-595. Keep the client flag as a latency hint only. Extract CRISIS_WORDS into a shared constant imported by both aiyaService.ts and the edge function so they cannot drift, and expand coverage for the missed phrasings.",
+    "effort": "medium"
+  },
+  {
+    "rank": 4,
+    "title": "scheduleStreakProtection parses bare date as UTC — false 'streak at risk' notifications in negative-UTC zones",
+    "severity": "high",
+    "area": "logic / notifications",
+    "files": [
+      "nicebase/src/services/notificationService.ts:473-486",
+      "nicebase/src/services/streakService.ts:78",
+      "nicebase/src/pages/Home.tsx:92"
+    ],
+    "problem": "notificationService.ts:473 does new Date(lastMemoryDate) on a bare YYYY-MM-DD string, then setHours(0,0,0,0). new Date('YYYY-MM-DD') parses as UTC midnight; setHours then snaps to LOCAL midnight of whatever local day that UTC instant lands on. In negative-UTC zones a memory dated today becomes the previous local day, so daysSinceLastMemory computes 1 instead of 0, hits the ===1 branch, and schedules a false 20:00 'streak about to break' notification even though the user kept their streak today. `today` is built from local new Date(), so the operands are in mismatched calendars. The prior pass fixed this exact off-by-one in streakService via parseLocalDate but missed notificationService.",
+    "fix": "Import parseLocalDate from '../utils/dateFormat' and replace new Date(lastMemoryDate) at line 473 with parseLocalDate(lastMemoryDate) (builds new Date(y, m-1, d) at local midnight, matching local `today`). The subsequent setHours(0,0,0,0) becomes redundant but harmless.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 5,
+    "title": "SettingsSheet Section component defined inside render — remounts subtree, drops input focus every keystroke",
+    "severity": "high",
+    "area": "react / rendering",
+    "files": [
+      "nicebase/src/components/SettingsSheet.tsx:344-396,513-587"
+    ],
+    "problem": "Section is declared inside the SettingsSheet function body, so it gets a fresh function identity each render. React treats a changed component type as a different element and unmounts/remounts the whole subtree. The Notifications <Section> wraps a controlled TimePicker (dailyReminderTime) and a controlled Select (weeklySummaryDay); each keystroke/selection calls setState -> re-render -> new Section identity -> remount -> the focused TimePicker/Select loses DOM focus and the entry animation replays. The time/day pickers become effectively unusable.",
+    "fix": "Move Section to module scope (outside SettingsSheet) and pass isExpanded and onToggle as props instead of closing over expandedSection/toggleSection. Stable identity preserves the subtree and retains focus.",
+    "effort": "small"
+  },
+  {
+    "rank": 6,
+    "title": "Conflict-resolution dialog reopens instantly when dismissed without resolving (UI deadlock)",
+    "severity": "high",
+    "area": "react / sync UX",
+    "files": [
+      "nicebase/src/pages/Home.tsx:108-116,925-935"
+    ],
+    "problem": "conflictedMemory is derived every render from memories.find(m => m.conflict && m.conflictCloud). The effect fires setShowConflictDialog(true) whenever conflictedMemory && !showConflictDialog. The dialog's onClose only calls setShowConflictDialog(false) and does NOT clear the conflict, so conflictedMemory stays truthy and the effect immediately reopens it. The user cannot dismiss without going through full resolution (onResolved). A real deadlock for any user who hits a sync conflict.",
+    "fix": "Track dismissal: add a dismissedConflictIdRef (useRef); set it to conflictedMemory.id inside onClose; gate the effect with `&& dismissedConflictIdRef.current !== conflictedMemory.id`. Clear the dismissed id when conflictedMemory?.id changes so a different/new conflict still surfaces.",
+    "effort": "small"
+  },
+  {
+    "rank": 7,
+    "title": "OAuth errors surfaced to users as raw, untranslated provider/SDK strings",
+    "severity": "high",
+    "area": "i18n / auth",
+    "files": [
+      "nicebase/src/hooks/useOAuth.ts:118,337-346"
+    ],
+    "problem": "Two leak points. (1) Line 118 toast.error(desc) shows the raw error_description query param (English provider/Supabase wording). (2) Lines 342-344: the outer catch sets userMessage = t('oauthError') then overwrites it with the raw exception/SDK message for any non-cancel error and shows it via toast. Turkish users hitting a non-cancel web/browser OAuth failure see English/SDK text. The native Google path (line 271) already uses authErrorMessage() correctly, so this is a missed path. Keys oauthError/oauthCancelled exist in both locales.",
+    "fix": "Line 118: keep the errorLoggingService log, show toast.error(t('oauthError')) instead of raw desc. Lines 342-344: delete the `else if (errorMessage) { userMessage = errorMessage }` branch so the localized fallback stands; keep only the popup_closed_by_user -> t('oauthCancelled') override. Optionally route through authErrorMessage(errorMessage, t) for finer network/rate-limit mapping.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 8,
+    "title": "Hardcoded English dev message leaking internal env-var name shown to users via toast",
+    "severity": "high",
+    "area": "i18n / auth",
+    "files": [
+      "nicebase/src/hooks/useOAuth.ts:221-223"
+    ],
+    "problem": "const msg = 'Native Google Sign-In init failed. Check VITE_GOOGLE_WEB_CLIENT_ID.' then toast.error(msg). Shown directly to the user when native SocialLogin init fails; untranslated (Turkish users see English) and leaks the internal env-var name into the UI. Violates CLAUDE.md 2.5 and 1.18.",
+    "fix": "Keep the technical detail in logs only via errorLoggingService.logError. For the toast add a key googleSignInUnavailable to both locales (tr: 'Google ile giriş şu anda kullanılamıyor', en: 'Google sign-in is currently unavailable'), or reuse the existing t('oauthError'). Never put the env-var name in the toast.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 9,
+    "title": "Recharts axis tick labels unreadable in dark mode (sub-AA contrast)",
+    "severity": "high",
+    "area": "uiux / accessibility",
+    "files": [
+      "nicebase/src/pages/Statistics.tsx:337-338,398-399"
+    ],
+    "problem": "All four XAxis/YAxis (Monthly Trend and Intensity charts) set only className=\"text-xs sm:text-sm\". Tailwind text-* emits CSS color, which recharts tick <text> ignores — tick color comes from the SVG fill attribute. With no tick={{fill}} override, recharts uses default #666 on dark:bg-gray-800 (#1f2937) ≈ 2.8:1, below WCAG AA 4.5:1. Every axis label on two charts is hard to read in dark mode.",
+    "fix": "Pass theme-aware fill to each axis: render a custom tick with className=\"fill-gray-500 dark:fill-gray-400\" (fill-* utilities DO target SVG fill), or set tick={{ fill: isDark ? '#9CA3AF' : '#4B5563', fontSize: 12 }} plus a matching axis-line stroke. Apply to all four axes.",
+    "effort": "small"
+  },
+  {
+    "rank": 10,
+    "title": "Select dropdown has no listbox/option ARIA, no focus trap/restore, no keyboard navigation",
+    "severity": "high",
+    "area": "accessibility",
+    "files": [
+      "nicebase/src/components/Select.tsx"
+    ],
+    "problem": "The trigger exposes only aria-label/aria-expanded (no role=combobox, aria-haspopup=listbox, aria-controls). The overlay options container is a plain div (no role=listbox); each option (motion.button) has no role=option/aria-selected. No focus trap, no focus into the dialog on open for the non-searchable case (focus stays on the trigger behind the backdrop), no focus restore on close, no Escape handler (only outside-click/backdrop), and zero ArrowUp/Down/Enter navigation. This is the app's primary single-choice control and is unusable by keyboard/SR users.",
+    "fix": "Add role=combobox aria-haspopup=listbox aria-controls={listId} to the trigger; role=listbox id={listId} aria-activedescendant on the container; role=option aria-selected and stable ids on each option. Add onKeyDown trapping Tab, Escape-to-close (restore focus to trigger via ref), and ArrowUp/Down/Home/End/Enter to move/select. Reuse ModalShell's focus-trap/restore pattern (ModalShell.tsx:100-170).",
+    "effort": "large"
+  },
+  {
+    "rank": 11,
+    "title": "TimePicker steppers are not spinbuttons; modal lacks focus trap/restore and Escape",
+    "severity": "high",
+    "area": "accessibility",
+    "files": [
+      "nicebase/src/components/TimePicker.tsx"
+    ],
+    "problem": "Hours/minutes render as a plain non-focusable div flanked by chevron buttons — no role=spinbutton, aria-valuemin/max/now/valuetext, and the value is not focusable, so SR users cannot read or set it as a single control and cannot ArrowUp/Down it. The modal has no focus trap, doesn't move focus into the dialog on open, has no Escape handler (only outside-click/backdrop), and doesn't restore focus to the trigger on close.",
+    "fix": "Make each hour/minute value a focusable role=spinbutton with aria-valuemin/max/now and aria-valuetext, wiring onKeyDown ArrowUp/Down to the existing increment/decrement handlers (wrap logic already at 87-117). Add a focus trap that focuses the dialog on open, traps Tab, closes on Escape, and restores focus to the trigger, mirroring ModalShell.tsx:100-170.",
+    "effort": "medium"
+  },
+  {
+    "rank": 12,
+    "title": "DateRangePicker calendar is not a grid; modal lacks focus trap/restore, Escape, and per-day labels",
+    "severity": "high",
+    "area": "accessibility",
+    "files": [
+      "nicebase/src/components/DateRangePicker.tsx:181-322"
+    ],
+    "problem": "DEDUP includes the trigger-label gap (a11y-daterange-trigger-unlabelled) plus the grid gap. The calendar is a plain CSS grid of buttons whose only accessible name is the bare day number ('5','6') — no role=grid/row/gridcell, no per-day aria-label with the full date, no aria-selected on start/end, no roving-tabindex/arrow navigation (Tab through up to 42 buttons). Day-name headers are bare divs. The modal has no focus trap, no focus-into-dialog on open, no Escape, no focus restore. Separately the trigger button has no aria-label/aria-haspopup/aria-expanded (only dynamic value text), inconsistent with Select/TimePicker.",
+    "fix": "Wrap days in role=grid + role=row/gridcell; aria-label={format(day,'PPPP',{locale})} (locale already in scope) and aria-selected for start/end; roving tabindex + Arrow/Home/End/PageUp/PageDown. Add ModalShell-style focus trap, Escape-to-close, focus restore. On the trigger add aria-label={t('selectDateRange')} (key exists) aria-haspopup=dialog aria-expanded={isOpen}.",
+    "effort": "large"
+  },
+  {
+    "rank": 13,
+    "title": "Photo-upload failure writes raw base64 into Postgres photos column and marks memory synced",
+    "severity": "medium",
+    "area": "sync / database bloat",
+    "files": [
+      "nicebase/src/services/memoryService.ts:30-41,308-342",
+      "nicebase/src/services/photoStorageService.ts:43-111"
+    ],
+    "problem": "uploadLocalPhotos catches any upload error and returns the ORIGINAL list still containing data:/local: base64 (~300KB-1.5MB each). The create/update branch passes that to mapMemoryToSupabase, upserts it into the photos column, and sets synced:true. A transient bucket/network/rate-limit error permanently writes the full base64 blob into memories.photos with the memory marked synced — so it is never retried as a Storage upload, and since MEMORY_COLUMNS includes photos, every incremental pull re-downloads those blobs to every device.",
+    "fix": "On upload failure for create/update, do NOT push base64 into the row and do NOT mark synced. Detect remaining isLocalPhotoRef entries in the returned list and in that case throw (so the catch schedules a retry with backoff) or keep the queue item pending with synced:false. Only ever write URLs (never data:) into the cloud photos column.",
+    "effort": "small"
+  },
+  {
+    "rank": 14,
+    "title": "Incremental-pull watermark advances past dirty-skipped rows, stranding newer cloud changes",
+    "severity": "medium",
+    "area": "sync correctness",
+    "files": [
+      "nicebase/src/services/memoryService.ts:478-506"
+    ],
+    "problem": "The pull loop correctly skips writing a cloud row when the local copy is dirty (requires existing.synced), but then advances the watermark unconditionally to data[0].updated_at (batch max) regardless of which rows were applied. The next pull uses .gt('updated_at', watermark), so a cloud row skipped due to a dirty local edit (updated_at <= batch max) is never re-fetched. If the local edit is later dropped or its push keeps failing, the device permanently misses the newer cloud version; the daily reconciliation only checks deletions (id set), not content drift, so it cannot heal this.",
+    "fix": "Track the max updated_at only among rows actually applied or already up-to-date, and persist THAT as the watermark — leave it behind any skipped (dirty-local) row so the skipped row is re-evaluated on the next pull.",
+    "effort": "medium"
+  },
+  {
+    "rank": 15,
+    "title": "create+delete while create is in_progress can resurrect a deleted memory in the cloud",
+    "severity": "medium",
+    "area": "sync correctness",
+    "files": [
+      "nicebase/src/services/syncQueueHelper.ts:81-107",
+      "nicebase/src/services/memoryService.ts:285-449"
+    ],
+    "problem": "create+delete coalescing only fires when the pending create is status==='pending'. If the create is already in_progress when the user deletes, the delete is enqueued separately. The drain loads a SNAPSHOT sorted by timestamp; create runs first. If the create FAILS (status->failed, future nextAttemptAt) the loop does NOT stop — the delete is already in the snapshot and still runs in the same pass; delete eq('id') succeeds even for a non-existent row and is marked done. The create then RETRIES on a later poll and re-upserts the row, re-inserting a memory the user deleted (visible on all devices).",
+    "fix": "Honor dependsOn (set a delete's dependsOn to its create's queue id) or re-check at execution time: before running a delete, check whether a not-'done' create item exists for the same entityId and defer the delete to the next batch. At minimum, skip later snapshot items whose prerequisite create failed in this same pass.",
+    "effort": "medium"
+  },
+  {
+    "rank": 16,
+    "title": "Stuck-item reset never increments attemptCount — a crash-poison item retries (and re-crashes) forever",
+    "severity": "medium",
+    "area": "sync durability",
+    "files": [
+      "nicebase/src/services/memoryService.ts:268-279,437-449"
+    ],
+    "problem": "The cleanup pass resets crash-orphaned in_progress items to {status:'pending', nextAttemptAt:now} but does NOT touch attemptCount, which is incremented only in the catch block (runs only when the op THROWS). An item whose processing HARD-crashes the WebView mid-sync (OOM from a large base64 payload, Android killing the process) is reset to pending with attemptCount unchanged, so the >=10 give-up check and backoff never advance and it re-attempts every sync forever, potentially re-crashing each time.",
+    "fix": "In the stuck-item reset loop treat a crash as a failed attempt: set attemptCount: stuck.attemptCount + 1, and if it now exceeds the cap (>=10) mark status:'abandoned' with a lastError instead of resetting to pending — mirroring the catch path.",
+    "effort": "small"
+  },
+  {
+    "rank": 17,
+    "title": "Web daily-reminder never cancels prior timer before re-scheduling — leaked timers, duplicate notifications",
+    "severity": "medium",
+    "area": "logic / notifications (web/PWA)",
+    "files": [
+      "nicebase/src/services/notificationService.ts:232-240,304-331,461-465",
+      "nicebase/src/pages/Home.tsx:133-139"
+    ],
+    "problem": "DEDUP of logic-2 + hyg-03. scheduleDailyReminder's web path, its scheduleNext closure, and the native-fallback path each create a setTimeout and store the id in localStorage reminder_timeout_${userId} WITHOUT first clearing the previously stored timer (contrast scheduleRandomMemoryReminder which clears first). Home.tsx setupNotifications depends on streak.currentStreak and re-runs on every change, and is called on each mount, so each call leaks a fresh live timer while only the latest id is tracked. cancelReminder can only clear the last id. On web/PWA, orphaned timers fire stale duplicate daily-reminder notifications and spawn their own scheduleNext recursion, accumulating over a session.",
+    "fix": "At the top of the web scheduling path (and the native-fallback branch) read reminder_timeout_${userId} and clearTimeout it before creating the new timeout, mirroring scheduleRandomMemoryReminder:411-414. cancelReminder already clears the web timeout unconditionally so a single up-front cancelReminder(userId) call also works. Optionally debounce setupNotifications so it doesn't re-fire on every streak change.",
+    "effort": "small"
+  },
+  {
+    "rank": 18,
+    "title": "Edge metering fallback fails OPEN under RPC/infra error (and pre-deploy), removing the abuse ceiling",
+    "severity": "medium",
+    "area": "billing / edge function",
+    "files": [
+      "nicebase/supabase/functions/aiya-chat/index.ts:278-322",
+      "nicebase/supabase/migrations/20260620050000_aiya_usage_and_rate_limit.sql"
+    ],
+    "problem": "enforceRateLimit() returns true (allow) on any RPC error/throw, and meterUsage()'s catch-fallback does a non-atomic read-then-write gated only by the start-of-request snapshot. If increment_aiya_usage is unavailable (MEMORY.md: migration 20260620050000 still undeployed), N concurrent requests all pass the snapshot check and each spends a gpt-4o call; combined with the rate limiter also failing open there is no ceiling. Even after deploy, any transient RPC error reopens the window.",
+    "fix": "Operationally: deploy migration 20260620050000 before relying on server-authoritative metering. In code, when the metering RPC is unavailable prefer returning 503 rather than allowing overspend (PostgREST cannot express a column<column conditional UPDATE, so the atomic path IS the RPC). Keep rate-limit fail-open acceptable for the quota-protected chat bucket only.",
+    "effort": "medium"
+  },
+  {
+    "rank": 19,
+    "title": "Unmetered classify/category bucket fails open with no daily-quota backstop",
+    "severity": "medium",
+    "area": "billing / edge function",
+    "files": [
+      "nicebase/supabase/functions/aiya-chat/index.ts:278-296,35,338-341"
+    ],
+    "problem": "classify/category actions are NOT in COUNTED_ACTIONS, so they have no daily-quota backstop. enforceRateLimit fails open on RPC error; if check_aiya_rate_limit (migration 20260620050000) is undeployed, every rate check returns true and the unmetered classify/category gpt-4o-mini path has NO ceiling for a holder of one valid token — real OpenAI cost, zero quota consumed. classify normally fires per memory save, so abuse requires scripting, and gpt-4o-mini is ~16x cheaper, bounding blast radius.",
+    "fix": "Fail CLOSED for the classify/category bucket when enforceRateLimit cannot reach the RPC (return 429), or back it with a conservative in-memory token bucket keyed by userId. Best fix: deploy migration 20260620050000 and stop relying on fail-open.",
+    "effort": "small"
+  },
+  {
+    "rank": 20,
+    "title": "useMemories refetches all memories from DB on every language toggle (t in deps)",
+    "severity": "medium",
+    "area": "react / perf",
+    "files": [
+      "nicebase/src/hooks/useMemories.ts:40-66"
+    ],
+    "problem": "loadMemories is a useCallback with deps [userId, t]. react-i18next's t changes identity on language change, recreating loadMemories, which is a dep of the autoLoad effect, triggering a full memoryService.getAll(userId) round-trip plus a loading flash across Home/Aiya on every language toggle. t is used only for the error toast, so it doesn't need to gate fetching.",
+    "fix": "Mirror the existing onLoadCompleteRef pattern: add const tRef = useRef(t); useEffect(() => { tRef.current = t }, [t]); call tRef.current('memoriesLoadError') in the catch; change loadMemories deps to [userId].",
+    "effort": "small"
+  },
+  {
+    "rank": 21,
+    "title": "Aiya crisis-support banner leaks across chats (crisisActive never reset on chat switch/new chat)",
+    "severity": "medium",
+    "area": "react / safety UX",
+    "files": [
+      "nicebase/src/pages/Aiya.tsx:382,421,803-826,928,1303-1321"
+    ],
+    "problem": "crisisActive is component-level state, set true at line 928 and reset ONLY in the user-change effect (421). createNewChat and openChat don't reset it, and the banner renders purely on crisisActive with no tie to the active chat. Once any message in any chat triggers crisis tier, the support-resources banner stays pinned and appears in every other chat (including brand-new empty ones) for the rest of the session — misfiring safety UI in unrelated conversations.",
+    "fix": "Reset setCrisisActive(false) at the top of both createNewChat and openChat. Better: store a crisis boolean on the AiyaChat (set when route.tier==='crisis' for that chat) and render the banner from activeChat?.crisis so it is scoped to the triggering conversation and survives re-entry.",
+    "effort": "small"
+  },
+  {
+    "rank": 22,
+    "title": "Background profile build overwrites the live usage counter from a stale snapshot (UI desync)",
+    "severity": "medium",
+    "area": "billing UX / edge function",
+    "files": [
+      "nicebase/src/pages/Aiya.tsx:865",
+      "nicebase/supabase/functions/aiya-chat/index.ts:589"
+    ],
+    "problem": "The profile action is not metered and never calls meterUsage, yet index.ts:589 returns `usage` built from the pre-read snapshot {used: usageUsed, limit: usageLimit}. Aiya.tsx maybeUpdateProfile:865 does if (res.usage) setUsage(res.usage), overwriting the chat-authoritative usage state with the profile call's stale snapshot. After a chat increments used server-side, a background profile build returns an earlier value and the header counter visibly jumps backward, eroding trust in the quota display (DB counter itself stays correct).",
+    "fix": "Remove `usage` from the profile branch return in index.ts:589 (return jsonResponse({ profile: content })). Defensively also drop the if (res.usage) setUsage(res.usage) line in Aiya.tsx:865 so a background profile build can never overwrite the chat counter. AiyaProfileResponse.usage is already optional.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 23,
+    "title": "Statistics monthly bucketing parses date-only strings as UTC — mis-buckets boundary entries",
+    "severity": "medium",
+    "area": "logic / analytics",
+    "files": [
+      "nicebase/src/pages/Statistics.tsx:141-145",
+      "nicebase/src/utils/dateFormat.ts:21"
+    ],
+    "problem": "Statistics.tsx:145 does new Date(m.date) on a bare YYYY-MM-DD string (parses as UTC midnight) and compares it against monthStart/monthEnd built with local-time new Date(year, month, ...). In timezones behind UTC, boundary-dated memories resolve to the previous local day and get mis-bucketed into the adjacent month — wrong analytics. The rest of the app uses parseLocalDate to avoid exactly this.",
+    "fix": "Import parseLocalDate from '../utils/dateFormat' and use const memoryDate = parseLocalDate(m.date) at Statistics.tsx:145, consistent with useMemoryFilters.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 24,
+    "title": "MemoryCard bulk-select card and photo thumbnails are non-semantic clickable divs (keyboard-dead)",
+    "severity": "medium",
+    "area": "accessibility",
+    "files": [
+      "nicebase/src/components/MemoryCard.tsx:144,210-221"
+    ],
+    "problem": "(1) In bulk mode the whole card toggles selection via onClick on the motion.div with no role=checkbox, aria-checked, tabIndex, or key handler — keyboard users cannot bulk-select at all. (2) Each photo thumbnail is a motion.div with onClick opening ImageModal but no role=button, tabIndex, aria-label, or Enter/Space handler — photos cannot be opened from the keyboard.",
+    "fix": "Bulk mode: add role=checkbox aria-checked={isSelected} tabIndex={0} and onKeyDown handling Enter/Space -> onSelect (or render a real <input type=checkbox>); ensure existing long-press/mouse handlers aren't regressed. Thumbnails: convert to <button> (or role=button tabIndex=0 + Enter/Space) with aria-label like t('viewPhoto',{n:idx+1}). NOTE: 'viewPhoto' does not exist in i18n.ts — add the key with BOTH tr and en per the parity rule.",
+    "effort": "medium"
+  },
+  {
+    "rank": 25,
+    "title": "USE_EXACT_ALARM declared in manifest — Play-policy rejection risk; no canScheduleExactAlarms handling",
+    "severity": "medium",
+    "area": "capacitor / android",
+    "files": [
+      "nicebase/android/app/src/main/AndroidManifest.xml:54-55",
+      "nicebase/src/services/notificationService.ts:527-549"
+    ],
+    "problem": "Manifest declares both SCHEDULE_EXACT_ALARM and USE_EXACT_ALARM. On Android 14+ USE_EXACT_ALARM is reserved for alarm/clock-category apps and Google Play flags/rejects others — a journaling app should not declare it (release-blocking risk). There is no canScheduleExactAlarms() check; SecurityException is only caught/logged generically. (The repeating daily reminder is inexact by Capacitor design and will still fire; only the one-shot streak-protection `at` schedule uses the exact-alarm path.)",
+    "fix": "Remove USE_EXACT_ALARM from AndroidManifest.xml (primary fix — eliminates the Play review risk). The daily reminder is fine inexact. For streak protection, either accept inexact timing and drop SCHEDULE_EXACT_ALARM too, or keep it and add a canScheduleExactAlarms() check that routes the user to system settings with a localized (i18n) explanation when denied instead of swallowing the failure.",
+    "effort": "medium"
+  },
+  {
+    "rank": 26,
+    "title": "getUniqueConnections recomputed (flatMap+dedupe over all memories) on every keystroke",
+    "severity": "medium",
+    "area": "perf",
+    "files": [
+      "nicebase/src/components/VaultFilters.tsx:59",
+      "nicebase/src/utils/memoryUtils.ts:7-9",
+      "nicebase/src/pages/Vault.tsx:211"
+    ],
+    "problem": "VaultFilters.tsx:59 calls getUniqueConnections(memories) unconditionally in the render body with no useMemo (an O(n) flatMap+dedupe over the full unpaginated array). searchQuery is a prop wired to a synchronous setSearchQuery fired on every keystroke (the 300ms debounce gates only the filter recompute, not the controlled input re-render), so every character re-runs the full flatMap+dedupe.",
+    "fix": "Wrap in useMemo: const uniqueConnections = useMemo(() => getUniqueConnections(memories), [memories]); add useMemo to the existing react import. memories only changes on load/save, so dedupe runs once per data change.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 27,
+    "title": "RangeSlider step-button aria-label hardcoded in English (not localized)",
+    "severity": "medium",
+    "area": "i18n / accessibility",
+    "files": [
+      "nicebase/src/components/RangeSlider.tsx:185,251"
+    ],
+    "problem": "RangeSlider has no useTranslation import. Line 251 step buttons render aria-label={`Set value to ${stepValue}`} — hardcoded English for the 1-10 stepper, so Turkish SR users hear English. Line 185 thumb aria-label falls back to 'value' (hardcoded English) when label is unset.",
+    "fix": "Add useTranslation; add key setValueTo ('Değeri {{value}} yap' tr / 'Set value to {{value}}' en) to both locales. Line 251 -> aria-label={t('setValueTo', { value: stepValue })}. Line 185 -> replace 'value' fallback with a localized generic key (add value: 'Değer'/'Value').",
+    "effort": "small"
+  },
+  {
+    "rank": 28,
+    "title": "Sync error toast appends raw untranslated error detail to a localized prefix",
+    "severity": "medium",
+    "area": "i18n",
+    "files": [
+      "nicebase/src/components/SettingsSheet.tsx:230-235"
+    ],
+    "problem": "The generic sync-failure branch shows t('syncError') + `: ${errorMessage}` where errorMessage is the raw exception text (Supabase/network/SDK, almost always English) — e.g. 'Senkronizasyon hatası: TypeError: Failed to fetch'. The raw errorMessage is already sent to errorLoggingService, so concatenating it into the toast is redundant for diagnostics.",
+    "fix": "Drop the raw concatenation: show only t('syncError') in the generic branch (keep the localized syncTimeout branch). Optionally map known substrings to localized keys.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 29,
+    "title": "ImageModal has no focus trap, no auto-focus on open, no focus restoration",
+    "severity": "medium",
+    "area": "accessibility",
+    "files": [
+      "nicebase/src/components/ImageModal.tsx"
+    ],
+    "problem": "The backdrop has role=dialog aria-modal=true with onKeyDown + tabIndex=0, so Arrow/Escape only fire if the backdrop holds focus. Nothing focuses the dialog on open, so for keyboard users the handlers are effectively dead until they manually Tab in; Tab also escapes to the page behind the full-screen viewer, and focus is not restored to the opening thumbnail on close.",
+    "fix": "On mount, focus the dialog container (or close button) via ref + useEffect; save document.activeElement on open and restore on unmount. Add a Tab focus trap cycling among the visible close/prev/next/zoom buttons, mirroring ModalShell.tsx:112-170.",
+    "effort": "medium"
+  },
+  {
+    "rank": 30,
+    "title": "Notification permission denial swallowed — success toast shown even when denied",
+    "severity": "low",
+    "area": "capacitor / UX",
+    "files": [
+      "nicebase/src/components/SettingsSheet.tsx:146-174",
+      "nicebase/src/services/notificationService.ts:84-119"
+    ],
+    "problem": "handleSaveReminders calls requestPermission() and discards the returned boolean, then unconditionally schedules and shows toast.success(t('settingsSaved')). A user who denies POST_NOTIFICATIONS is told their reminder saved successfully though no notification will ever fire. The sibling handleEnableNotifications path already handles the boolean correctly, so the needed i18n keys exist.",
+    "fix": "Capture const granted = await notificationService.requestPermission(); if !granted, show toast.error(t('notificationPermissionDenied')) (key exists) and skip claiming success (optionally persist the time but warn). Only show settingsSaved when granted.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 31,
+    "title": "Vault loads the entire memory table on every mount — no Dexie pagination, no list virtualization",
+    "severity": "low",
+    "area": "perf / architecture",
+    "files": [
+      "nicebase/src/services/memoryService.ts:139-142",
+      "nicebase/src/hooks/useMemories.ts:46",
+      "nicebase/src/pages/Vault.tsx:35,184-190",
+      "nicebase/src/components/VaultMemoryList.tsx:97",
+      "nicebase/src/hooks/useMemoryFilters.ts:61"
+    ],
+    "problem": "getAll does db.memories.where('userId').equals(userId).toArray() — pulls the COMPLETE memory set (text, connections, inline photo arrays) into a JS array. useMemoryFilters copies it ([...memories]) and runs up to six filter passes plus sort on every filter change. displayCount/slice is pure UI windowing that does not reduce the Dexie read or heap, and VaultMemoryList maps the slice inside AnimatePresence with no virtualization so the DOM grows unbounded. Heavy journalers pay the most; this is the explicitly-deferred Vault pagination item. Severity low because typical libraries are small and it is a degradation, not a correctness bug.",
+    "fix": "Add getPage({userId, offset, limit}) using a compound Dexie index (e.g. [userId+date]) with .offset().limit() and drive Vault paging from Dexie. Add list virtualization (react-window/virtua) for the rendered window. Push index-friendly category/lifeArea/date filtering into the Dexie query; keep text/connection filters in-memory as a pragmatic first step.",
+    "effort": "large"
+  },
+  {
+    "rank": 32,
+    "title": "aiya_chats.messages jsonb unbounded; full transcript re-upserted each sync window",
+    "severity": "low",
+    "area": "database / egress",
+    "files": [
+      "nicebase/supabase/migrations/20260207000000_add_aiya_chats.sql:9",
+      "nicebase/src/services/aiyaService.ts:651-691"
+    ],
+    "problem": "aiya_chats.messages is jsonb with no length/size constraint. syncChats upserts the entire messages array for every chat updated in the last 5 minutes, so a long conversation re-uploads its whole transcript each window — write-amplification and egress cost (not data-loss or security).",
+    "fix": "Trim transcripts client-side before upsert in the chatsToSync map (keep last N messages, e.g. 200) and/or add CHECK (jsonb_array_length(messages) <= N).",
+    "effort": "small"
+  },
+  {
+    "rank": 33,
+    "title": "daily_questions readable by anon via USING(true) + GRANT ALL — write-fragile, broader than needed",
+    "severity": "low",
+    "area": "security / database",
+    "files": [
+      "nicebase/supabase/migrations/20260206100000_memory_system_overhaul.sql:75-77,156"
+    ],
+    "problem": "daily_questions has policy USING (true) with no role scope plus GRANT ALL ON TABLE ... TO anon. The bank is fully readable with just the anon key by an unauthenticated caller, and GRANT ALL exposes INSERT/UPDATE/DELETE currently blocked only because RLS has no write policy — a fragile belt-without-suspenders: any future permissive write policy would immediately let anon write. Content is non-sensitive reflection prompts, so this is defense-in-depth, not a data leak.",
+    "fix": "New migration: scope SELECT to authenticated if login is required, and REVOKE ALL ... FROM anon, authenticated; GRANT SELECT ... TO authenticated (keep GRANT ALL only for service_role). If public read is genuinely intended, document it explicitly per CLAUDE.md 2.1.",
+    "effort": "small"
+  },
+  {
+    "rank": 34,
+    "title": "increment_aiya_usage NULL-arithmetic edge can silently lock a user out of metering",
+    "severity": "low",
+    "area": "security / database",
+    "files": [
+      "nicebase/supabase/migrations/20260620050000_aiya_usage_and_rate_limit.sql:30-32",
+      "nicebase/supabase/migrations/20251220174815_remote_schema.sql:112-113"
+    ],
+    "problem": "increment_aiya_usage UPDATEs WHERE u.aiya_messages_used < u.aiya_messages_limit with no COALESCE; the columns are nullable (DEFAULT only, not NOT NULL). A row with NULL in either column makes the comparison NULL, the UPDATE matches nothing, meterUsage returns null, and the edge function returns 429 'Usage limit exceeded' for zero messages sent. Likelihood low (the upsert path always writes 0 and the limit), but real for rows created by another path that set NULL.",
+    "fix": "Prefer a NOT NULL migration: backfill with COALESCE then ALTER COLUMN ... SET DEFAULT / SET NOT NULL on aiya_messages_used (0) and aiya_messages_limit (50). Alternatively harden the RPC with COALESCE in both the SET and WHERE clauses.",
+    "effort": "small"
+  },
+  {
+    "rank": 35,
+    "title": "Reset-password flow doesn't verify an active recovery session; weaker password policy than signup",
+    "severity": "low",
+    "area": "security / auth",
+    "files": [
+      "nicebase/src/pages/ResetPassword.tsx:24-38"
+    ],
+    "problem": "handleReset calls supabase.auth.updateUser({ password }) with no guard that a valid recovery session exists (no onAuthStateChange/PASSWORD_RECOVERY/getSession gating). On an expired link it fails opaquely; if a normal session is active it would change the logged-in user's password from a recovery-only route. Minimum length is 6 with no strength feedback, while signup uses a 5-level strength meter — inconsistent policy.",
+    "fix": "Subscribe to supabase.auth.onAuthStateChange in a useEffect and enable the form only when a recovery session exists; otherwise render a 'link expired — request a new reset' state. Align the min-length/strength rule with signup.",
+    "effort": "small"
+  },
+  {
+    "rank": 36,
+    "title": "Two divergent platform-detection helpers (isNative vs isNativePlatform) can disagree",
+    "severity": "low",
+    "area": "hygiene / capacitor",
+    "files": [
+      "nicebase/src/utils/platform.ts:7-21",
+      "nicebase/src/utils/capacitor.ts:170-179"
+    ],
+    "problem": "isNativePlatform() returns true if window.Capacitor OR window.CapacitorPlugins exists; isNative() checks only window.Capacitor (omits the CapacitorPlugins fallback). notificationService uses isNativePlatform while memorySyncService and haptic use isNative. In a boot state where the plugins proxy is injected before the Capacitor global, the two disagree (split-brain branching). In standard builds both globals are injected together, so this is primarily a maintainability/drift defect.",
+    "fix": "Make capacitor.ts a thin re-export: export { isNativePlatform as isNative } from './platform' (or align isNative's body to include the CapacitorPlugins fallback) so there is a single source of truth.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 37,
+    "title": "setHasCompletedOnboarding does unguarded localStorage.setItem (inconsistent with sibling setters)",
+    "severity": "low",
+    "area": "hygiene / state",
+    "files": [
+      "nicebase/src/store/useStore.ts:123-126"
+    ],
+    "problem": "setTheme and setLanguage wrap localStorage.setItem in try/catch with a DEV warn ('localStorage might be disabled, fail silently'). setHasCompletedOnboarding calls setItem with NO try/catch. On a WebView/device where localStorage is disabled or quota-exceeded, it throws synchronously inside the Zustand setter, breaking the onboarding-completion action while siblings degrade gracefully.",
+    "fix": "Wrap the setItem in the same try/catch + DEV-warn block as setTheme/setLanguage, and call set({ hasCompletedOnboarding: completed }) regardless so state updates even if persistence fails.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 38,
+    "title": "photoUpload sync op has no handler in syncAll — would be silently marked done (latent data loss)",
+    "severity": "low",
+    "area": "sync robustness",
+    "files": [
+      "nicebase/src/services/memoryService.ts:308-436",
+      "nicebase/src/lib/db.ts:4,16",
+      "nicebase/src/services/syncQueueHelper.ts:53-58"
+    ],
+    "problem": "SyncQueueOp includes 'photoUpload' with a defined payload and entityId derivation, but the syncAll drain only handles create/update/delete with no final else. A 'photoUpload' item would skip all branches and fall straight to the success write (status:done, lastError:null) without uploading anything. Strictly latent today (nothing enqueues photoUpload — uploads are handled inline in create/update), but the full plumbing exists and invites a future caller to step on the landmine.",
+    "fix": "Add an explicit final else { throw new Error('Unsupported sync op: ' + item.op) } after the delete branch so an unknown op goes through the catch (retry/abandon, visible) instead of the done path. If photoUpload is ever wired up, give it a real branch.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 39,
+    "title": "dependsOn ordering field is dead — sync ordering relies solely on colliding Date.now() timestamps",
+    "severity": "low",
+    "area": "sync correctness / dead code",
+    "files": [
+      "nicebase/src/lib/db.ts:29,100",
+      "nicebase/src/services/syncQueueHelper.ts:133",
+      "nicebase/src/services/memoryService.ts:285-291"
+    ],
+    "problem": "dependsOn exists on SyncQueueItemV2 but is hardcoded null at every enqueue site and never read in syncAll. Ordering relies entirely on .sort((a,b)=>a.timestamp-b.timestamp) where timestamp is Date.now() (ms). Two ops in the same ms get equal timestamps and ties resolve unpredictably (Dexie toArray keyed by random UUID). Mostly neutralized for same-entity create+update by coalescing; residual risk is the narrow create-in_progress window (overlaps rank 15) and different-entity ops where order is irrelevant.",
+    "fix": "Either implement dependsOn (set at enqueue, skip an item until its dependency is 'done') or make timestamps a strict total order (Date.now()*1000 + per-session counter). If dependsOn won't be used, remove it so it doesn't imply a guarantee that doesn't exist.",
+    "effort": "medium"
+  },
+  {
+    "rank": 40,
+    "title": "Dexie v1->v2 migration silently drops legacy queue items whose userId can't be derived",
+    "severity": "low",
+    "area": "sync / migration",
+    "files": [
+      "nicebase/src/lib/db.ts:56-104"
+    ],
+    "problem": "The v1->v2 upgrade derives userId only from create payloads or updates carrying updates.userId; for legacy delete items and updates lacking userId, userId is undefined and the item is skipped silently. Nothing re-derives these, so a user upgrading from v1 with pending offline deletes/edits loses those queued ops. Near-zero population today (one-time migration, current schema is v3).",
+    "fix": "For skipped legacy items, fall back to looking up the owning memory by entityId in the memories table to recover userId; at minimum count and log a warning so the loss isn't fully silent.",
+    "effort": "medium"
+  },
+  {
+    "rank": 41,
+    "title": "Conflict re-detection suppressed by existingLocal.conflict — a second cloud change is never surfaced",
+    "severity": "low",
+    "area": "sync correctness",
+    "files": [
+      "nicebase/src/services/memoryService.ts:389-405"
+    ],
+    "problem": "On divergence the code sets conflict:true + conflictCloud, guarded by existingLocal && !existingLocal.conflict. If the cloud row changes AGAIN before the user resolves, the else branch adopts the cloud base (synced:true, baseUpdatedAt) WITHOUT refreshing conflictCloud, so the conflict dialog can show a stale cloud snapshot. Requires three devices and concurrent edits during an unresolved conflict window — an edge of an edge.",
+    "fix": "When a conflict is already pending and a new push still detects divergence, refresh conflictCloud/conflictDetectedAt to the latest cloud row instead of adopting the base. Alternatively re-fetch the current cloud row at resolve time in ConflictResolutionDialog before applying 'keep cloud'.",
+    "effort": "small"
+  },
+  {
+    "rank": 42,
+    "title": "On Aiya send failure the optimistic user bubble persists with no reply and no retry",
+    "severity": "low",
+    "area": "react / chat UX",
+    "files": [
+      "nicebase/src/pages/Aiya.tsx:884-891,964-977"
+    ],
+    "problem": "The user message is added optimistically before the network call. On failure the catch only calls setErrorMessage and never rolls back the user bubble, so a dangling user turn with no assistant response remains in chat state, is persisted (localStorage/syncChats), and is included in the history sent to the model on the next send, with no retry affordance. (The usage-desync part of the original finding is a non-issue — usage updates only on success.)",
+    "fix": "In the catch, either roll back the optimistically-added userMsg before showing the error, or add a 'retry' action that re-sends the last user message via handleSend(text, targetChatId). If keeping it, mark it failed so it can be excluded from model history and visually flagged.",
+    "effort": "small"
+  },
+  {
+    "rank": 43,
+    "title": "getSyncStatus counts in_progress as pending — crashed-mid-sync backup looks in-flight",
+    "severity": "low",
+    "area": "sync UX",
+    "files": [
+      "nicebase/src/services/memoryService.ts:570-589"
+    ],
+    "problem": "getSyncStatus buckets in_progress with pending. An item left in_progress by a crashed run is only reset to pending at the start of the next syncAll, so a caller reading status without first running syncAll (e.g. a backup indicator on app open) sees the orphan as a phantom 'pending'. Self-healing and never mislabels un-backed-up work as backed up (the dangerous direction).",
+    "fix": "Surface in_progress as its own count, or treat a stale in_progress (timestamp older than a threshold) as failed/recoverable. Don't conflate 'currently uploading' with 'queued but not started'.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 44,
+    "title": "Aiya stats header summarizes ALL memories while memory lines are the keyword-filtered subset",
+    "severity": "low",
+    "area": "aiya / quality",
+    "files": [
+      "nicebase/src/services/aiyaService.ts:410-415,143-146"
+    ],
+    "problem": "buildTieredMemoryContext computes statsHeader over `sorted` = ALL memories while the memory LINES come from findRelevantMemories(sorted, message, route.memoryCount) for non-max tiers. The model can receive '[RECENT] mood: love' in the stats but none of those actual recent lines if they lack keyword overlap and lose the slot race (recency bonus mitigates but doesn't guarantee inclusion). Degrades answer quality; no data/billing/crash impact.",
+    "fix": "In findRelevantMemories, force-include the top N most-recent memories (e.g. all from last 7 days, capped) before filling remaining slots by score, so the lines are always a superset of what the stats summarize. Alternatively compute the stats header over the SAME selected subset.",
+    "effort": "small"
+  },
+  {
+    "rank": 45,
+    "title": "Dead analysis action stuffs raw model text into emotionalTrends on JSON parse failure (and bills it)",
+    "severity": "low",
+    "area": "aiya / dead code",
+    "files": [
+      "nicebase/supabase/functions/aiya-chat/index.ts:477-508",
+      "nicebase/src/services/aiyaService.ts:597"
+    ],
+    "problem": "On safeJsonParse failure the analysis branch builds { emotionalTrends: content (raw truncated model output), standoutMemories: [], patterns: '', recommendations: '' } and analysis IS in COUNTED_ACTIONS so the user is charged for a malformed result. However analyzeMemories has zero callers — the path is currently unreachable. This is also the other call site of refundUsage (interacts with rank 2).",
+    "fix": "Since analyzeMemories is dead code, remove it AND the entire if (normalizedAction === 'analysis') branch (index.ts:477-508) plus 'analysis' from COUNTED_ACTIONS. If wiring it up later instead: on parse failure refund via the atomic decrement RPC (rank 2) and return a typed error mapped to aiyaError rather than charging for a half-empty object.",
+    "effort": "small"
+  },
+  {
+    "rank": 46,
+    "title": "scheduleRandomMemoryReminder is dead code AND schedules uncancellable native notifications",
+    "severity": "low",
+    "area": "capacitor / dead code",
+    "files": [
+      "nicebase/src/services/notificationService.ts:334-396"
+    ],
+    "problem": "scheduleRandomMemoryReminder schedules 4 repeating daily native notifications (id prefix 2) with no corresponding cancel method (cancelReminder cancels prefix 1, cancelStreakProtection prefix 3). It has ZERO callers. The web branch stores a setInterval id in localStorage whose in-memory handle is lost on reload. Dormant today; the uncancellable-notification bug only manifests if someone wires it up.",
+    "fix": "Delete scheduleRandomMemoryReminder entirely to remove the latent bug. If wanted later, add cancelRandomMemory(userId) canceling ids notificationId(userId,2)+0..3 natively plus clearing the stored web interval, and wire scheduling/cancellation into the settings toggle.",
+    "effort": "small"
+  },
+  {
+    "rank": 47,
+    "title": "Streak-protection notification never cancelled when user changes/clears reminders",
+    "severity": "low",
+    "area": "capacitor / notifications",
+    "files": [
+      "nicebase/src/components/SettingsSheet.tsx:139-148",
+      "nicebase/src/pages/Home.tsx:91-97",
+      "nicebase/src/services/notificationService.ts"
+    ],
+    "problem": "Home schedules scheduleStreakProtection on every load when currentStreak>0 (id prefix 3). SettingsSheet.handleSaveReminders only calls cancelReminder — never cancelStreakProtection (whose only callers are internal). A user has no settings path to stop the streak-protection ping. Small blast radius: it's a self-limiting once-a-day (non-repeating) notification that cancels+reschedules on each Home load and self-resolves once a memory is added.",
+    "fix": "Add notificationService.cancelStreakProtection(user.id) to SettingsSheet's reminder-disable path, and add an explicit notifications on/off control that cancels BOTH reminder types. Optionally skip scheduleStreakProtection in Home when daily_reminder_time is unset.",
+    "effort": "small"
+  },
+  {
+    "rank": 48,
+    "title": "Web streak-protection self-recursion re-arms with stale frozen snapshot (no-op)",
+    "severity": "low",
+    "area": "logic / notifications",
+    "files": [
+      "nicebase/src/services/notificationService.ts:556-565"
+    ],
+    "problem": "The web setTimeout callback re-calls scheduleStreakProtection with the values captured at original scheduling time. Next day those are stale (lastMemoryDate >=2 days old), so the ===1 guard fails and the recursion silently returns and never re-arms — defeating its own purpose. Home re-invokes with fresh streakData on every app open, making the self-recursion both redundant and incorrect.",
+    "fix": "Remove the self-recursive call at line 565 and rely on Home re-scheduling on each load with fresh streakData.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 49,
+    "title": "Native repeating daily reminder bakes a fixed streak count into the body; comment promises live update",
+    "severity": "low",
+    "area": "logic / notifications",
+    "files": [
+      "nicebase/src/services/notificationService.ts:248-260,214-216"
+    ],
+    "problem": "The comment claims the streak is checked when the notification shows, but a repeating (every:'day') notification is scheduled with a static body computed once, so it repeats with the scheduling-time streak indefinitely. Mitigated because Home re-calls scheduleDailyReminder (which cancels first then reschedules) on each app open; the body only goes stale if the user never opens the app for days.",
+    "fix": "Either schedule a streak-agnostic body (t('dailyReminderBody') without count) for the repeating native reminder, or correct the misleading comment at 248-249 to state the body is refreshed on each app open. Minimal fix is correcting the comment; for accurate UX drop the count.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 50,
+    "title": "Page content clipped behind bottom nav on notched devices (pb-16 omits safe-area inset)",
+    "severity": "low",
+    "area": "uiux / layout",
+    "files": [
+      "nicebase/src/components/Layout.tsx:50,58-66"
+    ],
+    "problem": "The fixed bottom nav occupies h-16 (64px) PLUS paddingBottom: var(--safe-area-inset-bottom). The scroll container <main> reserves clearance with static pb-16 (64px) only — no inset. On notched/gesture-nav devices the bottom inset band (~20-34px) of page content sits under the nav and can't be scrolled into view (0px on most phones/web).",
+    "fix": "Replace main's 'pb-16' branch with style={{ paddingBottom: 'calc(4rem + var(--safe-area-inset-bottom, 0px))' }} (keep '' for isFullscreenChat), or add a .pb-nav utility doing the calc.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 51,
+    "title": "Destructive photo-delete button tap target ~26px (under 44px) on mobile",
+    "severity": "low",
+    "area": "uiux / touch target",
+    "files": [
+      "nicebase/src/components/MemoryFormPhotos.tsx:225-236"
+    ],
+    "problem": "The per-photo delete button is rounded-full p-1.5 wrapping X size={14} ≈ 26px hit area, below the 44px minimum the project's own .touch-target utility enforces. It is opacity-100 on mobile (always visible primary control to remove a just-added photo). Has touch-manipulation but not touch-target.",
+    "fix": "Add the existing .touch-target class (min 44x44, index.css:268) plus inline-flex items-center justify-center, or bump padding to ~p-2.5 with a larger icon.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 52,
+    "title": "Modal/form close (X) and clear buttons under 44px tap target",
+    "severity": "low",
+    "area": "uiux / touch target",
+    "files": [
+      "nicebase/src/components/ConfirmationDialog.tsx:106",
+      "nicebase/src/components/MemoryForm.tsx:766,1306",
+      "nicebase/src/components/DateRangePicker.tsx:197"
+    ],
+    "problem": "Several frequently-tapped close/clear controls are sub-44px: ConfirmationDialog dismiss X (p-1 + size20 ≈28px), DateRangePicker clear (p-1 + size16 ≈24px), MemoryForm header close (w-8 h-8 =32px), MemoryForm dirty-confirm dismiss X (p-1 + size20 ≈28px). None use .touch-target.",
+    "fix": "Add 'touch-target' + inline-flex items-center justify-center (or increase padding to ~p-2.5) to: ConfirmationDialog X (106), DateRangePicker clear (197), MemoryForm header close (766/768), MemoryForm dirty-confirm X (1306).",
+    "effort": "small"
+  },
+  {
+    "rank": 53,
+    "title": "Android back button cannot exit the app from home — exitApp never wired",
+    "severity": "low",
+    "area": "capacitor / android",
+    "files": [
+      "nicebase/src/utils/capacitor.ts:379-391",
+      "nicebase/src/components/Layout.tsx:24-27",
+      "nicebase/src/types/capacitor.ts:27"
+    ],
+    "problem": "Layout.handleBackButton returns false on '/' to let native handle exit, but the native backButton listener only does if (window.history.length>1) window.history.back() and notes exitApp isn't in the AppPlugin interface. AppPlugin has getLaunchUrl but no exitApp. At the root with history.length===1, back does nothing (no nav, no exit); with deeper SPA history it walks history instead of leaving the app — a UX deviation from Android norms, not a crash.",
+    "fix": "Add exitApp(): Promise<void> to AppPlugin (src/types/capacitor.ts), expose it in loadApp() (both plugin and dynamic-import branches), and restructure the listener: if backButtonHandler() returns true -> handled; else if history.length>1 -> history.back(); else await App.exitApp(). @capacitor/app is already a dependency.",
+    "effort": "small"
+  },
+  {
+    "rank": 54,
+    "title": "OAuth browser-fallback cold-start can hang the spinner — getLaunchUrl not consulted",
+    "severity": "low",
+    "area": "capacitor / auth",
+    "files": [
+      "nicebase/src/hooks/useOAuth.ts:89-191,288-328",
+      "nicebase/src/utils/capacitor.ts"
+    ],
+    "problem": "The browser-fallback path registers an appUrlOpen listener but never calls App.getLaunchUrl() on mount. If the OAuth redirect cold-starts a killed activity, the callback URL arrives as the launch URL before React mounts and is lost; exchangeCodeForSession never runs and loadingRef/setLoading stay true with no timeout. Only affects the browser fallback (the primary native Credential Manager flow is unaffected). getLaunchUrl is already in the interface and loadApp.",
+    "fix": "In the native useEffect, after setting up the appUrlOpen listener, also call App.getLaunchUrl(); if its url matches com.nicebase.app://oauth/callback, run the same code/token exchange. Add a safety timeout in the browser branch that resets loading and shows t('oauthError') if no callback arrives within ~60s.",
+    "effort": "small"
+  },
+  {
+    "rank": 55,
+    "title": "Native showNotification uses Date.now() % 2147483647 as id — collision risk",
+    "severity": "low",
+    "area": "capacitor / notifications",
+    "files": [
+      "nicebase/src/services/notificationService.ts:143"
+    ],
+    "problem": "id: Date.now() % 2147483647. Two notifications in the same millisecond collide (Capacitor treats same id as replace), and the id space overlaps the deterministic notificationId(userId,1|2|3) hashes, so an ad-hoc notification could in principle replace/cancel a scheduled reminder. Real-world probability is very low; practical bug is same-ms double-fire overwrite.",
+    "fix": "Combine Date.now() with a module-level monotonic counter and reserve a distinct high sub-range for transient notifications: const adHocId = (Date.now() + (transientCounter++)) % 2147483647, kept out of the scheduled-reminder hash range.",
+    "effort": "small"
+  },
+  {
+    "rank": 56,
+    "title": "Aiya scroll-to-bottom FAB uses hardcoded bottom:100px without safe-area inset",
+    "severity": "low",
+    "area": "uiux / layout",
+    "files": [
+      "nicebase/src/pages/Aiya.tsx:1354,1362-1364"
+    ],
+    "problem": "The scroll-down FAB is positioned bottom:'100px' (hardcoded) while the input bar below uses paddingBottom: var(--safe-area-inset-bottom). On notched/gesture-nav devices the input bar grows by the inset while the FAB stays at 100px, shrinking the gap or overlapping the input/suggestion area. Cosmetic; 0px inset on most devices.",
+    "fix": "style={{ bottom: 'calc(100px + var(--safe-area-inset-bottom, 0px))' }} so the FAB tracks input-bar height across devices.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 57,
+    "title": "Statistics infinite framer-motion animation ignores prefers-reduced-motion",
+    "severity": "low",
+    "area": "uiux / accessibility",
+    "files": [
+      "nicebase/src/pages/Statistics.tsx:209-215"
+    ],
+    "problem": "The empty-state icon runs animate={{ scale:[1,1.1,1] }} with repeat:Infinity and no prefersReducedMotion guard. Framer Motion drives this via JS inline transforms, so the global CSS reduced-motion duration-clamp does not stop it. Home/Aiya already guard their loops — inconsistent. Single decorative icon on a zero-memory empty state, so low exposure.",
+    "fix": "Read the existing prefersReducedMotion hook and gate: animate={prefersReducedMotion ? undefined : { scale:[1,1.1,1] }}, dropping repeat:Infinity when reduced, matching the Home/Aiya pattern.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 58,
+    "title": "useNotifications subscribes to i18n via unused useTranslation()/t (needless re-renders)",
+    "severity": "low",
+    "area": "hygiene / perf",
+    "files": [
+      "nicebase/src/hooks/useNotifications.ts:2,18"
+    ],
+    "problem": "useNotifications imports useTranslation and destructures const { t } = useTranslation() but never calls t (all show* helpers take pre-localized strings). Besides dead code, useTranslation subscribes every consumer to i18n language-change events, forcing needless re-renders of all toast-using components on language switch.",
+    "fix": "Remove the useTranslation import and the const { t } = useTranslation() line. The hook needs no i18n subscription.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 59,
+    "title": "Toggle may have an undefined aria-label and a redundant mouse-only clickable label",
+    "severity": "low",
+    "area": "accessibility",
+    "files": [
+      "nicebase/src/components/Toggle.tsx:52-59,65"
+    ],
+    "problem": "aria-label={ariaLabel || label} is undefined when neither prop is passed, leaving the role=switch control with no accessible name. Separately, when label is provided it is a standalone <label> with its own onClick but no htmlFor/id association to the button — a mouse-only duplicate toggle target not programmatically linked to the switch. Latent (callers usually pass a label/ariaLabel).",
+    "fix": "Guarantee an accessible name so aria-label is never undefined; associate the label via htmlFor + button id (or wrap the button inside the label) and remove the redundant onClick on the standalone label.",
+    "effort": "small"
+  },
+  {
+    "rank": 60,
+    "title": ".gitignore covers .env but not all .env.* variants (e.g. .env.staging)",
+    "severity": "low",
+    "area": "security / hygiene",
+    "files": [
+      "nicebase/.gitignore:27-34"
+    ],
+    "problem": "Enumerates specific variants (.env, .env.local, .env.production, etc.) with no .env.* catch-all, so a future .env.staging/.env.prod containing real keys would NOT be ignored and could be committed (violates CLAUDE.md Bölüm 3 #1). Preventive — only .env.example is currently tracked.",
+    "fix": "Replace the per-variant list with a catch-all plus an example negation: `.env`, `.env.*`, `!.env.example`.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 61,
+    "title": "Default Aiya limit/language/theme duplicated across client and edge with no shared constant",
+    "severity": "low",
+    "area": "hygiene / config",
+    "files": [
+      "nicebase/src/lib/userService.ts:122,125,126",
+      "nicebase/supabase/functions/aiya-chat/index.ts:22,241,244,245"
+    ],
+    "problem": "New-user defaults are hardcoded in two independent places (edge DEFAULT_LIMIT=50 + language:'tr'/theme:'light'; userService aiya_messages_limit:50/language:'tr'/theme:'light'). If the free-tier quota or default locale changes, the two paths drift and users get mismatched defaults depending on which created the row. Currently identical, so no live bug.",
+    "fix": "Define a shared client constants module (src/lib/userDefaults.ts: DEFAULT_AIYA_LIMIT=50, DEFAULT_LANGUAGE='tr', DEFAULT_THEME='light') referenced in userService; on the edge promote language/theme to constants alongside the existing DEFAULT_LIMIT. Document the canonical values.",
+    "effort": "small"
+  },
+  {
+    "rank": 62,
+    "title": "memories_categories_check shipped NOT VALID and never validated",
+    "severity": "low",
+    "area": "database",
+    "files": [
+      "nicebase/supabase/migrations/20260620040000_memories_indexes_and_constraints.sql:27-37"
+    ],
+    "problem": "20260620040000 adds memories_categories_check with NOT VALID and a comment promising a later VALIDATE that never lands (only the unrelated 050000 follows). Pre-existing/legacy rows are never checked and could hold out-of-set categories that bypass the guard. Low impact in practice because the 20260228 backfill + that migration's category CHECK make most rows clean.",
+    "fix": "New migration: SELECT offenders WHERE NOT (categories <@ ARRAY[...allowed...]::text[]); normalize to ARRAY['uncategorized']; then ALTER TABLE public.memories VALIDATE CONSTRAINT memories_categories_check. Migrations are still undeployed per MEMORY.md, so this is the right window.",
+    "effort": "small"
+  },
+  {
+    "rank": 63,
+    "title": "t() calls carry hardcoded Turkish defaultValue strings — latent parity risk",
+    "severity": "low",
+    "area": "i18n / maintenance",
+    "files": [
+      "nicebase/src/components/MigrationPrompt.tsx",
+      "nicebase/src/components/ConflictResolutionDialog.tsx",
+      "nicebase/src/components/MemoryForm.tsx",
+      "nicebase/src/components/MemoryFormPhotos.tsx",
+      "nicebase/src/components/MemoryFormFields.tsx",
+      "nicebase/src/components/MemoryCard.tsx"
+    ],
+    "problem": "~69 t('key', { defaultValue: 'Turkish text' }) calls across ~9 component files. The keys currently exist in both locales so there is no broken render today, but if a key is renamed/removed, English users silently get the Turkish defaultValue with no missing-key signal. Structural/latent parity risk, not a live defect.",
+    "fix": "Treat i18n.ts as single source of truth: remove inline Turkish defaultValue args (keys exist) or replace with neutral/English defaults so a missing key never surfaces Turkish to English users. Add a CI/test check that every t('key') is defined in both locales.",
+    "effort": "medium"
+  },
+  {
+    "rank": 64,
+    "title": "compressImage default 1920px/0.8 keeps inline base64 photos heavy pre-sync",
+    "severity": "low",
+    "area": "perf",
+    "files": [
+      "nicebase/src/utils/imageUtils.ts:50",
+      "nicebase/src/components/MemoryForm.tsx:617"
+    ],
+    "problem": "compressImage defaults to maxWidth 1920 / quality 0.8 and MemoryForm calls it with those values. The base64 string is carried in the in-memory Memory array and JSON-stringified into syncQueueV2 payloads until a successful sync (compounds Vault's full-table load pre-sync). NOTE: the Storage migration already exists (uploadLocalPhotos on sync), so in-memory weight is transient, not permanent — only the encode dimensions remain a lever.",
+    "fix": "Lower the gallery default to ~1280px / ~0.7 (pass from MemoryForm.tsx:617 or change imageUtils defaults). Low-risk tuning, not a defect.",
+    "effort": "small"
+  },
+  {
+    "rank": 65,
+    "title": "Home recomputes core-memory count inline twice on every render",
+    "severity": "low",
+    "area": "perf",
+    "files": [
+      "nicebase/src/pages/Home.tsx:687,692"
+    ],
+    "problem": "Lines 687 and 692 both run memories.filter(m => m.isCore).length — two identical O(n) scans per render, and Home re-renders often (isBreathing, randomMemory, streak, FAB position). Wasteful but not user-perceptible unless the library is very large.",
+    "fix": "const coreCount = useMemo(() => memories.filter(m => m.isCore).length, [memories]) and use coreCount for both the motion.p key and the displayed value.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 66,
+    "title": "MemoryForm background-save effect recreates its 5s interval + visibilitychange listener every keystroke",
+    "severity": "low",
+    "area": "react / perf",
+    "files": [
+      "nicebase/src/components/MemoryForm.tsx:275-291,293-328"
+    ],
+    "problem": "The sessionStorage autosave effect and the 30s draft effect both list the whole formData object in their deps. formData gets a new reference each keystroke, so each input change tears down and re-establishes setInterval(5000) + addEventListener('visibilitychange') (and the 30s setTimeout). The 5s interval is reset on each keystroke, so while typing faster than 5s it effectively never fires, defeating the periodic-save intent; listeners churn.",
+    "fix": "Hold latest formData in a ref (const formDataRef = useRef(formData); formDataRef.current = formData) and run the interval/listener in an effect with stable deps [memory, userId], reading formDataRef.current inside saveToSession / the draft timer. One stable interval + one stable listener for the form lifetime.",
+    "effort": "small"
+  },
+  {
+    "rank": 67,
+    "title": "Dead schema: public.connections cloud table and db.connections Dexie table are never used",
+    "severity": "low",
+    "area": "database / dead code",
+    "files": [
+      "nicebase/supabase/migrations/20251220174815_remote_schema.sql:73-83",
+      "nicebase/src/lib/db.ts:35"
+    ],
+    "problem": "public.connections (full RLS/FK/index) has zero .from('connections') references, and db.connections is declared across all schema versions but never read or written. App connections are derived entirely from memory.connections string[] (Connections.tsx). Both tables are permanently empty — pure dead schema, no data-loss (nothing is ever written there).",
+    "fix": "Drop the db.connections Dexie table (with a Dexie version bump) and add a migration to DROP TABLE public.connections, after confirming Connections.tsx persists only through memory.connections.",
+    "effort": "small"
+  },
+  {
+    "rank": 68,
+    "title": "weekly_summaries and ai_analyses have no writers; unique-key upsert path unimplemented",
+    "severity": "low",
+    "area": "database / dead code",
+    "files": [
+      "nicebase/supabase/migrations/20260620040000_memories_indexes_and_constraints.sql:39-56",
+      "nicebase/supabase/migrations/20251220174815_remote_schema.sql:127-137"
+    ],
+    "problem": "20260620040000 adds weekly_summaries_user_week_key 'so the weekly-summary write path can upsert', but grep shows no .from('weekly_summaries') or .from('ai_analyses') writers — the targeted write path doesn't exist. A future naive insert-based writer would hit an unhandled 23505 from the new unique index. Harmless today (inert tables).",
+    "fix": "Either ship the writer using upsert(onConflict:'user_id,week_start') to realize the intent, annotate the schema/migration as forward-looking, or drop the tables to keep schema and code in sync.",
+    "effort": "small"
+  }
+]

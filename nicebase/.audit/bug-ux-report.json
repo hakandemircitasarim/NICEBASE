@@ -1,0 +1,1234 @@
+[
+  {
+    "rank": 1,
+    "title": "Android back button permanently breaks after opening/closing MemoryForm once (single-slot global handler)",
+    "type": "bug",
+    "severity": "critical",
+    "area": "Navigation",
+    "files": [
+      "src/components/MemoryForm.tsx",
+      "src/components/Layout.tsx",
+      "src/utils/capacitor.ts",
+      "src/pages/AddMemory.tsx",
+      "src/pages/Home.tsx"
+    ],
+    "problem": "setBackButtonHandler (capacitor.ts:345-352) is a single global slot, not a stack. Layout registers its handler once on mount (effect deps [handleBackButton], stable over navigate, Layout.tsx:33-36) and never re-runs. MemoryForm registers its own handler on mount and on unmount calls setBackButtonHandler(null) (MemoryForm.tsx:668-675) instead of restoring Layout's. Because Home renders MemoryForm inline via the FAB (presentation='modal') and AddMemory renders it under Layout's Outlet while Layout stays mounted, the very first add-memory open+close leaves the global handler null for the rest of the session. From then on every Android hardware-back falls through to capacitor.ts window.history.back()/exitApp, bypassing Layout's designed 'sub-page -> Home; Home -> exit' contract. Native-Android-specific (MemoryForm only registers when isNative()). This is the root cause that nav-aiya-chat-view-back, nav-overlays-no-back-handler, and nav-dirty-confirm-back-trap all depend on.",
+    "recommendation": "Convert setBackButtonHandler into a push/pop stack in capacitor.ts and invoke the top-most handler; have MemoryForm and every overlay push on mount and pop on unmount so Layout's handler is auto-restored. Alternatively re-register Layout's handler on every location change. Audit all callers for the same single-slot clobber.",
+    "effort": "medium"
+  },
+  {
+    "rank": 2,
+    "title": "Failed memory load is indistinguishable from \"no memories yet\" on every list screen",
+    "type": "bug",
+    "severity": "high",
+    "area": "Data state / error handling",
+    "files": [
+      "src/hooks/useMemories.ts",
+      "src/pages/Vault.tsx",
+      "src/pages/Statistics.tsx",
+      "src/pages/Achievements.tsx",
+      "src/pages/Connections.tsx",
+      "src/pages/RelationshipSaver.tsx"
+    ],
+    "problem": "useMemories exposes an `error` state (useMemories.ts:15,32,57-60) but NO consuming page destructures it: Vault.tsx:25, Statistics.tsx:55, Achievements.tsx:14, Connections.tsx:32 and RelationshipSaver.tsx:23 pull only {memories, loading, refreshMemories}. When memoryService.getAll() (a local Dexie read) throws, the catch sets error, leaves memories=[], flips loading=false, and fires one transient toast. Every page then renders its zero-data empty state as if the user genuinely has nothing — Vault 'add your first memory', Statistics 'Henüz istatistik yok', Achievements 0/0 bars, Connections/RelationshipSaver 'noConnections' — and offers an 'Add memory' CTA instead of 'Retry'. The persistent UI lies about the data state. Trigger is corrupt-store/Dexie-open/mapper-exception (less frequent than network), but the harm when it fires is real.",
+    "recommendation": "Destructure `error` from useMemories in each page; when set, render a distinct error state with a Retry button calling refreshMemories/loadMemories instead of the empty state. Minimum: gate each empty state on `!error`.",
+    "effort": "medium"
+  },
+  {
+    "rank": 3,
+    "title": "Aiya chat root uses 100dvh, not the tracked visualViewport pixels — composer hides under the Android keyboard",
+    "type": "bug",
+    "severity": "high",
+    "area": "Aiya",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/components/ModalShell.tsx"
+    ],
+    "problem": "The Aiya screen root is a fixed height:'100dvh' flex column (Aiya.tsx:1442) with a flex-1 list and flex-shrink-0 composer. The component already tracks the true visible height via visualViewport into `viewportHeight` (Aiya.tsx:483-507) and derives isKeyboardOpen (line 510), but the pixel height is NEVER applied to the root — it only zeroes footer safe-area padding (line 1383). On Android WebView with adjustResize, CSS dvh/vh frequently does NOT shrink when the IME opens (ModalShell.tsx:33-72 drives panel height off visualViewport pixels for exactly this reason), so the 100dvh root stays full and the composer is pushed below the keyboard. The focus handler only scrollIntoViews the textarea (527-531), which scrolls the inner list, not the off-screen fixed composer. Typing is Aiya's primary action.",
+    "recommendation": "Bind the already-tracked pixel height to the root: replace height:'100dvh' on Aiya.tsx:1442 with height: viewportHeight + 'px', mirroring ModalShell, so the composer stays pinned above the keyboard.",
+    "effort": "small"
+  },
+  {
+    "rank": 4,
+    "title": "At the Aiya message cap the composer stays enabled — user types, waits on typing dots, then gets a generic error",
+    "type": "ux",
+    "severity": "high",
+    "area": "Aiya",
+    "files": [
+      "src/pages/Aiya.tsx"
+    ],
+    "problem": "usageInfo exposes used/limit (Aiya.tsx:429-447) but nothing gates the UI. handleSend only guards `if (!text || sending) return` (878-880) with no used>=limit check; the send button disables only on sending||!input.trim() (1426) and the textarea only on sending (1419). At exactly the cap (e.g. 50/50) the user types, sends, sees their optimistic bubble (892-899) and TypingDots (1343), waits the full edge-function round trip (up to 30s), and only then the server 429s, the bubble is rolled back (986-993) and a generic aiyaLimitReached toast appears. Every send at the cap is a guaranteed dead-end with misleading 'reply incoming' feedback; there is no proactive at-limit state, no reset/upgrade guidance.",
+    "recommendation": "When usageInfo.used >= usageInfo.limit, disable the textarea + send button and show an at-limit banner (reuse existing t('aiyaLimitReached') plus reset/upgrade guidance). Short-circuit handleSend before the network call so the fake typing indicator never shows at the cap.",
+    "effort": "small"
+  },
+  {
+    "rank": 5,
+    "title": "Sign-up with email confirmation ON logs the user into a broken, session-less state",
+    "type": "bug",
+    "severity": "high",
+    "area": "Auth",
+    "files": [
+      "src/pages/Login.tsx"
+    ],
+    "problem": "In handleSubmit the sign-up path (Login.tsx:205-282) branches only on data.user.email_confirmed_at === null, never on whether data.session exists. When the Supabase project has email confirmation enabled, signUp returns a user but NO session. The code still shows 'verify your email' (216) then unconditionally continues: refreshSession() (220) returns nothing, the users upsert (226) runs without auth.uid() and is rejected by RLS (only a DEV console.warn at 243), fetchUserData returns null, and execution falls into the 'create local user object' branch (263-277) which still calls setUser + navigate('/'). The user lands on authenticated Home with no real Supabase session; subsequent server writes fail and on next launch App.tsx bounces them out. The 'verify your email' message contradicts logging them straight in. Config-dependent (only when confirmation is enabled) but then every new sign-up lands corrupt.",
+    "recommendation": "After signUp, branch on data.session. If null (confirmation required), show the verify-email message and keep the user on a 'check your inbox' state (with resend); do NOT setUser/navigate. Only run upsert/fetch/navigate when a real session exists.",
+    "effort": "small"
+  },
+  {
+    "rank": 6,
+    "title": "Hardware back in Aiya chat view exits the whole page instead of returning to the chat list",
+    "type": "bug",
+    "severity": "high",
+    "area": "Navigation / Aiya",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/components/Layout.tsx"
+    ],
+    "problem": "Aiya has an internal view state ('list'|'chat', Aiya.tsx:370) not backed by the router. The chat header shows a ChevronLeft back button (1194-1200, onClick goToList) but Aiya never calls setBackButtonHandler anywhere. So in chat view, hardware back is handled by Layout -> navigate('/',{replace:true}) (Layout.tsx:24-30) and throws the user out to Home instead of back to the chat list (or, if the handler slot was already nulled per finding #1, to window.history.back()). The on-screen back arrow and the hardware back button do different things on a primary flow.",
+    "recommendation": "While view==='chat', push a back handler that calls goToList() and returns true; pop it on return to list. Depends on the handler-stack fix in finding #1 so it composes with Layout.",
+    "effort": "small"
+  },
+  {
+    "rank": 7,
+    "title": "isDirty check sorts categories in place, silently flipping the saved primary category",
+    "type": "bug",
+    "severity": "high",
+    "area": "Memory form / data integrity",
+    "files": [
+      "src/components/MemoryForm.tsx",
+      "src/lib/memoryCategoryHelper.ts"
+    ],
+    "problem": "In the isDirty useMemo (MemoryForm.tsx:425) the dirty check calls formData.categories?.sort() and (memory.categories||...).sort(). Array.prototype.sort() mutates IN PLACE, and formData.categories is the live React-state array reference. This useMemo recomputes every render (formData is a dep, so every keystroke), silently re-sorting the user's chosen category order alphabetically inside state. On save (503-506) categories=formData.categories (now sorted) is persisted and primaryCategory=categories[0] is written to the legacy category column; getPrimaryCategory() returns categories[0] for display/stats/Aiya context. Scenario: user multi-selects [success, love] intending 'success' primary; the mutation reorders to [love, success], so the memory persists with primary 'love' and shows the wrong primary everywhere, with no user action explaining it. Conditional on multi-select in non-alphabetical order, but that is common.",
+    "recommendation": "Sort copies, never live arrays: [...(formData.categories ?? [])].sort() and [...(memory.categories || (memory.category ? [memory.category] : ['uncategorized']))].sort().",
+    "effort": "trivial"
+  },
+  {
+    "rank": 8,
+    "title": "Abandoned sync items have no proactive surfacing AND no in-app recovery path",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Sync / backup integrity",
+    "files": [
+      "src/services/memoryService.ts",
+      "src/services/memorySyncService.ts",
+      "src/components/SettingsSheet.tsx"
+    ],
+    "problem": "Two reinforcing gaps. (1) Surfacing: syncAll marks items 'abandoned' after 10 attempts / corrupt payload / repeated crash (memoryService.ts:280-285,312-314,356); getSyncStatus reports the count and SettingsSheet.handleSync folds failed+abandoned into a toast (277-294) — but only on a MANUAL Settings sync. There is no ambient backup-health cue on normal use; safeSyncNow logs background failures at 'warning' (memorySyncService.ts:24-38) and App.tsx renders no persistent backup indicator, so a user on a flaky connection whose create became 'abandoned' gets zero unsolicited warning and loses it on reinstall/device-switch. (2) Recovery: syncAll only drains status 'pending'|'failed' (299-305); 'abandoned' items are excluded and no code path ever resets them to pending — even the manual Settings Sync (calls syncAll) skips them. The only recovery is editing each memory to enqueue a fresh update.",
+    "recommendation": "Add an ambient backup-health cue (badge/banner when getSyncStatus().abandoned>0) and log abandonment at 'error' not 'warning'. Add a 'retry backups now' action that resets abandoned/failed items (attemptCount=0, status='pending', nextAttemptAt=now) then calls syncNow, wired to the Settings button and/or the new cue.",
+    "effort": "medium"
+  },
+  {
+    "rank": 9,
+    "title": "Statistics charts, exports and Vault filter read only the deprecated single category, under-counting multi-tagged memories",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Statistics / export / filter",
+    "files": [
+      "src/pages/Statistics.tsx",
+      "src/services/exportService.ts",
+      "src/components/MemoryForm.tsx",
+      "src/hooks/useMemoryFilters.ts"
+    ],
+    "problem": "MemoryForm writes a multi-select categories[] array (503-506,1124-1142) and the Memory type marks category deprecated. But Statistics builds the Category pie purely from single m.category (categoryCount[m.category]++, 107-109), so a memory tagged [love, fun] only counts toward category[0]=love and 'fun' never appears. exportService does the same in PDF (m.category, exportService.ts:98) and CSV (136). The Vault category filter is also single-category-only (useMemoryFilters.ts:94, m.category === selectedCategory), so filtering by a secondary tag misses those memories. Totals aren't corrupted (primary is always populated) but secondary tags are silently under-reported and unfilterable.",
+    "recommendation": "Aggregate over m.categories ?? [m.category] in Statistics (increment every category in the array), join m.categories in export rows, and match against categories[] in the Vault filter. Fall back to category only when categories is empty.",
+    "effort": "small"
+  },
+  {
+    "rank": 10,
+    "title": "Oversized photos are never validated at capture; a >10MB photo fails every sync attempt until abandoned, with no localized feedback",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Photos / sync",
+    "files": [
+      "src/components/MemoryForm.tsx",
+      "src/services/photoStorageService.ts",
+      "src/services/memoryService.ts"
+    ],
+    "problem": "ensureRemotePhotoUrls throws a hardcoded Turkish rate-limit string (photoStorageService.ts:54) and a hardcoded English 'Photo size exceeds maximum limit of 10MB' (69-71). uploadLocalPhotos catches these, logs at 'warning', and returns inline refs; the sync loop re-attempts. MemoryForm.handlePhotoUpload only compresses (compressImage 1280px/0.7, line 628) and never checks the result size, so there is no client-side guarantee a result is <10MB. A memory with an oversized photo fails upload every sync attempt purely on size, burns the abandonment budget, and the user is never told (the throw is swallowed to 'warning' and the message is not an i18n key — violates rule 2.5).",
+    "recommendation": "After compressImage, check the produced size and reject/re-compress >10MB with a localized toast; convert the size/rate-limit messages to i18n keys; treat a hard size failure as non-retryable so it doesn't consume the 10-attempt budget.",
+    "effort": "medium"
+  },
+  {
+    "rank": 11,
+    "title": "Session-restore fetchUserData timeout silently downgrades a valid session into an apparent logged-out state",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Auth / session restore",
+    "files": [
+      "src/App.tsx",
+      "src/lib/userService.ts"
+    ],
+    "problem": "In initializeApp getSession is wrapped in a 10s timeout and fetchUserData/ensureUserExists in 8s (App.tsx:84-119). On a fetchUserData timeout the catch (115-119) only console.errors in DEV; setUser is never called, so a user with a genuinely valid persisted Supabase session is rendered logged-out. There IS a partial recovery: onAuthStateChange fires INITIAL_SESSION and the branch at 180-194 retries fetchUserData — but if that retry also times out (same slow network), setUser is again never called and there is no backoff, no minimal-user-from-session fallback, and no 'reconnecting' indicator. A returning user on a quiet/slow session can be left staring at the logged-out UI despite being authenticated.",
+    "recommendation": "On a restore-fetch timeout where session.user exists, seed a minimal user from the session (id/email) to keep the logged-in shell while data finishes, and/or retry with backoff plus a soft 'reconnecting' indicator instead of silently appearing logged out.",
+    "effort": "medium"
+  },
+  {
+    "rank": 12,
+    "title": "Sending an Aiya message offline has no pre-flight check or proactive cue",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Aiya / offline",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/services/aiyaService.ts",
+      "src/components/OfflineIndicator.tsx"
+    ],
+    "problem": "handleSend (Aiya.tsx:878-997) does no navigator.onLine / isOnline pre-check (the store exposes isOnline, useStore.ts:7,71): it optimistically adds the user bubble, sets sending=true, and awaits aiyaService.sendMessage. Offline this rejects after the timeout, maps to t('aiyaNetworkError') (980), rolls back the bubble and restores text (986-993). So the user types, watches typing dots for up to the timeout, then gets a red error with no offline-specific explanation or inline retry. The global OfflineIndicator is event-driven and won't catch a 'connected but requests failing' stale connection. The composer is never proactively disabled.",
+    "recommendation": "Read isOnline / navigator.onLine in handleSend; when offline, short-circuit with an immediate localized 'Aiya needs an internet connection' note and keep the draft without starting the spinner; on a network-class failure attach an inline 'offline — tap to retry' to the rolled-back message.",
+    "effort": "small"
+  },
+  {
+    "rank": 13,
+    "title": "MemoryForm save awaits the local create/update with no timeout — a hung IndexedDB write spins the Save button forever",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Memory form / persistence",
+    "files": [
+      "src/components/MemoryForm.tsx",
+      "src/services/memoryService.ts"
+    ],
+    "problem": "handleSave sets setSaving(true) (MemoryForm.tsx:497) and awaits memoryService.create/update (509/523) with NO withTimeout wrapper. create (144-171) does db.memories.add + addToSyncQueue; update (173-199) does db.memories.put + addToSyncQueue. If IndexedDB is wedged (another tab holding a versionchange transaction, WebView/private-mode quota stalls that hang rather than throw), the await never settles, the finally (601-604) never runs, and the Save button spins indefinitely with no error and no recovery short of killing the app. Network paths elsewhere use withTimeout; the local write path does not. Rare but unrecoverable when hit.",
+    "recommendation": "Wrap the create/update await in withTimeout (e.g. 10s) so a hung local write surfaces t('saveErrorRetry') via the existing catch and re-enables the button.",
+    "effort": "small"
+  },
+  {
+    "rank": 14,
+    "title": "MemoryForm isDirty compares photos by count only — equal-length photo swaps escape the unsaved-changes guard and are silently discarded",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Memory form / data integrity",
+    "files": [
+      "src/components/MemoryForm.tsx"
+    ],
+    "problem": "For an existing memory, isDirty (MemoryForm.tsx:416-430) compares photos only by count: formData.photos.length !== memory.photos.length (424). Removing one photo and adding a different one (net length unchanged), or replacing a photo, leaves isDirty false. requestClose (654-661) then closes without the unsaved-changes prompt, and since the user never tapped Save, the photo swap is discarded silently.",
+    "recommendation": "Compare photo contents, not just count — e.g. compare joined photo arrays or an identity/hash list — so any add/remove/replace that nets the same length still marks the form dirty.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 15,
+    "title": "Auto-saving drafts with base64 photos can exceed localStorage quota and silently lose the draft",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Memory form / drafts",
+    "files": [
+      "src/components/MemoryForm.tsx"
+    ],
+    "problem": "Auto-save (MemoryForm.tsx:276-291) and the Save-as-Draft button (1338-1341) both localStorage.setItem(JSON.stringify({...formData})), and formData.photos are full base64 JPEGs (1280px/0.7), up to 5 photos. Several MB of base64 can exceed the ~5MB localStorage origin quota. The auto-save catch (284-286) only console.warns in DEV, so the user keeps typing believing a draft exists when setItem threw QuotaExceededError. (The Save-as-Draft path correctly shows draftSaveError and does not call onClose, so it is less severe; the silent auto-save loss is the real risk.)",
+    "recommendation": "Exclude photos from the persisted draft (store text/intensity/date/connections/categories only, noting photos aren't drafted), or size-guard and surface an explicit 'draft too large, photos not saved' message. Never let a thrown quota error leave the user thinking the draft is saved.",
+    "effort": "small"
+  },
+  {
+    "rank": 16,
+    "title": "MemoryForm detail date row shows the day one off in negative-UTC timezones",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Dates / i18n",
+    "files": [
+      "src/components/MemoryForm.tsx",
+      "src/utils/dateFormat.ts"
+    ],
+    "problem": "The date row formats the chosen date with new Date(formData.date).toLocaleDateString(...) (MemoryForm.tsx:1162-1165). formData.date is a bare 'YYYY-MM-DD' string, which new Date() parses as UTC midnight; in a timezone behind UTC that renders the previous calendar day. The rest of the app deliberately uses parseLocalDate to avoid exactly this (Statistics.tsx:149, useMemoryFilters.ts:76-83, Connections.tsx:55, memoryService.ts:106). So a US-timezone user picks 'June 21' and this row alone shows 'June 20', contradicting the picker and the saved card. Display-only (saved value is correct).",
+    "recommendation": "Format via parseLocalDate(formData.date).toLocaleDateString(...) (or a formatMemoryDate helper) so the displayed day matches the stored local date, consistent with the rest of the app.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 17,
+    "title": "Future days inside the current month look clickable but silently do nothing",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Date picker",
+    "files": [
+      "src/components/DateRangePicker.tsx"
+    ],
+    "problem": "Line 454 computes isPast = day > today (misnamed; tests future) and line 455 isDisabled = isPast && !isCurrentMonth. The render-scope `today` (331) is new Date() at the current instant, so a future day within the displayed month evaluates day>today true but isDisabled false (isCurrentMonth is true). That cell renders with hover:bg-primary/10 and cursor-pointer (473) and is not disabled (465). handleDateClick (177-181) sets today to end-of-day and early-returns on date>today, so tapping a same-month future day gives a hover highlight but no selection and no feedback. Future days are only disabled in trailing next-month cells.",
+    "recommendation": "Disable any future day regardless of month: normalize an end-of-day today once and set isDisabled = day > today (drop && !isCurrentMonth). Keep handleDateClick's guard using the same normalized value so click and disabled state agree.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 18,
+    "title": "Edit Profile sheet discards typed changes with no confirmation on backdrop tap / Escape",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Profile / forms",
+    "files": [
+      "src/components/EditProfileSheet.tsx"
+    ],
+    "problem": "Local state for displayName/bio/birthday/location/avatar (EditProfileSheet.tsx:31-36) has no dirty-state guard. Backdrop onClick={onClose} (208), the X button (228), and Escape (useEscapeKey -> onClose when !saving, 42) all close immediately and discard typed input with no prompt, inconsistent with MemoryForm's showDirtyConfirm flow. A user editing a long bio who taps outside loses it silently.",
+    "recommendation": "Track an isDirty flag (compare current fields to the user record) and route backdrop/X/Escape through a confirmation dialog when dirty, reusing the unsaved-changes pattern, instead of calling onClose directly.",
+    "effort": "small"
+  },
+  {
+    "rank": 19,
+    "title": "Brand-new user with zero memories lands on a half-broken dashboard of disabled cards instead of a focused first-step CTA",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Onboarding / Home",
+    "files": [
+      "src/pages/Home.tsx"
+    ],
+    "problem": "After onboarding, a user with no memories sees Home where the Need Support button is disabled (disabled={isBreathing || memories.length===0}, 433) yet still shows heading t('needSupport') with subtext t('addFirstMemory') (461-463); the random-memory inner action is hidden (memories.length>0 guard, 468); the streak card shows 'add your first memory to start a streak' (821-822); and the On-This-Day card is absent (842). The only real entry point is the daily-prompt card, so the screen reads as a half-broken dashboard of disabled widgets rather than one clear 'add your first memory' empty state.",
+    "recommendation": "For the zero-memory case, render a dedicated empty state with one prominent 'Add your first memory' CTA and hide/replace the support, random-memory and streak cards until at least one memory exists.",
+    "effort": "medium"
+  },
+  {
+    "rank": 20,
+    "title": "Logged-out users are never redirected to login; they silently use a throwaway local account whose data the migration prompt can permanently delete",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Auth / data safety",
+    "files": [
+      "src/App.tsx",
+      "src/hooks/useUserId.ts",
+      "src/components/MigrationPrompt.tsx"
+    ],
+    "problem": "No auth guard on the '/' routes (App.tsx:235-251 render unconditionally). A user with no session is dropped into Home under a local id (useUserId falls back to getLocalUserId, 13-15), with nothing indicating they aren't signed in or that entries live only on this device. When they later sign in, MigrationPrompt (App.tsx:160-164) appears; choosing onReject sets confirmDelete (57-59) and the second step's onConfirmDelete calls deleteLocalMemories (61-64, MigrationPrompt.tsx:91-96), permanently wiping everything written while logged out. A first-time user can invest in many entries, sign in expecting them saved, and (misreading the two-step prompt) destroy them. (Mitigation already present: the confirm step's prominent button defaults to 'keep'.)",
+    "recommendation": "Surface sign-in state on Home (e.g. a 'Sign in to back up your memories' banner for local-only users) so guest mode is intentional; keep the migration delete path's keep-by-default wording.",
+    "effort": "medium"
+  },
+  {
+    "rank": 21,
+    "title": "Sign-up 'I accept the terms' checkbox has no link to any terms or privacy policy",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Auth / legal",
+    "files": [
+      "src/pages/Login.tsx"
+    ],
+    "problem": "The sign-up flow forces ticking t('acceptTerms') (validated at Login.tsx:195-199) but the label (470-472) is plain text — 'Şartları kabul ediyorum' / 'I accept the terms' — with no hyperlink to Terms of Service or Privacy Policy. The user must accept terms they cannot read. A privacy-policy.html exists at repo root but is not linked. Poor UX and an app-store/legal risk for an app collecting personal journal data.",
+    "recommendation": "Make the terms/privacy references in the acceptTerms label actual links to the hosted policy pages.",
+    "effort": "small"
+  },
+  {
+    "rank": 22,
+    "title": "Resend-verification handler exists but is never reachable, dead-ending stuck unverified users",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Auth",
+    "files": [
+      "src/pages/Login.tsx"
+    ],
+    "problem": "handleResendVerification (Login.tsx:112-136, with its own i18n strings verificationEmailSent/failedToSendEmail present in tr and en) is fully implemented but never rendered or invoked — the only buttons are forgot-password, submit, OAuth, and the signup/login toggle. A user who signs up and never receives (or loses) the confirmation email gets 'email not confirmed' on next login and has no resend affordance and no 'check your inbox' state — a genuine self-service recovery gap.",
+    "recommendation": "Render a 'resend confirmation email' action — when signInWithPassword fails with email-not-confirmed, or in a post-signup 'check your inbox' state — wired to the existing handleResendVerification.",
+    "effort": "small"
+  },
+  {
+    "rank": 23,
+    "title": "Inline forgot-password modal lacks Escape, focus trap and scroll lock (the proper ForgotPasswordForm component is unused)",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Auth / a11y",
+    "files": [
+      "src/pages/Login.tsx",
+      "src/components/ForgotPasswordForm.tsx"
+    ],
+    "problem": "Login.tsx reimplements the forgot-password dialog inline (538-605) instead of using ForgotPasswordForm (never imported). The inline version does NOT call useModalPresence, so unlike every other standardized modal it doesn't lock body scroll or register an open modal; it has no Escape-to-close (only backdrop/Cancel) and no focus trap (Tab escapes to the login form behind it). ForgotPasswordForm.tsx already calls useModalPresence (24). A real inconsistency with the app's standardized modal behavior.",
+    "recommendation": "Replace the inline modal block with the existing ForgotPasswordForm component, or add useModalPresence + Escape handling to the inline version, then delete the dead duplicate.",
+    "effort": "small"
+  },
+  {
+    "rank": 24,
+    "title": "Onboarding can never be replayed; 'X' silently counts as completed; flag is device-local, not per-account",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Onboarding",
+    "files": [
+      "src/components/Onboarding.tsx",
+      "src/pages/Home.tsx",
+      "src/store/useStore.ts"
+    ],
+    "problem": "Home gates the tour on !hasCompletedOnboarding (Home.tsx:338). Onboarding's X calls skip()=onComplete (Onboarding.tsx:59-61,80-85), identical to finishing, permanently setting the flag. There is no replay entry anywhere (Profile has none). A first-time user who taps the easy-to-hit top-right X never sees the Vault/Aiya/Statistics explanation again. The flag is stored only in localStorage under 'hasCompletedOnboarding' (useStore.ts:123-134), not per-account, so clearing data or switching devices replays it while a second account on the same device never sees it.",
+    "recommendation": "Add a 'Replay tutorial' entry (e.g. in Profile) that resets the flag, and consider keying completion to the user account rather than device localStorage only.",
+    "effort": "small"
+  },
+  {
+    "rank": 25,
+    "title": "Connection rename/delete loops sequential awaited updates with only a disabled button and no progress",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Connections",
+    "files": [
+      "src/pages/Connections.tsx"
+    ],
+    "problem": "applyRename (Connections.tsx:82-115) and applyDelete (117-136) iterate every affected memory with `for (const m of affected) { await memoryService.update(...) }` — sequential awaited round-trips. During this only `busy` disables the Save button (289) and the icon buttons (223,235); there is no spinner, progress text, or label change. For a heavily-used connection the dialog looks frozen for seconds, inviting a second tap or force-close — and the most likely target (a frequent connection) is exactly the slowest case.",
+    "recommendation": "Show a spinner/loading label on Save and Delete while busy (swap text to LoadingSpinner + t('saving')), matching VaultMemoryList's load-more pattern. Optionally Promise.all the updates to cut wall-clock time.",
+    "effort": "small"
+  },
+  {
+    "rank": 26,
+    "title": "Aiya's markdown is stripped, not rendered — list/heading prefixes leak as literal text, emphasis is destroyed",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Aiya",
+    "files": [
+      "src/pages/Aiya.tsx"
+    ],
+    "problem": "Assistant replies pass through cleanMarkdown (Aiya.tsx:124-131) before storage (applied at 951), which only removes inline emphasis markers (**, *, _, `, ~~). It does NOT touch list markers ('- ', '1. ') or headings ('## '). The bubble renders the result as a single <p> with whitespace-pre-wrap (335-337). Result: lists keep raw '- '/'1. ' prefixes as literal text, '## Summary' renders verbatim, and intended emphasis is silently flattened. For a reflective companion returning multi-point plans, structured advice becomes a hard-to-scan wall of text on mobile.",
+    "recommendation": "Render assistant replies with a lightweight markdown renderer (bold, lists, line breaks, links) instead of stripping markers; at minimum convert/strip list and heading prefixes so no raw markdown leaks. Prefer the minimal prefix-conversion path to avoid a new dependency (rule 1.17).",
+    "effort": "medium"
+  },
+  {
+    "rank": 27,
+    "title": "Send-failure rollback deletes the user's Aiya bubble and re-injects text — looks like the message vanished, and a fresh draft silently discards it",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Aiya",
+    "files": [
+      "src/pages/Aiya.tsx"
+    ],
+    "problem": "On any send error the optimistic user bubble is popped (Aiya.tsx:986-992) and the text restored via setInput((cur) => cur || text) (993). From the user's POV the message they just saw in the thread suddenly disappears and reappears as draft text, with a separate red error block above — disorienting and readable as data loss, with no 'failed — tap to retry' affordance. Edge case: the `cur || text` guard means if the user started typing a NEW message during the in-flight send, the failed text is silently discarded (new draft wins).",
+    "recommendation": "Keep the failed bubble with an inline 'failed — tap to retry' affordance instead of deleting it; handle the case where the input already holds new content so the failed message isn't lost (append, or queue a retry).",
+    "effort": "medium"
+  },
+  {
+    "rank": 28,
+    "title": "Crisis support banner scrolls out of view as the conversation continues and the emergency number isn't tappable",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Aiya / safety",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/i18n.ts"
+    ],
+    "problem": "crisisActive is set on a crisis-tier message (Aiya.tsx:936) and reset only on new-chat/open-chat (812,825). The banner renders inline in the message flow, after the bubble list and before TypingDots/error (1322-1340). Consequences: as the user keeps chatting, each new message pushes the safety resources up and eventually off-screen — the 112/911 info scrolls away exactly when it should stay reachable; it cannot be dismissed within a session; and on a fresh crisis message it can briefly show before Aiya's reply arrives. The emergency number in aiyaCrisisResources (i18n.ts:515,1647) is plain text, not a tel: link.",
+    "recommendation": "Pin the crisis resources to a persistent non-scrolling spot (sticky strip above the composer) for the rest of the session, and make the emergency number a tappable tel: link where the platform allows.",
+    "effort": "medium"
+  },
+  {
+    "rank": 29,
+    "title": "Hardware back dismisses the underlying page instead of closing open overlays (ImageModal, ActionSheet, ConfirmationDialog)",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Navigation / overlays",
+    "files": [
+      "src/components/ImageModal.tsx",
+      "src/components/ActionSheet.tsx",
+      "src/components/ConfirmationDialog.tsx",
+      "src/components/Layout.tsx"
+    ],
+    "problem": "ImageModal (Escape+backdrop, 66-70,224), ActionSheet (useEscapeKey, 20) and ConfirmationDialog (useEscapeKey, 45) support Escape/backdrop dismissal but none register an Android back handler. While one is open over e.g. Vault, hardware back is handled by Layout -> navigate('/'), so back navigates to Home and unmounts the underlying page; the overlay vanishes only as a side-effect and the user loses their place in the list. Native Android UX expects back to close the top overlay first. (After finding #1 nulls the slot, back instead does history.back() — still wrong.)",
+    "recommendation": "Each overlay should push a back handler on open that calls onClose and returns true, popping on close. Requires the handler-stack fix from finding #1 so overlays compose with Layout and MemoryForm.",
+    "effort": "medium"
+  },
+  {
+    "rank": 30,
+    "title": "Aiya suggestion chip can fire two messages / double-charge on a brand-new chat",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Aiya",
+    "files": [
+      "src/pages/Aiya.tsx"
+    ],
+    "problem": "handleChip (Aiya.tsx:1000-1013) with no active chat creates a chat then defers send via setTimeout(() => handleSend(text, id), 50). handleSend's guard `if (!text || sending) return` (880) reads `sending` captured from the memoized useCallback closure, not live. showChips requires input.length===0 and messages.length===0 (1186), both still true in the 50ms window, so the chip row stays tappable. A double-tap (or two different chips) queues two timers that both fire before either setSending(true) commits; both reference the same closure where sending===false, so neither bails — two user bubbles in the same new chat and two metered Aiya requests consumed.",
+    "recommendation": "Set sending=true (or a queuedSend ref) synchronously in handleChip before scheduling, and/or disable SuggestionChips while a send is pending. Better: have handleChip call handleSend(text, id) directly without the 50ms timer (it already passes the explicit chat id).",
+    "effort": "small"
+  },
+  {
+    "rank": 31,
+    "title": "Core-memory badge uses orange in Vault but yellow on Home for the same status",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Visual consistency",
+    "files": [
+      "src/components/MemoryCard.tsx",
+      "src/pages/Home.tsx"
+    ],
+    "problem": "The core-memory badge renders with the orange brand gradient in MemoryCard (line 194: from-primary to-primary-dark) but a yellow gradient in Home's Random Memory panel (line 582: from-yellow-400 to-yellow-500). The identical '⭐ Core Memory' chip has two visual identities by screen. Home is further inconsistent: text-yellow-500 for the core star in Quick Stats (707) and On-This-Day (860) vs MemoryCard's orange — a genuine cross-screen divergence weakening the meaning of 'core'.",
+    "recommendation": "Pick one canonical core-memory color (the star glyph implies gold/yellow) and apply it to both the MemoryCard badge and the Home Random Memory badge so the status reads as one concept everywhere.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 32,
+    "title": "Recharts pie slice labels have no dark-mode fill, rendering low-contrast on dark cards",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Statistics / a11y",
+    "files": [
+      "src/pages/Statistics.tsx"
+    ],
+    "problem": "The two PieCharts pass `label` as a plain string callback (Statistics.tsx:368-373,429-434) with no fill, so recharts draws the percent/name labels with its default ~mid-gray (#808080) SVG fill. The bar/line axis ticks explicitly fix this with tick={{ className:'fill-gray-500 dark:fill-gray-400' }} (341-342,402-403), but the pie labels get no theme-aware treatment, so on the dark card (dark:bg-gray-800) they are low-contrast gray-on-dark-gray (fails WCAG). The chart container also has no text-color class to inherit.",
+    "recommendation": "Render the pie label via a custom label component using fill='currentColor' (and set a theme-aware text color on the container), or pass an explicit fill that adapts to dark mode, so percentages/names stay legible on dark backgrounds.",
+    "effort": "small"
+  },
+  {
+    "rank": 33,
+    "title": "Profile streak stat tile looks tappable like its siblings but is an inert div",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Profile",
+    "files": [
+      "src/pages/Profile.tsx"
+    ],
+    "problem": "The three quick-stat tiles share identical card styling, but Memories (Profile.tsx:253) and Connections (283) are <button>s that navigate and have hover:border-primary/40, while the middle Streak tile (271) is a plain <div> with no onClick and no hover-border. A user who taps Memories then taps the adjacent Streak tile expecting a drill-in gets nothing, with no visual cue that this one tile is non-interactive.",
+    "recommendation": "Either make the streak tile navigate somewhere meaningful (e.g. /statistics) for parity, or visually differentiate it (drop the implicit-affordance styling) so users don't expect a tap target.",
+    "effort": "small"
+  },
+  {
+    "rank": 34,
+    "title": "Random-memory image error fallback double-encodes the data URI, breaking the placeholder SVG",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Home / images",
+    "files": [
+      "src/pages/Home.tsx"
+    ],
+    "problem": "The Random Memory onError handler (Home.tsx:565-570) builds 'data:image/svg+xml,' + encodeURIComponent('<svg ... fill=\"%23e5e7eb\" ... fill=\"%239ca3af\"...>') — the SVG already contains pre-encoded %23 color entities, then the whole string is run through encodeURIComponent again, turning %23 into %2523. The browser decodes that to literal %23e5e7eb as a color value, which is invalid, so the intended gray '📷' fallback fails to render and the user sees the browser's broken-image glyph when a memory photo fails to load (% in 50%/.3em are also affected).",
+    "recommendation": "Don't double-encode: build the SVG with literal # characters and a single encodeURIComponent pass, or use the already-encoded string verbatim without wrapping it. Mirror the correct ProgressiveImage error path used in MemoryCard.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 35,
+    "title": "Synced-but-uncategorized card pulses 'Aiya classifying...' indefinitely with no terminal/failure state",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Memory card / categorization",
+    "files": [
+      "src/components/MemoryCard.tsx"
+    ],
+    "problem": "The category chip pulses 'Aiya kategorize ediyor...' whenever memory.category==='uncategorized' && !isSyncStale && !isLocalUser (MemoryCard.tsx:256-266). isSyncStale is only true for UNSYNCED memories older than 5 min (90-95: if memory.synced return false). So for a memory that is synced but never got categorized (rate limit, rejected request, offline edge fn), isSyncStale stays false forever and the chip pulses 'classifying...' indefinitely, with no failure state and no retry.",
+    "recommendation": "Add a terminal state for synced uncategorized memories: after a reasonable elapsed time since createdAt (or on a known failure flag), stop the pulse and show a static 'Uncategorized' or a tap-to-retry chip.",
+    "effort": "small"
+  },
+  {
+    "rank": 36,
+    "title": "'Double tap to zoom' hint is hover-only and pointer-events-none — never shows on touch",
+    "type": "ux",
+    "severity": "medium",
+    "area": "Image viewer",
+    "files": [
+      "src/components/ImageModal.tsx"
+    ],
+    "problem": "The hint that teaches the core zoom gesture is opacity-0 hover:opacity-100 transition-opacity pointer-events-none (ImageModal.tsx:336). Touch devices have no :hover, so on phones — the only place pinch/double-tap zoom matters — the hint is permanently invisible. The pinch/double-tap zoom feature (handleDoubleClick 109, pinch handleTouchMove 165) is therefore undiscoverable on mobile.",
+    "recommendation": "Show the hint briefly on open for touch (auto-fade after ~2s on first view via a timer/state) instead of relying on :hover.",
+    "effort": "small"
+  },
+  {
+    "rank": 37,
+    "title": "Image viewer swipe tracks finger 0 during a 2-finger pinch — pinch release can flip to the next/prev image",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Image viewer",
+    "files": [
+      "src/components/ImageModal.tsx",
+      "src/hooks/useSwipe.ts"
+    ],
+    "problem": "The container wires swipe handlers alongside pinch/pan on the same element (ImageModal.tsx:244-255). useSwipe.onTouchMove records targetTouches[0] on every move with no touch-count guard (useSwipe.ts:24-29) and onTouchEnd fires onSwipeLeft/Right whenever |deltaX|>50 (34-45), wired only when !isZoomed (ImageModal.tsx:212-213). During a pinch that begins and ends at scale 1 (user releases before crossing scale>1, so isZoomed stays false), finger 0 routinely moves >50px horizontally, so lifting the fingers navigates to a different image instead of doing nothing.",
+    "recommendation": "In useSwipe.onTouchMove abort/cancel the swipe when e.touches.length > 1 (null out touchStart), so multi-finger gestures never count as a swipe.",
+    "effort": "small"
+  },
+  {
+    "rank": 38,
+    "title": "English count strings have no singular form: '1 memories', '1 memories deleted'",
+    "type": "bug",
+    "severity": "medium",
+    "area": "i18n",
+    "files": [
+      "src/i18n.ts",
+      "src/pages/Connections.tsx",
+      "src/pages/Home.tsx",
+      "src/pages/Vault.tsx"
+    ],
+    "problem": "Three EN count keys with live call sites render ungrammatical English at count=1: connectionMemoryCount (i18n.ts:1205 '{{count}} memories') at Connections.tsx:210 -> '1 memories'; memoriesOnThisDay (i18n.ts:1545) at Home.tsx:845 -> '1 memories'; memoriesDeleted (i18n.ts:1266) at Vault.tsx:115 -> '1 memories deleted'. All routinely reachable with count=1. (photosAdded is a dead key; monthsAgo/yearsAgo are guarded by Home.tsx:326-333 branching to oneMonthAgo/oneYearAgo at 1, so they are not in scope.)",
+    "recommendation": "Add i18next plural variants: connectionMemoryCount_one/_other, memoriesOnThisDay_one/_other, memoriesDeleted_one/_other (e.g. _one: '{{count}} memory'). Add matching _one/_other in TR for parity. The existing days_one/days_other pair (i18n.ts:1582-1583) is the model.",
+    "effort": "small"
+  },
+  {
+    "rank": 39,
+    "title": "Misspelled Turkish word on a prominent Aiya suggestion chip: 'Minettarlık' (should be 'Minnettarlık')",
+    "type": "bug",
+    "severity": "medium",
+    "area": "i18n",
+    "files": [
+      "src/i18n.ts"
+    ],
+    "problem": "i18n.ts:538 aiyaChipGratitude reads 'Minettarlık anılarımı göster'. The correct Turkish spelling is 'Minnettarlık' (double n). The chip is a visible tappable suggestion in the Aiya chat UI, so a native Turkish user sees a spelling error on a prominent, polished surface.",
+    "recommendation": "Fix to 'Minnettarlık anılarımı göster'.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 40,
+    "title": "Conflict resolution dialog formats timestamps in Turkish for all users",
+    "type": "bug",
+    "severity": "medium",
+    "area": "i18n / sync",
+    "files": [
+      "src/components/ConflictResolutionDialog.tsx"
+    ],
+    "problem": "ConflictResolutionDialog.tsx:98 hardcodes toLocaleString('tr-TR', ...). When an English-language user hits a sync conflict and compares Local vs Cloud timestamps (rendered at 156 and 183), both show Turkish month abbreviations ('Eki','Ağu','Haz') instead of English — in a high-stakes flow where the user picks which copy of their data to keep. The rest of the app derives locale from i18n.language (MemoryCard.tsx:75). The component already imports useTranslation but destructures only t.",
+    "recommendation": "Derive locale from i18n: const locale = (i18n.language||'tr').startsWith('tr') ? 'tr-TR' : 'en-US'; pass it to toLocaleString, matching MemoryCard.tsx:75.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 41,
+    "title": "PDF/CSV export writes raw English enum values for category and lifeArea while headers are localized",
+    "type": "bug",
+    "severity": "medium",
+    "area": "Export / i18n",
+    "files": [
+      "src/services/exportService.ts",
+      "src/i18n.ts"
+    ],
+    "problem": "exportToPDF (exportService.ts:98,100) and exportToCSV (135,139) push raw m.category and m.lifeArea enum values ('gratitude','personal','work') into rows, while headers use i18n.t('exportCategory') etc. Localized labels exist as dotted keys ('categories.gratitude' i18n.ts:341, 'lifeAreas.personal' i18n.ts:393, both tr and en). So a Turkish user exporting CSV/PDF gets Turkish headers but English raw enum values in the Kategori/Yaşam Alanı columns — a half-translated report showing values the user never sees in the app UI.",
+    "recommendation": "Localize before output: i18n.t('categories.' + m.category) and i18n.t('lifeAreas.' + m.lifeArea) in both exporters, matching how the UI renders them.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 42,
+    "title": "OAuth 60s safety timeout can fire a spurious error toast while a slow code exchange still completes",
+    "type": "bug",
+    "severity": "low",
+    "area": "Auth / OAuth",
+    "files": [
+      "src/hooks/useOAuth.ts"
+    ],
+    "problem": "In handleOAuthLogin's native browser-fallback branch a 60s timer (useOAuth.ts:339-345) calls toast.error(t('oauthError')) whenever loadingRef.current is still true. processCallback clears loadingRef on success (137-138) only AFTER the await at line 132 resolves, and the timer is never cancelled by processCallback. If the deep link arrives but supabase.auth.exchangeCodeForSession is still in flight at the 60s mark on a very slow network, the timer sees loadingRef still true and shows a red 'login failed' toast moments before the session lands. Edge-of-edge timing; cold-start unaffected.",
+    "recommendation": "Before showing the timeout error, re-check supabase.auth.getSession() and suppress the toast if a session now exists; or store the timer id and clear it at the top of processCallback when a code/token is present.",
+    "effort": "small"
+  },
+  {
+    "rank": 43,
+    "title": "Aiya cloud chat-load failure is indistinguishable from 'no chats' — transient failure shows an empty list with no retry",
+    "type": "bug",
+    "severity": "low",
+    "area": "Aiya / data state",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/services/aiyaService.ts"
+    ],
+    "problem": "aiyaService.loadChats returns null on ANY failure (catch at aiyaService.ts:665-670) AND when there is no data, with no way to distinguish 'failed' from 'empty'. In Aiya.tsx loadData (619-631) a null cloudChats is treated as 'no cloud chats' and proceeds with local data only. So a logged-in user on a fresh device whose chats query transiently fails (RLS hiccup, 5xx, expired token mid-request) sees an empty chat list with no spinner, error, or retry, and may assume conversations were lost. Bounded (a later successful load recovers them).",
+    "recommendation": "Make loadChats return a discriminated result (or throw) so loadData can show a non-blocking 'couldn't load your conversations — retry' affordance, and retry the cloud load on next focus/online.",
+    "effort": "medium"
+  },
+  {
+    "rank": 44,
+    "title": "Aiya chat list shows the empty 'start a chat' hero before cloud-only chats load",
+    "type": "ux",
+    "severity": "low",
+    "area": "Aiya / loading state",
+    "files": [
+      "src/pages/Aiya.tsx"
+    ],
+    "problem": "The list view keys layout off chats.length===0 (Aiya.tsx:1089,1095) with no loading branch. The load effect renders local chats instantly, but for a logged-in user on a fresh device with only cloud chats, setChats happens only after await aiyaService.loadChats(userId) resolves (622); `loaded` (set in the finally at 727) is NOT used to gate the hero. Until the fetch settles the full centered 'Merhaba! Ben Aiya / Sohbet Başlat' hero is shown, then prior conversations pop in below — the user briefly believes they have no history.",
+    "recommendation": "Gate the empty hero on `loaded` (or a dedicated chats-loading flag) and show a small skeleton/spinner in the list area until the cloud fetch settles.",
+    "effort": "small"
+  },
+  {
+    "rank": 45,
+    "title": "Photo upload retry never fires on transient Supabase storage errors (resolve-with-error contract)",
+    "type": "bug",
+    "severity": "low",
+    "area": "Photos / sync",
+    "files": [
+      "src/services/photoStorageService.ts",
+      "src/utils/retry.ts"
+    ],
+    "problem": "The upload (photoStorageService.ts:77-92) is retry(() => withTimeout(Promise.resolve(supabase.storage...upload(...)),30000), {maxAttempts:3, retryable:isNetworkError||isTransientError}). Supabase storage resolves with {data:null,error} on 5xx/transient failures rather than throwing, so the resolved value carries the error past retry to line 94 which throws only after all attempts are spent. isTransientError (retry.ts:84) inspects error.status and only runs in retry's catch path, so a transient 5xx/429 storage failure never triggers the advertised 3-attempt backoff — only raw network throws and the 30s timeout do. A momentary storage hiccup one retry would clear instead fails, leaving base64 inline until the next 5-minute sync poll.",
+    "recommendation": "Throw inside the retried closure when the result has an error: const r = await supabase.storage...upload(...); if (r.error) throw r.error; return r — so retryable(isTransientError) can act; handle the final thrown error after retry exhausts.",
+    "effort": "small"
+  },
+  {
+    "rank": 46,
+    "title": "MemoryCard / Home render 'null/10' when intensity is missing from cloud data, and Statistics can NaN",
+    "type": "bug",
+    "severity": "low",
+    "area": "Data integrity / rendering",
+    "files": [
+      "src/components/MemoryCard.tsx",
+      "src/pages/Home.tsx",
+      "src/pages/Statistics.tsx",
+      "src/services/memoryService.ts"
+    ],
+    "problem": "mapSupabaseToMemory passes intensity raw with no default/clamp (memoryService.ts:102, intensity: row.intensity), unlike the write path which uses intensity ?? 5. So a null/legacy/out-of-range cloud row flows unguarded into renders: the intensity badge {memory.intensity}/10 (MemoryCard.tsx:279), Home's random-memory card (Home.tsx:588) and on-this-day list (861) all show 'null/10'; and Statistics avgIntensity = sum + m.intensity (92 -> 'NaN/10') plus intensityCount[m.intensity]++ (161-163) creates a stray bucket the 1..10 loop never initialized. (The category/lifeArea NaN variant is NOT reachable — the mapper guards via toCategory/toLifeArea -> 'uncategorized'.) Narrow trigger: only pre-existing malformed cloud rows.",
+    "recommendation": "Normalize intensity at the source in mapSupabaseToMemory (clamp Number(row.intensity) to 1-10 with a default of 5, matching mapMemoryToSupabase) and guard the avg sum to skip non-finite intensities. Optionally default at render with (intensity ?? 5).",
+    "effort": "trivial"
+  },
+  {
+    "rank": 47,
+    "title": "MemoryCard shows '-N gün önce' for a future-dated memory",
+    "type": "bug",
+    "severity": "low",
+    "area": "Dates / rendering",
+    "files": [
+      "src/components/MemoryCard.tsx",
+      "src/i18n.ts"
+    ],
+    "problem": "getRelativeTime computes diffDays = floor((today - date)/day) (MemoryCard.tsx:39-40) then for diffDays < 7 returns t('daysAgo',{count:diffDays}) (44). The daysAgo string is a bare '{{count}} gün önce' / '{{count}} days ago' (i18n.ts:1103,2209), so a future-dated memory (negative diffDays, e.g. -5) renders '-5 gün önce'. The absolute-date fallback (46) is never reached because -5 < 7. Only manifests for memories imported/synced from another device with clock skew (form validateDate blocks future dates on save).",
+    "recommendation": "Handle diffDays < 0 before the diffDays < 7 branch — show the formatted absolute date (the existing fallback) or a 'today'/future label.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 48,
+    "title": "A future-dated memory keeps the streak flagged active",
+    "type": "bug",
+    "severity": "low",
+    "area": "Streak logic",
+    "files": [
+      "src/services/streakService.ts",
+      "src/utils/formValidation.ts"
+    ],
+    "problem": "daysSinceEnd = round((today - lastStreakEnd)/day) and isActive = daysSinceEnd <= 1 (streakService.ts:72,74). If the most recent memory carries a future calendar date, lastStreakEnd is in the future, daysSinceEnd is negative, which still satisfies <= 1, so the streak counts as active despite a gap to today. Largely guarded — validateDate rejects future dates on the AddMemory/edit path — so exposure is device-clock skew or imported/synced data.",
+    "recommendation": "Clamp to the non-future side: isActive = daysSinceEnd >= 0 && daysSinceEnd <= 1, and/or drop future-dated memories when building uniqueDates.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 49,
+    "title": "Suggestion-chip recent-memories window parses date-only strings as UTC, drifting the 7-day cutoff",
+    "type": "bug",
+    "severity": "low",
+    "area": "Dates / Aiya",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/utils/dateFormat.ts"
+    ],
+    "problem": "SuggestionChips computes recentMemories = memories.filter(m => new Date(m.date) >= oneWeekAgo) (Aiya.tsx:193). Memory.date is a bare YYYY-MM-DD string, and new Date('2026-06-20') parses at UTC midnight — the exact drift parseLocalDate avoids elsewhere (streakService.ts:45,71). oneWeekAgo is a local-now-minus-7-days Date, so comparing a UTC-parsed date can flip a memory to the wrong side of the boundary in negative-UTC zones or near the cutoff. Only affects which suggestion chip shows.",
+    "recommendation": "Use parseLocalDate(m.date) for the comparison and compare against a local-midnight cutoff, consistent with streakService.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 50,
+    "title": "Birthday and export/chat-title dates use browser locale instead of app language",
+    "type": "bug",
+    "severity": "low",
+    "area": "i18n / dates",
+    "files": [
+      "src/pages/Profile.tsx",
+      "src/pages/Aiya.tsx",
+      "src/pages/RelationshipSaver.tsx"
+    ],
+    "problem": "Profile.tsx:127 formats the birthday with toLocaleDateString(undefined, ...); Aiya.tsx:93 (auto chat-title date) and RelationshipSaver.tsx:174 (exported memory dates) call toLocaleDateString() with no locale. All follow browser/OS locale, not the in-app language, so a user with app=Turkish but phone=English sees '21 June' instead of '21 Haziran' (and vice versa) — a visible language mix on otherwise-localized screens. Only when app language and OS locale disagree.",
+    "recommendation": "Pass an explicit locale derived from i18n.language to each toLocaleDateString (reuse utils/dateFormat.ts which accepts a locale, or the MemoryCard.tsx:75 pattern).",
+    "effort": "small"
+  },
+  {
+    "rank": 51,
+    "title": "Missing English key silently renders Turkish to English users (fallbackLng:'tr')",
+    "type": "bug",
+    "severity": "low",
+    "area": "i18n",
+    "files": [
+      "src/i18n.ts"
+    ],
+    "problem": "i18n.ts:2272 sets fallbackLng:'tr'. If a key is ever missing from the en resource, an English user sees raw Turkish ('Kaydet', 'Bir hata oluştu') — a worse failure mode than for Turkish users. Latent/preventive only: the tr/en parity test guards current keys and many EN strings carry inline defaultValue fallbacks, so no user hits this today.",
+    "recommendation": "Set fallbackLng:'en' so missing strings degrade to English (a broader audience can read), while keeping the parity test as the primary guard.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 52,
+    "title": "getBadges/getAchievements ignore the passed memories and re-fetch for streak, causing redundant Dexie reads",
+    "type": "bug",
+    "severity": "low",
+    "area": "Gamification / performance",
+    "files": [
+      "src/services/gamificationService.ts",
+      "src/pages/Achievements.tsx",
+      "src/services/streakService.ts"
+    ],
+    "problem": "getBadges (gamificationService.ts:31) and getAchievements (151) both call streakService.calculateStreak(userId) WITHOUT passing the in-hand memories array, even though calculateStreak accepts an optional existingMemories param (streakService.ts:19) and otherwise does a fresh memoryService.getAll Dexie read. Achievements.tsx:24-27 runs both in parallel, so each page load does two extra full-table reads the caller already had. Count-based badges use the passed array while streak badges use a separately fetched array, so a divergent snapshot is theoretically possible (extreme edge case). Main concrete cost is the duplicate reads.",
+    "recommendation": "Pass the loaded array through: streakService.calculateStreak(userId, memories) in both methods so streak and counts derive from one snapshot and the duplicate reads disappear.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 53,
+    "title": "Aiya profile build is fed history without the user's latest message",
+    "type": "bug",
+    "severity": "low",
+    "area": "Aiya / personalization",
+    "files": [
+      "src/pages/Aiya.tsx"
+    ],
+    "problem": "In handleSend, `history` (Aiya.tsx:906) is read from chatsRef.current and is deliberately the prior turns only (the appended userMsg has not yet propagated). After a successful reply, maybeUpdateProfile([...history, aiyaMsg]) (971) concatenates prior history + Aiya's reply but OMITS the current user message (userMsg, defined at 890, in scope). The periodic AI profile summary is built from a transcript missing every user turn that immediately preceded a profile rebuild, and the messageCount cadence is one turn short — weakening personalization. No user-visible breakage.",
+    "recommendation": "Include the user message: maybeUpdateProfile([...history, userMsg, aiyaMsg]).",
+    "effort": "trivial"
+  },
+  {
+    "rank": 54,
+    "title": "Home 'Need support' resolves and fires a spurious global 'found a beautiful memory' toast after navigating away",
+    "type": "bug",
+    "severity": "low",
+    "area": "Home",
+    "files": [
+      "src/pages/Home.tsx"
+    ],
+    "problem": "handleNeedSupport (Home.tsx:238-275) awaits a ~2.2s breathing promise, then unconditionally runs setRandomMemory/setLastShownMemoryId/setIsBreathing, hapticFeedback('success') and showSuccess(t('foundBeautifulMemory')) (266-274) with no mounted/cancelled guard. If the user taps 'Need support' then navigates to another tab before the timer elapses, the timer still resolves; the setState calls hit an unmounted component (no-op) and a 'found a beautiful memory' success toast fires app-wide with no memory on screen.",
+    "recommendation": "Hold an isMounted ref (or AbortController), clear the breath timer on unmount, and bail out of the post-await setState + toast when unmounted, mirroring the daily-question effect's cancelled-flag pattern.",
+    "effort": "small"
+  },
+  {
+    "rank": 55,
+    "title": "Rapid theme toggles can revert via an uncancelled 300ms cloud refetch that also clobbers other user fields",
+    "type": "bug",
+    "severity": "low",
+    "area": "Settings / theme",
+    "files": [
+      "src/components/SettingsSheet.tsx"
+    ],
+    "problem": "handleThemeChange (SettingsSheet.tsx:138-166) applies theme locally then schedules a per-call setTimeout(300) never stored in a ref or cancelled. Each call independently UPDATEs the DB then re-SELECTs the full user row and setUser(mapUserFromSupabase(userData)). Tapping light then dark within ~300ms fires two timers; if the first (stale) round-trip resolves last, its setUser snaps the UI back to the older theme. The full-row refetch+setUser also clobbers any other user fields changed in the meantime.",
+    "recommendation": "Hold the timer in a ref and clear it on each call (true debounce); send only the theme update; avoid the full-row refetch+setUser on a simple theme write (merge just the theme field, or skip refetch).",
+    "effort": "small"
+  },
+  {
+    "rank": 56,
+    "title": "SettingsSheet 'System' theme is a one-shot snapshot, never shown as selected, and doesn't follow later OS changes",
+    "type": "ux",
+    "severity": "low",
+    "area": "Settings / theme",
+    "files": [
+      "src/components/SettingsSheet.tsx",
+      "src/store/useStore.ts"
+    ],
+    "problem": "The theme picker offers Light/Dark/System (SettingsSheet.tsx:482-493). 'System' reads window.matchMedia('(prefers-color-scheme: dark)') once and calls handleThemeChange(prefersDark?'dark':'light'); the store only persists 'light'|'dark', so the choice collapses to a concrete value. Consequences: (1) the System button never renders as selected — its className is hardcoded to the unselected style with no theme==='system' branch, so even right after tapping it looks unchosen; (2) the app does not follow later OS light/dark changes (e.g. at sunset), defeating the option's purpose.",
+    "recommendation": "Persist a three-way preference ('light'|'dark'|'system'); when 'system', subscribe to matchMedia change events to re-apply the resolved theme; reflect 'system' selection in the button's active state.",
+    "effort": "medium"
+  },
+  {
+    "rank": 57,
+    "title": "Reminder save shows both error and success toasts when notifications are denied, and weekly day is not persisted offline",
+    "type": "ux",
+    "severity": "low",
+    "area": "Settings / notifications",
+    "files": [
+      "src/components/SettingsSheet.tsx"
+    ],
+    "problem": "Two bundled issues. (1) In handleSaveReminders, when dailyReminderTime is set but permission is denied, toast.error(notificationPermissionDenied) fires (208) and the code continues to the cloud update which on success fires toast.success(settingsSaved) (241) — the user sees an error and a success toast for one Save tap. (2) weeklySummaryDay is only written into the cloud updates object (216-217); on the offline/no-Supabase early return (220-223) it shows settingsSaved but never persists the weekly-day choice locally, so it reverts on next open (dailyReminderTime is unaffected because it is also scheduled locally).",
+    "recommendation": "When permission is denied, suppress or reword the generic settingsSaved success ('saved, but reminders are off until you allow notifications'). Persist weeklySummaryDay to the local store so the offline 'saved' toast is truthful.",
+    "effort": "small"
+  },
+  {
+    "rank": 58,
+    "title": "RelationshipSaver share swallows real errors in an empty catch; export has no error handling",
+    "type": "bug",
+    "severity": "low",
+    "area": "RelationshipSaver",
+    "files": [
+      "src/pages/RelationshipSaver.tsx"
+    ],
+    "problem": "handleShare's catch (RelationshipSaver.tsx:150-152) is empty except a comment '// User cancelled or error' — a genuine navigator.share() failure (not an AbortError cancel) produces no toast and no log, so a failed share looks like a no-op (also violates project rule 1.8). handleExport (165-191) performs Blob/createObjectURL/anchor-click with no try/catch, so any failure is silent. Neither action shows a busy state.",
+    "recommendation": "In handleShare, distinguish AbortError (ignore) from real errors (toast t('shareError')). Wrap handleExport's blob/anchor logic in try/catch with a localized failure toast.",
+    "effort": "small"
+  },
+  {
+    "rank": 59,
+    "title": "After password reset, success message auto-redirects to '/' after 2s with no user control or account confirmation",
+    "type": "ux",
+    "severity": "low",
+    "area": "Auth",
+    "files": [
+      "src/pages/ResetPassword.tsx"
+    ],
+    "problem": "On successful updateUser, ResetPassword sets success and after 2000ms navigate('/') (ResetPassword.tsx:60-61). The success view (95-100) is just a green message with no button and no indication of which account the user is now in. If the recovery session is short-lived, the user can land on the guest/local home rather than a clearly signed-in state. The silent timed redirect gives no control to read the confirmation. (The page does gate the form on sessionReady, so a valid recovery flow is usually authenticated when reaching '/'.)",
+    "recommendation": "Either route to /login with a 'password updated, please sign in' state, or confirm an authenticated session before sending to '/'; prefer an explicit button over a timed redirect.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 60,
+    "title": "Password strength meter implies 8+/mixed-case/symbols but only a 6-char minimum is enforced",
+    "type": "ux",
+    "severity": "low",
+    "area": "Auth",
+    "files": [
+      "src/pages/Login.tsx"
+    ],
+    "problem": "During sign-up calculatePasswordStrength (Login.tsx:80-88) scores length>=6, length>=8, mixed case, digits and symbols across a 5-bar meter, and the empty-password hint shows t('passwordHint'). But the only enforced gate is password.length < 6 (183). A 6-char all-lowercase password shows a red 'very weak' bar yet is accepted, so the visual feedback implies requirements that aren't enforced — either needless friction or false confidence.",
+    "recommendation": "Align meter with policy: either enforce the stronger criteria the meter implies, or relabel the meter as advisory and keep the hint truthful about the single 6-char minimum.",
+    "effort": "small"
+  },
+  {
+    "rank": 61,
+    "title": "Two identical 'Account created, verify your email' toasts on every sign-up",
+    "type": "ux",
+    "severity": "low",
+    "area": "Auth",
+    "files": [
+      "src/pages/Login.tsx"
+    ],
+    "problem": "On a sign-up where email is unconfirmed, t('accountCreated') is fired twice: once at Login.tsx:216 immediately after signUp, and again at 252 after fetchUserData succeeds. Both use duration 6000ms, so the user sees the same message stacked twice for 6 seconds, reading as a glitch.",
+    "recommendation": "Show the verify-email toast exactly once (if the session-less deadend fix in finding #5 returns early, the line-252 duplicate becomes unreachable — remove it).",
+    "effort": "trivial"
+  },
+  {
+    "rank": 62,
+    "title": "Login surfaces all validation only as transient toasts, with no inline per-field errors",
+    "type": "ux",
+    "severity": "low",
+    "area": "Auth / forms",
+    "files": [
+      "src/pages/Login.tsx"
+    ],
+    "problem": "handleSubmit (Login.tsx:173-199) validates email, password length, password match and terms purely via toast.error + return; the first failing check wins, so the user learns one problem at a time. There is no border-red / aria-invalid inline error state on the inputs (grep found none). Compared to MemoryForm's inline per-field errors, the account-creation flow gives weaker, easy-to-miss feedback on mobile. (The unused useLoginForm hook already supports inline errors.)",
+    "recommendation": "Add inline error text and the existing red-border style under each field (email/password/confirm/terms) in addition to or instead of toasts.",
+    "effort": "medium"
+  },
+  {
+    "rank": 63,
+    "title": "No near-limit warning for Aiya usage — the bar looks identical at 49/50 and 5/50 and is absent from the chat view",
+    "type": "ux",
+    "severity": "low",
+    "area": "Aiya",
+    "files": [
+      "src/pages/Aiya.tsx"
+    ],
+    "problem": "The usage indicator (Aiya.tsx:1061-1073) is a single primary→orange gradient bar plus a used/limit count, rendered ONLY in the list header — not anywhere in the chat view (1188-1435), which is the only place messages are consumed. There is no color change or warning text approaching the cap, so 48/50 reads the same as 5/50 and a user deep in a conversation can run out mid-thought with no forewarning. A milder version of the at-limit gating gap (finding #4).",
+    "recommendation": "Surface the remaining count in the chat view (near the composer) and switch the bar/label to a warning tone with a short 'N left' note once used/limit crosses ~80%.",
+    "effort": "small"
+  },
+  {
+    "rank": 64,
+    "title": "Aiya chats cannot be renamed, and a sensitive/crisis first message becomes the permanent plaintext list title",
+    "type": "ux",
+    "severity": "low",
+    "area": "Aiya / privacy",
+    "files": [
+      "src/pages/Aiya.tsx"
+    ],
+    "problem": "The chat title is derived once via generateTitle from the first user message (Aiya.tsx:90-94, applied at 896) and never editable; the kebab menu offers only Delete and Close (1240-1259). A chat that opened with 'merhaba' is forever titled 'merhaba — <date>'. For a journaling app the first message may be a deeply personal or crisis disclosure, which then appears verbatim as the conversation's headline in the list (1146-1148) — visible to anyone glancing at the phone and unchangeable. Users keeping many conversations cannot organize or relabel them.",
+    "recommendation": "Add a Rename option to the kebab menu with an inline-editable title; optionally default crisis-tier chats to a neutral title and/or offer a setting to hide list previews.",
+    "effort": "medium"
+  },
+  {
+    "rank": 65,
+    "title": "No token streaming + a 30s timeout: long Aiya replies show only bouncing dots and hard-fail if generation runs long",
+    "type": "ux",
+    "severity": "low",
+    "area": "Aiya",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/services/aiyaService.ts"
+    ],
+    "problem": "sendMessage is fully non-streamed: invokeAiya awaits the whole edge-function response wrapped in withTimeout(30000) (aiyaService.ts:48,457-461,560-581). The UI shows only static TypingDots (Aiya.tsx:1343) for the entire wait, so a deep/crisis-tier reply reads as frozen; if generation exceeds 30s the request rejects, the user's message is rolled back, and they see a generic network error — and the most thoughtful long replies are the most likely to time out. Full streaming is a large architectural change.",
+    "recommendation": "Stream tokens so long replies feel alive and partial content survives. If streaming is out of scope, add an elapsed-time hint after a few seconds and raise/clarify the timeout for deep-tier requests — the cheap valuable slice.",
+    "effort": "large"
+  },
+  {
+    "rank": 66,
+    "title": "Background Aiya profile build fails silently and the personalization it powers has zero user-facing surface",
+    "type": "ux",
+    "severity": "low",
+    "area": "Aiya / trust",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/services/aiyaService.ts"
+    ],
+    "problem": "maybeUpdateProfile (Aiya.tsx:855-875) fires an (intentionally unmetered) buildProfile after qualifying sends, wrapped in a fully silent catch {/* silent */} (874). The evolving profile summary that makes Aiya feel personalized is never shown — no 'memory updated' affordance and no way to view or reset what Aiya has inferred. For a product promising 'an assistant that knows you', the learning step has no surface, and a user whose profile build repeatedly fails would never know why Aiya doesn't seem to remember them. (No hidden billing — the build is deliberately unmetered.)",
+    "recommendation": "Add a small optional surface (e.g. Settings: 'What Aiya remembers about you') with a clear/reset control so users understand and trust the personalization.",
+    "effort": "medium"
+  },
+  {
+    "rank": 67,
+    "title": "On a fresh Aiya chat the centered hero and the bottom suggestion chips both do the 'get started' job",
+    "type": "ux",
+    "severity": "low",
+    "area": "Aiya",
+    "files": [
+      "src/pages/Aiya.tsx"
+    ],
+    "problem": "showChips (Aiya.tsx:1186) shows chips when messages.length===0 or the last message is an assistant reply with empty input, so on an empty new chat the large centered hero ('...you can ask questions!', 1285-1301) and the suggestion chips at the bottom (1387-1394) render simultaneously, both doing the 'start here' job. On small screens this is redundant/cluttered as a first impression.",
+    "recommendation": "Tighten the empty-chat layout so the hero and chips don't duplicate the 'get started' affordance (e.g. fold the chips into the hero, or drop the hero copy once chips are visible).",
+    "effort": "small"
+  },
+  {
+    "rank": 68,
+    "title": "Statistics renders an all-zero monthly bar chart when all memories predate the last 6 months",
+    "type": "ux",
+    "severity": "low",
+    "area": "Statistics",
+    "files": [
+      "src/pages/Statistics.tsx"
+    ],
+    "problem": "The page-level empty state (Statistics.tsx:191) triggers only when memories.length===0. A user whose memories all fall outside the last 6 months passes that guard and reaches the charts, where the Monthly Trend BarChart (338-346) renders 6 zero-height bars with no 'no recent activity' copy, so the chart reads as broken rather than empty-by-range.",
+    "recommendation": "When stats.monthlyData sums to 0, show a small inline 'no activity in the last 6 months' placeholder inside the chart card instead of an empty axis.",
+    "effort": "small"
+  },
+  {
+    "rank": 69,
+    "title": "Achievements with zero memories shows 0/0 bars and empty grids instead of a get-started state",
+    "type": "ux",
+    "severity": "low",
+    "area": "Achievements",
+    "files": [
+      "src/pages/Achievements.tsx"
+    ],
+    "problem": "Achievements.tsx has no memories.length===0 branch (unlike Statistics.tsx:191). A brand-new user lands on '0/0' summary cards (93-95,111-113) with width-0 progress bars and a fully-locked/opacity-60 badge grid with no guidance, so the screen reads as broken/empty rather than aspirational.",
+    "recommendation": "When memories.length===0 (and not loading/error), render a dedicated empty state encouraging adding a first memory, consistent with Statistics/VaultEmptyState.",
+    "effort": "small"
+  },
+  {
+    "rank": 70,
+    "title": "Vault 'Load more' window is not reset when filters/search change",
+    "type": "ux",
+    "severity": "low",
+    "area": "Vault",
+    "files": [
+      "src/pages/Vault.tsx",
+      "src/components/VaultMemoryList.tsx"
+    ],
+    "problem": "displayCount is local state initialized to 20 and only grows via handleLoadMore (Vault.tsx:35,184-190); it is never reset when filteredMemories changes. After a user expands the list (e.g. displayCount=200) and switches to a different filter that matches many memories, the list immediately renders up to 200 rows instead of the initial 20-row page. The slice clamps (VaultMemoryList.tsx:97) so nothing is hidden and the remaining-count text stays correct — a consistency/expectation nit, not a broken state.",
+    "recommendation": "Reset displayCount to 20 in a useEffect keyed on the filter inputs (debouncedSearchQuery, selectedCategory, selectedLifeArea, sortBy, dateRange, searchConnections) or on filteredMemories identity change, so each new filter view starts paginated from the top.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 71,
+    "title": "Vault flashes the full empty state for one frame before the skeleton appears",
+    "type": "ux",
+    "severity": "low",
+    "area": "Vault / loading state",
+    "files": [
+      "src/pages/Vault.tsx",
+      "src/hooks/useMemories.ts"
+    ],
+    "problem": "useMemories initializes loading=false (useMemories.ts:31); loading flips true only inside loadMemories after the first render commits (effect at 70-74). On Vault's first render memories=[] and loading=false, so Vault.tsx:225 (filteredMemories.length===0 && !loading) is briefly true and VaultEmptyState renders, then swaps to the skeleton once loading becomes true. On a slow device the 'No memories yet' illustration blinks before skeletons.",
+    "recommendation": "Initialize loading to true (or to autoLoad) in useMemories so the first paint is the loading/skeleton state, never the empty state.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 72,
+    "title": "Vault 'Load more' injects a hardcoded 300ms spinner for data already in memory",
+    "type": "ux",
+    "severity": "low",
+    "area": "Vault / performance",
+    "files": [
+      "src/pages/Vault.tsx",
+      "src/components/VaultMemoryList.tsx"
+    ],
+    "problem": "handleLoadMore (Vault.tsx:184-190) sets isLoadingMore=true then awaits new Promise(r => setTimeout(r,300)) before bumping displayCount. filteredMemories is fully client-side and VaultMemoryList.tsx:97 just slices it, so this is a fake spinner delaying memories the user already has by 300ms on every tap.",
+    "recommendation": "Remove the artificial setTimeout and increment displayCount synchronously; keep the spinner for at most one frame if visual continuity is desired.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 73,
+    "title": "Cold-launching /add-memory and pressing Save/Close calls navigate(-1) with no history to return to",
+    "type": "bug",
+    "severity": "low",
+    "area": "Navigation",
+    "files": [
+      "src/pages/AddMemory.tsx"
+    ],
+    "problem": "AddMemory closes and saves via navigate(-1) (AddMemory.tsx:21,23), assuming a prior history entry exists. /add-memory is a real route (App.tsx:247). If entered as the first navigation of the session (PWA shortcut, push tap, or refresh while on /add-memory), there is no previous entry, so navigate(-1) is a no-op and the user is stuck on the form after saving (or on native may pop out of the WebView). Narrow trigger (normally reached from Home, so history exists).",
+    "recommendation": "Fall back to an explicit destination: if (window.history.length > 1) navigate(-1); else navigate('/',{replace:true}). Apply to both onClose and onSave.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 74,
+    "title": "Aiya options menu can't be closed with Escape and back dismisses the whole page",
+    "type": "ux",
+    "severity": "low",
+    "area": "Navigation / Aiya",
+    "files": [
+      "src/pages/Aiya.tsx"
+    ],
+    "problem": "The Aiya chat options dropdown (Aiya.tsx:1224-1263) is plain showMenu state with a fixed click-catcher backdrop. It does not use useEscapeKey and registers no back handler, so a keyboard user cannot press Escape to dismiss it, and on Android hardware back while the menu is open navigates away from Aiya (via Layout) instead of just closing the menu. It only closes via backdrop tap or a menu item.",
+    "recommendation": "Add useEscapeKey(() => setShowMenu(false), showMenu) and, on native, a back handler that closes the menu first, consistent with other overlays.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 75,
+    "title": "Pressing Android back while MemoryForm's unsaved-changes confirm is open does nothing",
+    "type": "ux",
+    "severity": "low",
+    "area": "Navigation / Memory form",
+    "files": [
+      "src/components/MemoryForm.tsx"
+    ],
+    "problem": "MemoryForm's back handler always calls requestClose() (MemoryForm.tsx:670-672). When the unsaved-changes confirm is already showing (showDirtyConfirm true and still dirty), requestClose re-enters the isDirty branch and calls setShowDirtyConfirm(true) again (654-661) — a no-op. So with the dirty-confirm visible, hardware back appears dead; the user expects back to cancel/dismiss the confirm. Native-only; backdrop tap and dialog buttons still work.",
+    "recommendation": "When showDirtyConfirm is true, route the back press to setShowDirtyConfirm(false) (cancel) instead of re-invoking requestClose, so back peels off the top-most layer.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 76,
+    "title": "Aiya scroll-down FAB is pinned 100px from bottom and ignores the keyboard — can overlap the composer",
+    "type": "ux",
+    "severity": "low",
+    "area": "Aiya",
+    "files": [
+      "src/pages/Aiya.tsx"
+    ],
+    "problem": "The scroll-to-bottom FAB is positioned bottom: calc(100px + var(--safe-area-inset-bottom,0px)) (Aiya.tsx:1373) and its offset never reacts to isKeyboardOpen. When the keyboard opens the composer's safe-area padding is removed (1383) and the visible area shrinks, so the round FAB can float over the textarea/send-button area. Partly entangled with finding #3 (correct root sizing narrows the window).",
+    "recommendation": "Hide the FAB while isKeyboardOpen, or compute its bottom offset from the composer height so it always clears the input bar.",
+    "effort": "small"
+  },
+  {
+    "rank": 77,
+    "title": "useMemories load-error toast has no id, so persistent Dexie failures stack duplicate identical toasts",
+    "type": "ux",
+    "severity": "low",
+    "area": "Error handling",
+    "files": [
+      "src/hooks/useMemories.ts"
+    ],
+    "problem": "useMemories.loadMemories calls toast.error(tRef.current('memoriesLoadError')) with no id (useMemories.ts:60). The hook autoLoads on mount (70-74) and refreshMemories re-runs loadMemories. If Dexie reads fail persistently (corrupt DB, quota), every mount/refresh fires another identical toast and react-hot-toast only de-dupes when an explicit id is supplied, so several copies stack.",
+    "recommendation": "Pass a stable id: toast.error(msg, { id: 'memories-load-error' }) so repeated failures collapse into one toast.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 78,
+    "title": "Success splash checkmark uses text-green-500, not the app's success token",
+    "type": "ux",
+    "severity": "low",
+    "area": "Visual consistency",
+    "files": [
+      "src/components/SuccessAnimation.tsx",
+      "src/components/Toaster.tsx",
+      "tailwind.config.js"
+    ],
+    "problem": "The success theme color is #10B981 (tailwind.config.js:18-20, also the toast success icon Toaster.tsx:23). The full-screen SuccessAnimation checkmark uses text-green-500 (#22C55E) at line 53 — a brighter green. SuccessAnimation is rendered in Vault.tsx on save/bulk actions, so a save can show a #10B981 toast and a #22C55E splash that are subtly mismatched.",
+    "recommendation": "Use text-success for the SuccessAnimation checkmark so it matches the toast icon and the design token.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 79,
+    "title": "TimePicker shows 09:00 as the spinner default even when cleared, committing a 9am reminder the user never chose",
+    "type": "ux",
+    "severity": "low",
+    "area": "Settings / TimePicker",
+    "files": [
+      "src/components/TimePicker.tsx"
+    ],
+    "problem": "State initializes hours=9, minutes=0 (TimePicker.tsx:27-28) and is overwritten from value only when value is non-empty (38-46). displayValue on the trigger correctly shows the placeholder when empty (221), but opening the picker with no value displays 09:00 in the spinner as if selected, and handleApply (144-149) commits that 09:00 unconditionally. In Settings, a user who opens the daily-reminder picker just to look and taps Apply sets a 9am reminder they never chose.",
+    "recommendation": "When value is empty, visually distinguish the spinner default (dim it / 'no time set' hint) or require an explicit interaction before Apply commits, so 09:00 reads as a placeholder.",
+    "effort": "small"
+  },
+  {
+    "rank": 80,
+    "title": "Chart tooltip shows a bare number with no category/series name",
+    "type": "ux",
+    "severity": "low",
+    "area": "Statistics",
+    "files": [
+      "src/pages/Statistics.tsx"
+    ],
+    "problem": "CustomTooltip (Statistics.tsx:39-49) renders only entry.value per payload item plus an optional axis label. PieCharts pass no axis label, so hovering a category/life-area slice shows just the count (e.g. '4') with no indication of which slice; for bar charts the y-value alone shows. The slice name is in the payload but unrendered. (Low impact — slices are color-coded and labeled on the pie.)",
+    "recommendation": "Include the series/category name in the tooltip (e.g. `${entry.name}: ${entry.value}`); for pies the name comes from payload[0].name.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 81,
+    "title": "Intensity-slider drag can also scroll the modal body because the non-passive touchmove never preventDefaults",
+    "type": "ux",
+    "severity": "low",
+    "area": "Memory form / mobile ergonomics",
+    "files": [
+      "src/components/MemoryForm.tsx"
+    ],
+    "problem": "The intensity slider registers a document-level touchmove with { passive:false } (MemoryForm.tsx:743) but the handler (onMove -> updateSliderFromX, 711-725,735-737) never calls e.preventDefault(). The non-passive registration buys the ability to cancel the gesture but it is unused, so while dragging the thumb the browser can also treat the gesture as vertical scroll, making the scrollable modal body jitter under the finger and precise selection awkward on a phone.",
+    "recommendation": "Call e.preventDefault() inside onMove while isDraggingSlider is true (the listener is already non-passive), so the drag is consumed and the modal body doesn't scroll.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 82,
+    "title": "Opening the photo viewer from inside MemoryForm stacks two competing Tab focus traps",
+    "type": "bug",
+    "severity": "low",
+    "area": "a11y / modals",
+    "files": [
+      "src/components/MemoryForm.tsx",
+      "src/components/ImageModal.tsx",
+      "src/components/ModalShell.tsx"
+    ],
+    "problem": "MemoryForm renders ImageModal as a child of its content (MemoryForm.tsx:1260-1266) while the form lives inside ModalShell (1404-1416). ImageModal is fixed inset-0 but remains a DOM descendant of ModalShell's panel. ModalShell installs a window-level Tab trap scoped to its panelRef (ModalShell.tsx:139-161) querySelecting ALL focusables in the panel — now including both ImageModal's buttons and the form fields behind it — while ImageModal installs its own trap (74-99). Both fire on the same keydown; because focus inside ImageModal still satisfies ModalShell's panelRef.contains check, Tab can move focus from the viewer onto form fields behind it. Keyboard-only edge case.",
+    "recommendation": "Suspend ModalShell's focus trap (or mark the panel inert) while a nested modal is open, e.g. via a shared modal-stack signal, so only the topmost trap is active.",
+    "effort": "medium"
+  },
+  {
+    "rank": 83,
+    "title": "ProgressiveImage 'blur-up' placeholder is a flat gray rect, not a real LQIP",
+    "type": "ux",
+    "severity": "low",
+    "area": "Images",
+    "files": [
+      "src/components/ProgressiveImage.tsx",
+      "src/components/MemoryCard.tsx"
+    ],
+    "problem": "ProgressiveImage is documented as blur-up but, absent a caller placeholder, falls back to DEFAULT_PLACEHOLDER — a solid #e5e7eb SVG rect (ProgressiveImage.tsx:15-16) shown with blur-sm (67). MemoryCard passes no placeholder (242-247), so every grid photo shows a uniform gray box that cross-fades to the full image. On slow connections this is a gray flash with no preview, i.e. not true blur-up.",
+    "recommendation": "Either generate/store a tiny base64 LQIP and pass it as placeholder, or relabel as a simple gray-placeholder fade; at minimum add a subtle shimmer so the box reads as loading.",
+    "effort": "medium"
+  },
+  {
+    "rank": 84,
+    "title": "Tapping a non-zoomed photo near its edges can dismiss the viewer",
+    "type": "ux",
+    "severity": "low",
+    "area": "Image viewer",
+    "files": [
+      "src/components/ImageModal.tsx"
+    ],
+    "problem": "The outer layer has onClick={onClose} (ImageModal.tsx:224) and the inner container stops propagation only when !isZoomed (236-242). The container is max-w-4xl w-full max-h-[90dvh] with p-4 outer padding; real backdrop area is the top/bottom strips outside max-h-[90dvh] and, on wider viewports, the horizontal margins outside max-w-4xl, so tapping those strips closes the viewer. (On phones the w-full container absorbs most portrait letterbox, so impact is limited; tap-outside-to-close is also a common convention — borderline-by-design.)",
+    "recommendation": "If accidental dismissal is a concern, restrict close-on-tap to the explicit X button (and/or a swipe-down) rather than the whole backdrop.",
+    "effort": "small"
+  },
+  {
+    "rank": 85,
+    "title": "Memory text has no maximum length; long pastes grow the textarea unbounded with no counter",
+    "type": "ux",
+    "severity": "low",
+    "area": "Memory form",
+    "files": [
+      "src/components/MemoryForm.tsx",
+      "src/utils/formValidation.ts"
+    ],
+    "problem": "The textarea has no maxLength (MemoryForm.tsx:863-879) and validateMemoryText only enforces a minimum (validateMemoryText(formData.text,10), 457; formValidation.ts:91-105 has no upper bound). autoResize sets height to scrollHeight with only a floor (Math.max(scrollHeight,120), 446) and no max-height, so a very long paste grows the textarea to thousands of pixels inside the modal, and the full blob is persisted to draft storage with no character counter or limit feedback.",
+    "recommendation": "Add an upper-bound check to validateMemoryText (with an i18n error + a visible counter as the limit approaches) and cap textarea growth with a max-height + internal scroll.",
+    "effort": "small"
+  },
+  {
+    "rank": 86,
+    "title": "Connections sort/search uses host default locale, mis-ordering Turkish names (İ/ı)",
+    "type": "bug",
+    "severity": "low",
+    "area": "Connections / i18n",
+    "files": [
+      "src/pages/Connections.tsx"
+    ],
+    "problem": "Connection list sorting uses a.name.localeCompare(b.name, undefined, {sensitivity:'base'}) with an undefined locale (Connections.tsx:64), and filtering uses toLocaleLowerCase() with no locale (67,69). With undefined locale the runtime falls back to the host/device locale, not the app's tr/en. For Turkish names the dotted/dotless I (İ/ı vs I/i) then sorts and case-folds incorrectly when device locale differs from app language, so visually-similar connections sort apart and a case-insensitive search can miss entries. (Count-based primary sort dominates, so name ordering is a secondary tiebreak.)",
+    "recommendation": "Pass the active i18n.language explicitly to localeCompare and toLocaleLowerCase ('tr'/'en') so ordering and search match the app language.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 87,
+    "title": "TR/EN tone mismatch on 'breathing' status label (imperative TR vs gerund EN)",
+    "type": "ux",
+    "severity": "low",
+    "area": "i18n",
+    "files": [
+      "src/i18n.ts",
+      "src/pages/Home.tsx"
+    ],
+    "problem": "breathing is 'Nefes Al' (TR imperative, i18n.ts:435) vs 'Breathing' (EN gerund, 1580). It is shown only while isBreathing is true, inside an AnimatePresence block next to a LoadingSpinner (Home.tsx:494-505) — i.e. a status/progress label during the breathing animation, not a CTA button. In that context the EN gerund is correct and it is the TR imperative 'Nefes Al' that reads oddly as a status. A genuine cross-locale voice inconsistency, minor.",
+    "recommendation": "Align the two locales in voice for this status label (e.g. TR 'Nefes al...' to match the EN gerund), rather than changing EN to an imperative.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 88,
+    "title": "dailyPrompt vs dailyQuestion: identical in TR, divergent in EN",
+    "type": "ux",
+    "severity": "low",
+    "area": "i18n",
+    "files": [
+      "src/i18n.ts",
+      "src/pages/Home.tsx"
+    ],
+    "problem": "In TR both dailyPrompt (i18n.ts:408) and dailyQuestion (409) are 'Günlük Soru'. In EN they diverge: dailyPrompt='Daily Prompt' (1553), dailyQuestion='Daily Question' (1554). Home.tsx:394 renders t('dailyPrompt'), so an EN user sees 'Daily Prompt' while a TR user sees 'Günlük Soru' (= Daily Question) — cross-language terminology drift; 'Prompt' is more jargony than the TR 'Soru'.",
+    "recommendation": "Pick one term per concept; if the header is a question, set dailyPrompt EN to 'Daily Question' (or consolidate the two near-duplicate keys) so EN matches the TR meaning.",
+    "effort": "trivial"
+  },
+  {
+    "rank": 89,
+    "title": "Dead, never-imported helper components and hooks reimplemented inline (Login + MemoryForm + RangeSlider)",
+    "type": "bug",
+    "severity": "low",
+    "area": "Maintainability / dead code",
+    "files": [
+      "src/hooks/useLoginForm.ts",
+      "src/components/LoginHeader.tsx",
+      "src/components/ForgotPasswordForm.tsx",
+      "src/components/MemoryFormFields.tsx",
+      "src/components/MemoryFormActions.tsx",
+      "src/components/MemoryFormPhotos.tsx",
+      "src/components/MemoryFormHeader.tsx",
+      "src/components/MemoryFormAdvancedFields.tsx",
+      "src/components/RangeSlider.tsx",
+      "src/pages/Login.tsx",
+      "src/components/MemoryForm.tsx"
+    ],
+    "problem": "Multiple modules are exported but imported nowhere (grep returns only their definitions), with the live screens reimplementing their logic inline. Login: useLoginForm (form-state + inline-error map), LoginHeader, and ForgotPasswordForm are all dead — Login.tsx duplicates calculatePasswordStrength/header/forgot-modal inline (a side effect being toast-only validation instead of the hook's inline field errors). MemoryForm: MemoryFormFields/Actions/Photos/Header/AdvancedFields are all dead — MemoryForm.tsx inlines its own implementation, encoding a divergent stale UX. RangeSlider (with keyboard + step-tick buttons) is referenced only by the dead MemoryFormFields, so MemoryForm's hand-rolled inline slider (922-994) is what users touch, lacking the step-tick shortcuts. This is a maintenance trap where edits can land in code users never see.",
+    "recommendation": "For each group, either adopt the existing component/hook in the live screen (gaining inline field errors, modal a11y, RangeSlider step-ticks) or delete the unused modules to prevent divergence. Confirm no lazy/dynamic import before deleting.",
+    "effort": "small"
+  }
+]

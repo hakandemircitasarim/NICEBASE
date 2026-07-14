@@ -1,0 +1,442 @@
+[
+  {
+    "rank": 1,
+    "title": "Wire crisis-tier safety handling end-to-end (hotline, de-escalation, override persona)",
+    "area": "Aiya / AI safety",
+    "severity": "critical",
+    "files": [
+      "src/services/aiyaService.ts",
+      "src/pages/Aiya.tsx",
+      "supabase/functions/aiya-chat/index.ts",
+      "src/i18n.ts"
+    ],
+    "instruction": "Merges ai-aiya-1 + ai-aiya-4. (1) In routeMessage (aiyaService.ts ~91-103) move the CRISIS_WORDS check ABOVE the messageCountInChat===0 early return so a first-message crisis disclosure is classified 'crisis', not 'deep'. (2) Add optional crisis?: boolean to aiyaService.sendMessage params and forward it in the invokeAiya payload (additive, no call-site breaks). In Aiya.tsx handleSend pass crisis: route.tier === 'crisis'. (3) Add optional crisis?: boolean to the edge function AiyaRequest type; in the chat branch, when crisis===true, PREPEND a high-priority safety system message BEFORE the persona prompt (do not replace persona): validate feelings plainly, drop the 'not an AI / no buradayim' constraints, express care, urge contacting a professional/emergency services, and surface localized resources (Turkiye 182; an international hotline for en). Localize by locale. (4) Add aiyaCrisis* copy in BOTH tr+en (i18n.ts) per CLAUDE.md 2.5. Keep CRISIS_WORDS detection but treat it as an additive safety net only.",
+    "risk": "Adds optional params to sendMessage and AiyaRequest — additive, non-breaking. Do NOT remove the persona prompt for crisis (layer the safety message on top) to avoid regressions on borderline false-positive keyword matches. Verify token budget (crisis block + full persona fits gpt-4o). No DB migration. The reorder in routeMessage is a no-op at runtime until the crisis prompt exists, so ship both together."
+  },
+  {
+    "rank": 2,
+    "title": "Upload memory photos to Storage during sync instead of pushing base64 into Postgres",
+    "area": "Sync / photos",
+    "severity": "high",
+    "files": [
+      "src/services/memoryService.ts",
+      "src/services/photoStorageService.ts"
+    ],
+    "instruction": "correctness-1. In syncAll, before the create upsert (~line 245) and the update push (~line 270): if supabaseData.photos / updates.photos contains any local base64 ref (photos.some(isLocalPhotoRef)), call photoStorageService.ensureRemotePhotoUrls({ userId, memoryId, photos }), swap base64 for the returned URLs, persist the URLs back to Dexie via db.memories.update(id, { photos: remoteUrls }) so re-sync/pull does not re-upload, then push URLs. Import isLocalPhotoRef + photoStorageService at top. Do NOT swallow upload errors with bare console.warn (CLAUDE.md 1.15) — let the upload error propagate to the existing catch (line 301) so the item retries with backoff and photos stay local until upload succeeds, rather than silently writing photos:[] to the cloud.",
+    "risk": "PREREQUISITE: confirm the 'memory-photos' Storage bucket exists in EVERY Supabase environment with Storage RLS scoped to the ${userId}/ path prefix — there is no migration creating it (config.toml buckets are commented out). If absent, add a Storage bucket+policy migration first, else uploads throw. A one-time backfill of existing base64 rows is out of scope (track separately). No function-signature change. Test photo add/edit round-trips end-to-end."
+  },
+  {
+    "rank": 3,
+    "title": "Implement multi-device conflict detection (close silent last-write-wins data loss)",
+    "area": "Sync / conflict resolution",
+    "severity": "high",
+    "files": [
+      "src/services/memoryService.ts",
+      "src/pages/Home.tsx",
+      "src/components/ConflictResolutionDialog.tsx"
+    ],
+    "instruction": "Merges correctness-2 + offline-sync-1. The ConflictResolutionDialog, Home.tsx detection (line 107), MemoryCard badge, and tr+en i18n keys are all already wired but NOTHING ever sets conflict/conflictCloud/conflictDetectedAt. Detect at PUSH time using optimistic concurrency: in the 'update' op (~279-286) guard the Supabase update with the last-known cloud updated_at (.eq('id',id).eq('updated_at', existingCloudUpdatedAt)) and check affected rows; if 0 rows, the cloud row changed underneath us — SELECT the current cloud row, mapSupabaseToMemory, and write db.memories.update(id, { conflict:true, conflictCloud:cloudMemory, conflictDetectedAt:new Date().toISOString() }), mark the queue item done, and do NOT overwrite cloud. Guard against re-flagging an already-flagged memory and only flag when content actually differs. conflict/conflictCloud are not table columns and are not in the update whitelist (262-271) so they never push.",
+    "risk": "Do NOT use the naive 'pull-branch only' condition from the raw finding — push runs before pull in syncAll, so by pull time existing.synced is already true and the fix never fires, leaving the loss window open. Detection MUST be at push time (optimistic concurrency) or via reorder-then-gate. No migration; conflict fields are Dexie-only. Verify build."
+  },
+  {
+    "rank": 4,
+    "title": "Use server max(updated_at) as the pull watermark instead of the client clock",
+    "area": "Sync",
+    "severity": "high",
+    "files": [
+      "src/services/memoryService.ts"
+    ],
+    "instruction": "offline-sync-2. Replace the client-clock watermark write at line 361-364 (localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString())). Since the query orders by updated_at DESC, data[0].updated_at is the max. Inside the existing `if (data && data.length > 0)` block (342-359) set the watermark to data[0].updated_at. CRUCIAL: guard the empty-result case — when data.length===0 leave the watermark UNCHANGED (do not overwrite/null it), else every no-change poll wipes the watermark and forces a full re-pull. Keep the strict gt() boundary.",
+    "risk": "memories.updated_at is client-supplied (no DB update trigger), but moving the watermark into the same clock-space as the values it is compared against eliminates the skew mismatch and closes most of the TOCTOU window. Low risk; pure read-path change. Verify build."
+  },
+  {
+    "rank": 5,
+    "title": "Make daily full-sync reconciliation safe against in-flight creates and abandoned-item mislabeling",
+    "area": "Sync",
+    "severity": "medium",
+    "files": [
+      "src/services/memoryService.ts"
+    ],
+    "instruction": "Merges correctness-6 + offline-sync-6 + offline-sync-3. (1) correctness-6: before deleting a local memory absent from the allRemote id snapshot (lines 391-400), re-verify it via select('id').eq('id', local.id) OR only delete memories created before the snapshot time, so a concurrently-created row (not yet replicated/visible) is not wrongly deleted. (2) offline-sync-6: items given up at >=10 attempts (line 233) and corrupt payloads (line 255) are marked status:'done' so getSyncStatus (which counts !=done) reports them as synced; introduce a distinct 'abandoned' status and surface it in getSyncStatus so never-synced memories are not reported as backed up. (3) offline-sync-3: drain the queue ordered by item.timestamp asc (currently no orderBy — random UUID order can let a delete precede its create) and honor dependsOn.",
+    "risk": "Adding an 'abandoned' status touches the syncQueueV2 status union and getSyncStatus return shape — keep the existing {pending,failed,total} contract and add abandoned as an additional field rather than changing existing keys. No DB migration (Dexie). Verify the status filter in syncAll (line 223) still excludes abandoned from re-processing."
+  },
+  {
+    "rank": 6,
+    "title": "Lock down users billing/usage columns so clients cannot self-grant premium or unlimited Aiya",
+    "area": "Supabase RLS / migration",
+    "severity": "high",
+    "files": [
+      "supabase/migrations/"
+    ],
+    "instruction": "security-1. New migration <YYYYMMDDHHMMSS>_lock_users_billing_columns.sql with a COLUMN-LEVEL revoke (not full revoke-and-regrant, which would break profile edits as new columns are added): REVOKE UPDATE (is_premium, aiya_messages_used, aiya_messages_limit) ON public.users FROM authenticated; and FROM anon. Also harden the UPDATE policy: DROP POLICY \"Users can update own data\"; CREATE POLICY ... FOR UPDATE USING (auth.uid()=id) WITH CHECK (auth.uid()=id). Optionally REVOKE INSERT on the same three columns to stop clients seeding is_premium=true on first-row creation (defaults false/0/30 cover omission). The aiya-chat edge function uses SERVICE_ROLE_KEY and bypasses RLS/grants, so metering/premium provisioning keep working.",
+    "risk": "DB migration. Column-level REVOKE narrows the pre-existing table-wide GRANT ALL (Postgres intersects column+table privileges) so it is sufficient and leaves other columns client-writable. Test AFTER apply: profile edit (display_name/bio/avatar_url/birthday/location) still succeeds; a direct client update of is_premium/aiya_messages_limit now fails; an Aiya message still increments usage via the edge function."
+  },
+  {
+    "rank": 7,
+    "title": "Make Aiya usage accounting server-authoritative and atomic; stop client-controlled metering",
+    "area": "Aiya edge function / Supabase",
+    "severity": "high",
+    "files": [
+      "supabase/functions/aiya-chat/index.ts",
+      "src/services/aiyaService.ts",
+      "supabase/migrations/"
+    ],
+    "instruction": "Merges ai-aiya-2 + security-3 + ai-aiya-9. (1) Add a SECURITY DEFINER RPC increment_aiya_usage(p_user uuid) returns(used,lim) that does UPDATE users SET aiya_messages_used = aiya_messages_used + 1 WHERE id=p_user AND aiya_messages_used < aiya_messages_limit RETURNING aiya_messages_used, aiya_messages_limit; grant execute only to service_role. In the edge function, for counted actions call it BEFORE callOpenAI; if it returns no row, respond 429 and skip the OpenAI call. Remove the stale read-then-write increment (.update({aiya_messages_used: usageUsed+1}) at 368/463/494) and the snapshot limit check at 213. (2) security-3: decide countUsage on the SERVER by normalizedAction (always count chat/analysis/profile, never classify/category) — remove countUsage from the trusted request contract. (3) ai-aiya-9: in Aiya.tsx (414-435) stop hardcoding limit=50; use the server-returned usage.limit (fall back to user.aiyaMessagesLimit then 50).",
+    "risk": "DB migration for the RPC. Reserve-then-refund semantics: increment up front; on a failure before reply, optionally decrement. The atomic RPC fixes counter corruption and cap enforcement; placing the check before callOpenAI is what actually prevents concurrent-burst OpenAI spend. Cost-leak is per-user (self-inflation), not cross-user. Verify metering still increments and 429 still triggers the UI limit state."
+  },
+  {
+    "rank": 8,
+    "title": "Add server-side burst rate limiting on the OpenAI cost path (chat + classify/category)",
+    "area": "Aiya edge function / Supabase",
+    "severity": "medium",
+    "files": [
+      "supabase/functions/aiya-chat/index.ts",
+      "supabase/migrations/"
+    ],
+    "instruction": "Merges security-4 + ai-aiya-12 + ai-aiya-10. The client rateLimiter is per-tab in-memory (UX only) and only used for photos. Add a server-side per-user short-window counter (Postgres table or KV keyed by userId) checked before every OpenAI call, returning 429 on burst. Apply it to chat/analysis/profile AND to classify/category (which today call gpt-4o-mini with zero accounting and can be hammered with a valid token). ai-aiya-10: the recurring background buildProfile (auto-triggered every 5 messages, countUsage:false) is a full-price gpt-4o call on max context that escapes the budget — at minimum rate-limit/meter it, and evaluate gpt-4o-mini or a smaller memoryContext cap for analysis/profile.",
+    "risk": "DB migration if you use a Postgres table for the window. Treat the client rateLimiter strictly as UX. Keep classification rate limit separate from the 50-message chat quota so normal memory-creation flows are not blocked. Verify category suggestion on memory create still works under the new limit."
+  },
+  {
+    "rank": 9,
+    "title": "Use normalizedAction consistently for edge-function dispatch and fix classify default bias",
+    "area": "Aiya edge function",
+    "severity": "medium",
+    "files": [
+      "supabase/functions/aiya-chat/index.ts"
+    ],
+    "instruction": "Merges ai-aiya-3 + ai-aiya-7. (1) ai-aiya-3: the function normalizes action to normalizedAction (line 230) and dispatches classify on it, but the 'category' (314), 'analysis', and 'profile' branches compare the RAW action. Use normalizedAction for ALL branches and gate the chat fallback on normalizedAction==='chat' so a 'category' request with stray casing/whitespace cannot fall through to the billed free-form chat handler. (2) ai-aiya-7: in the classify branch, when safeJsonParse fails or the shape is unexpected, return null/'uncategorized' instead of hard-defaulting to gratitude/personal (the prompt itself warns 'Do not default to gratitude'); the client suggestCategoryAndLifeArea already handles null gracefully. Optionally expand the keyword fallback to all categories or retry once.",
+    "risk": "Pure edge-function logic; no signature/DB change. Confirm the client treats null category as 'leave unset' (it does). Verify classify still returns a valid {category,lifeArea} on the happy path."
+  },
+  {
+    "rank": 10,
+    "title": "Add aiya_chats.user_id FK with ON DELETE CASCADE (purge conversations on account deletion)",
+    "area": "Supabase migration",
+    "severity": "medium",
+    "files": [
+      "supabase/migrations/",
+      "src/components/SettingsSheet.tsx"
+    ],
+    "instruction": "db-schema-1. aiya_chats has no FK to public.users, so its rows (full conversation jsonb) orphan permanently on account deletion — a GDPR/privacy gap given the new privacy-policy.html and the deletion UI promising 'all data deleted'. New migration <YYYYMMDDHHMMSS>_add_aiya_chats_user_fk.sql: first DELETE FROM public.aiya_chats WHERE user_id NOT IN (SELECT id FROM public.users); then ALTER TABLE public.aiya_chats ADD CONSTRAINT aiya_chats_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE; (pre-clean MUST run before the ALTER). Optionally also add an explicit aiya_chats delete in handleDeleteAccount (SettingsSheet.tsx) for defense-in-depth and to clean existing prod orphans.",
+    "risk": "DB migration; the pre-clean delete is required or the ALTER fails on existing orphans. user_id is NOT NULL so NOT IN is null-safe. Orphans are RLS-unreachable (no cross-user exposure) so this is data-retention hygiene, not an active leak."
+  },
+  {
+    "rank": 11,
+    "title": "Drop the unvetted public-read policy on daily_question_answers and harden INSERT",
+    "area": "Supabase migration",
+    "severity": "medium",
+    "files": [
+      "supabase/migrations/"
+    ],
+    "instruction": "Merges security-2 + db-schema-10. The 'Anyone can read public answers' policy (USING is_public=true, no role scope) lets any anon-key caller read answer_text+user_id of any public row; the app always inserts is_public=false and no UI exposes a public toggle, so it is a latent ship-disabled misconfiguration. New migration: DROP POLICY IF EXISTS \"Anyone can read public answers\" ON public.daily_question_answers; (answers become strictly owner-readable via the existing owner policy). Harden INSERT to WITH CHECK (auth.uid()=user_id AND is_public=false) so future code cannot accidentally create public rows. Add UPDATE and DELETE owner policies (FOR UPDATE/DELETE USING auth.uid()=user_id WITH CHECK auth.uid()=user_id) so users can edit/delete their own answers (currently impossible — RLS denies by default).",
+    "risk": "DB migration. Non-breaking: no current code path reads via the public policy or inserts public rows. NOTE the raw finding's 'toggle via missing UPDATE policy' rationale is wrong — absent UPDATE policy already blocks UPDATE; the real vector was INSERT-time self-exposure. If public sharing later ships, use a curated anonymized VIEW + SECURITY DEFINER mutation, not a raw table USING(is_public=true) policy."
+  },
+  {
+    "rank": 12,
+    "title": "Tighten users INSERT policy to WITH CHECK (auth.uid() = id)",
+    "area": "Supabase migration",
+    "severity": "low",
+    "files": [
+      "supabase/migrations/"
+    ],
+    "instruction": "Merges security-7 + db-schema-4 (same finding). The 'Users can insert own data' policy uses WITH CHECK (true), letting any authenticated/anon caller insert a users row for any id/email (FK only constrains to a real auth user). New migration: DROP POLICY \"Users can insert own data\" ON public.users; CREATE POLICY \"Users can insert own data\" ON public.users FOR INSERT WITH CHECK (auth.uid() = id);",
+    "risk": "DB migration, flagged breaking in the audit but the legitimate self-provisioning paths (userService.ensureUserExists, Login.tsx upsert) always insert id = the current auth user's id, so they should not break. Test signup + first-login row creation after applying. Combine into the same migration batch as rank 6 if convenient."
+  },
+  {
+    "rank": 13,
+    "title": "Add memories indexes for the incremental-sync hot path and align aiya limit default",
+    "area": "Supabase migration",
+    "severity": "medium",
+    "files": [
+      "supabase/migrations/"
+    ],
+    "instruction": "Merges db-schema-6 + db-schema-9 + db-schema-5 + db-schema-8 + db-schema-7. New migration adding: (db-schema-6) CREATE INDEX IF NOT EXISTS memories_user_id_updated_at_idx ON public.memories (user_id, updated_at DESC) to serve the gt-filter+order-by on every poll. (db-schema-9) ALTER TABLE public.users ALTER COLUMN aiya_messages_limit SET DEFAULT 50 (column default is still 30 while app/migration use 50). (db-schema-5) ALTER TABLE memories ADD CONSTRAINT memories_categories_check CHECK (categories <@ ARRAY['uncategorized','success','peace','fun','love','gratitude','inspiration','growth','adventure']::text[]). (db-schema-8) CREATE UNIQUE INDEX weekly_summaries_user_week_key ON public.weekly_summaries (user_id, week_start) and switch summary writes to upsert onConflict (user_id,week_start). (db-schema-7) only if/when filtering categories server-side, add a GIN index on categories.",
+    "risk": "DB migration. The categories CHECK will fail to apply if any existing row already holds an out-of-enum value — pre-scan/clean first. The weekly_summaries unique index fails if duplicates already exist — dedupe first. Indexes are otherwise safe/non-breaking. Verify the daily question / weekly summary write paths against the new unique constraint."
+  },
+  {
+    "rank": 14,
+    "title": "Fix calendar-date off-by-one in negative-UTC timezones (render layer, not just mapper)",
+    "area": "Dates / formatting",
+    "severity": "medium",
+    "files": [
+      "src/services/memoryService.ts",
+      "src/utils/",
+      "src/pages/Home.tsx",
+      "src/services/exportService.ts",
+      "src/pages/Connections.tsx",
+      "src/services/streakService.ts",
+      "src/services/gamificationService.ts"
+    ],
+    "instruction": "Merges db-schema-3 + correctness-3 + correctness-4. (1) db-schema-3: in mapSupabaseToMemory (line 50) stop the UTC-instant round-trip — replace new Date(row.date).toISOString() with String(row.date).split('T')[0] so Memory.date stays bare YYYY-MM-DD. CRUCIAL: this alone does NOT fix display — the visible shift lives at render sites that do new Date(memory.date).toLocaleDateString(locale) which parse date-only as UTC midnight. Add a shared util (e.g. formatMemoryDate) that parses to LOCAL midnight: const [y,m,d]=str.split('T')[0].split('-').map(Number); new Date(y,m-1,d).toLocaleDateString(locale,opts). Replace the call sites: Home.tsx (585,845), exportService.ts (91,129), Connections.tsx (210). (2) correctness-3: in streakService parse dates locally (const [y,mo,d]=str.split('-').map(Number); new Date(y,mo-1,d)) for prev/curr/lastStreakEnd/lastMemoryDate so day-deltas don't shift in negative-UTC zones. (3) correctness-4: in gamificationService sort a copy by createdAt asc before indexing [0/9/49] for badge unlockedAt (Dexie returns UUID-pkey order, not createdAt).",
+    "risk": "No DB migration; stored values are already correct (cosmetic). Add a unit test mocking a negative-UTC offset. Simpler per-site alternative: pass { timeZone:'UTC', ...opts } to toLocaleDateString. Touches several files — implement as one focused batch and verify Home/Vault/export/streaks display the same calendar day in both Istanbul and an Americas TZ."
+  },
+  {
+    "rank": 15,
+    "title": "Fix SupabaseMemoryRow schema drift and add runtime enum validation in the mapper",
+    "area": "Types / mapper",
+    "severity": "medium",
+    "files": [
+      "src/types/supabase.ts",
+      "src/services/memoryService.ts",
+      "src/lib/memoryMapper.ts"
+    ],
+    "instruction": "Merges db-schema-2 + db-schema-12. (1) Add categories?: string[] to SupabaseMemoryRow in src/types/supabase.ts and either restore the SupabaseMemoryRow definition the doc comment points at in memoryMapper.ts (currently a 1-line stub) or update the comment to stop referencing the empty file. (2) In mapSupabaseToMemory (47-52) validate row.category/row.life_area against a single source-of-truth allowed-values const before casting; fall back to 'uncategorized' when not in the set (mirroring the existing life_area fallback), so DB/union drift cannot push a blank-UI value into the app.",
+    "risk": "Type + mapper only, no DB migration, no signature change. Keep the allowed-values arrays in one TS const and derive both the union type and the runtime guard from it. Verify build (strict TS)."
+  },
+  {
+    "rank": 16,
+    "title": "Add ARIA slider semantics + keyboard support to the intensity sliders",
+    "area": "Accessibility / forms",
+    "severity": "high",
+    "files": [
+      "src/components/MemoryForm.tsx",
+      "src/components/RangeSlider.tsx"
+    ],
+    "instruction": "Merges a11y-1 + a11y-2. (1) MemoryForm intensity slider (907-945): make the track focusable and add role=\"slider\" tabIndex={0} aria-label={t('intensity')} aria-valuemin={1} aria-valuemax={10} aria-valuenow={formData.intensity} aria-valuetext={`${formData.intensity}`}, plus an onKeyDown handling ArrowLeft/Down (dec, clamp 1), ArrowRight/Up (inc, clamp 10), Home (1), End (10), calling e.preventDefault() and reusing the existing clamped setFormData pattern (and hapticFeedback('light')). (2) RangeSlider (152-157): same role/tabIndex/aria-value*/aria-label on the track div and an arrow/Home/End onKeyDown routed through the existing clamp/onChange/setLocalValue path with e.preventDefault().",
+    "risk": "Purely additive ARIA + keydown; does not touch the working pointer/drag handlers, so non-breaking. t('intensity') exists in tr+en. For RangeSlider use aria-label={label || 'value'}. WCAG 2.1.1/4.1.2 fix on a required form control. Verify keyboard adjusts the value and SR announces it."
+  },
+  {
+    "rank": 17,
+    "title": "Make the Aiya chat transcript a live region for screen readers",
+    "area": "Accessibility / Aiya",
+    "severity": "medium",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/i18n.ts"
+    ],
+    "instruction": "a11y-3. On the messages container (line 1224) add role=\"log\" aria-live=\"polite\" aria-relevant=\"additions text\" aria-atomic=\"false\" so appended MessageBubble text is announced. Give TypingDots a role=\"status\" wrapper with a visually-hidden <span className=\"sr-only\">{t('aiyaTyping')}</span> and ADD aiyaTyping in BOTH tr (Aiya yaziyor...) and en (Aiya is typing...) — the key does NOT currently exist, do not ship a bare t('aiyaTyping') with no fallback. Add role=\"alert\" to the error block (1282); aiyaError already exists in both locales.",
+    "risk": "Additive ARIA + one new i18n key in both languages (CLAUDE.md 2.5). Confirm a .sr-only utility exists (Tailwind default). No signature/DB change."
+  },
+  {
+    "rank": 18,
+    "title": "Add Escape/focus-trap/scroll-lock + dialog semantics to all hand-rolled modals",
+    "area": "Accessibility / modals",
+    "severity": "medium",
+    "files": [
+      "src/components/ConfirmationDialog.tsx",
+      "src/components/ActionSheet.tsx",
+      "src/components/SettingsSheet.tsx",
+      "src/components/EditProfileSheet.tsx",
+      "src/components/ConflictResolutionDialog.tsx",
+      "src/pages/Login.tsx",
+      "src/components/MemoryForm.tsx",
+      "src/components/Select.tsx",
+      "src/components/TimePicker.tsx",
+      "src/components/DateRangePicker.tsx",
+      "src/components/ImageModal.tsx"
+    ],
+    "instruction": "Merges ui-ux-1/2/3/4/5 + a11y-5/6/7/8/9/10/13. Only ModalShell/ImageModal currently handle Escape. For each hand-rolled overlay add: a window keydown Escape->onClose effect gated on isOpen, useBodyScrollLock(isOpen), focus move-in-on-open + restore-on-close, and role=\"dialog\"/\"alertdialog\" aria-modal=\"true\" with aria-labelledby/aria-describedby on the panel. Specifics: ConfirmationDialog (ui-ux-1/a11y-9) — replicate ModalShell's logic inline (do NOT swap in ModalShell, it is a bottom-sheet and would change the centered-card design); minimum viable = Escape + useBodyScrollLock. ActionSheet (a11y-8), ConflictResolutionDialog, MemoryForm unsaved-changes dialog (a11y-10), Login forgot-password (ui-ux-4). SettingsSheet+EditProfileSheet (ui-ux-3): replace manual document.body.style.overflow with useBodyScrollLock(isOpen) for iOS-safe locking and proper restore. ImageModal (ui-ux-5/a11y-13): focus the container on mount (or use a window keydown) so arrows/Escape work without a prior click; anchor counter/hint to the fixed root with safe-area-bottom; replace the hover-only zoom hint with an always-on/auto-fading label. Select/TimePicker/DateRangePicker (a11y-5/6/7/13): add listbox/option (aria-selected), spinbutton, and grid/day aria-labels respectively plus Escape.",
+    "risk": "Additive a11y; ConfirmationDialog is the highest-value (destructive confirms). Add any new aria-label keys in tr+en. No signatures/DB change. Implement per-component so a focus-trap regression in one sheet does not block the others. Verify keyboard dismiss + no background tab-through on each."
+  },
+  {
+    "rank": 19,
+    "title": "Respect prefers-reduced-motion for Framer Motion infinite loops + bottom-nav aria-current",
+    "area": "Accessibility / motion",
+    "severity": "medium",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/components/Layout.tsx",
+      "src/components/MemoryCard.tsx",
+      "src/components/VaultMemoryList.tsx"
+    ],
+    "instruction": "Merges a11y-4 + a11y-14 + performance-9. (1) a11y-4: the CSS reduced-motion rule cannot stop Framer Motion's inline rAF transforms. Call const prefersReducedMotion = useReducedMotion() in Aiya and gate the looping animate props — hero avatar scale:[1,1.05,1] repeat:Infinity (1048-1054, 1237-1243) and TypingDots y-bounce (153-158) — animate={prefersReducedMotion ? {} : {...}}. (2) a11y-14: add aria-current={isActive ? 'page' : undefined} to the bottom-nav button (Layout.tsx ~68). (3) performance-9: in MemoryCard only stagger the first ~10 cards (render the rest with no entry animation) and apply useReducedMotion there too, reducing simultaneous animations on long Vault lists.",
+    "risk": "Visual/animation behavior change only when reduced-motion is requested or beyond the first page; no signatures/DB change. Verify the hero avatar and typing dots are static under reduced-motion and that long-list scrolling is smoother."
+  },
+  {
+    "rank": 20,
+    "title": "Add accessible names to Aiya composer textarea and overflow-menu trigger",
+    "area": "Accessibility / Aiya",
+    "severity": "medium",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/components/MemoryForm.tsx",
+      "src/i18n.ts"
+    ],
+    "instruction": "Merges a11y-11 + a11y-12. (1) a11y-11: add aria-label={t('aiyaPlaceholder')} to the Aiya textarea (1331-1349, placeholder-only naming is unreliable), and aria-label={t('memoryTextPlaceholder')} to the MemoryForm body textarea (~849). (2) a11y-12: add aria-label={t('aiyaChatOptions')} + aria-haspopup=\"menu\" + aria-expanded={showMenu} to the MoreVertical button (1173); optionally role=\"menu\"/role=\"menuitem\" on the popup. Add any missing keys (aiyaChatOptions) in tr+en.",
+    "risk": "Additive; reuse existing placeholder i18n keys where present, add aiyaChatOptions in both languages. No signature/DB change."
+  },
+  {
+    "rank": 21,
+    "title": "Remove dead react-force-graph-2d dependency",
+    "area": "Dependencies / bundle",
+    "severity": "low",
+    "files": [
+      "package.json"
+    ],
+    "instruction": "performance-1. react-force-graph-2d (^1.29.0) is never imported anywhere in src (Connections renders a plain list). Remove it from package.json dependencies, run npm install to update the lockfile, run npm run build to confirm.",
+    "risk": "Pure deletion, zero source impact. Frame as dependency hygiene (install time, lockfile, supply-chain surface) — an unimported package already contributes ZERO bytes to the built bundle, so it is NOT a bundle-size win despite the original title."
+  },
+  {
+    "rank": 22,
+    "title": "Stop ProgressiveImage from eagerly downloading every photo (restore native lazy-loading)",
+    "area": "Performance / images",
+    "severity": "high",
+    "files": [
+      "src/components/ProgressiveImage.tsx"
+    ],
+    "instruction": "performance-2. The detached new Image() preload (50-82) fetches every photo immediately on mount, so loading=\"lazy\" on the real <img> (121) is dead and the whole Vault's photos download up-front. Drop the detached Image() entirely: in the effect only reset state + set the placeholder. Render the real image bound directly to src (not post-load imageSrc) with loading={loading}, flip isLoaded via its native onLoad, and keep the existing native onError. Keep the blur-up placeholder layer (104-114). Remove the now-dead synthetic-event construction (56-81).",
+    "risk": "No public-prop change; ProgressiveImage is only used by MemoryCard and has no tests. Native loading=\"lazy\" then genuinely defers off-screen fetches. Verify blur-up still shows and off-screen Vault images only load on scroll (Storage egress drops materially)."
+  },
+  {
+    "rank": 23,
+    "title": "Code-split heavy libs (jspdf, recharts) and memoize the AVIF probe",
+    "area": "Performance / bundle",
+    "severity": "medium",
+    "files": [
+      "src/services/exportService.ts",
+      "vite.config.ts",
+      "src/utils/imageUtils.ts",
+      "src/components/MemoryForm.tsx"
+    ],
+    "instruction": "Merges performance-5 + performance-4 + performance-3. (1) performance-5: convert exportService's top-level jspdf/jspdf-autotable imports to dynamic import() inside the export function so ~250KB+ is not pulled into the Profile route chunk (SettingsSheet->exportService is static today). (2) performance-4: give recharts its own manualChunk in vite.config.ts (return 'charts-vendor' for id.includes('recharts')) so it is fetched only on the lazy Statistics route, not in the always-loaded react-vendor chunk; keep React/react-dom/react-router in react-vendor and verify no duplicate-React warning. (3) performance-3: memoize supportsAVIF()/WebP at module scope (cached Promise/boolean) so the encode+decode probe runs once per session instead of per image, and optionally Promise.all the (capped) MemoryForm compress loop.",
+    "risk": "Public compressImage/export signatures unchanged. After the recharts split, confirm Statistics renders charts and no React-duplication warning. Verify a PDF export still works (dynamic import resolves). Verify build."
+  },
+  {
+    "rank": 24,
+    "title": "Memoize Aiya message list and reduce redundant recomputation while typing",
+    "area": "Performance / Aiya + Connections",
+    "severity": "medium",
+    "files": [
+      "src/pages/Aiya.tsx",
+      "src/pages/Connections.tsx"
+    ],
+    "instruction": "Merges performance-6 + performance-10 + performance-8. (1) performance-6: wrap MessageBubble in React.memo (props are primitive/stable per message), or extract the message list into a memoized component that does not receive `input`, so each keystroke does not reconcile up to 50 motion bubbles. (2) performance-10: in SuggestionChips key the useMemo on a stable signal (memories.length or a derived hash) not the array reference, and move the Math.random shuffle out of useMemo (or seed once) so chips stop reordering on every Aiya re-render; collapse the multiple memory scans into one pass. (3) performance-8: in Connections split the stats useMemo into one keyed on `memories` (expensive aggregation+sort) and one keyed on the sorted list + `query` (cheap substring filter), or debounce the query.",
+    "risk": "Behavior-preserving memoization; no signatures/DB change. Verify chat input latency on a long conversation, that chips stop jumping, and Connections search still filters correctly."
+  },
+  {
+    "rank": 25,
+    "title": "Bound memory loading for list views and stabilize filter memo",
+    "area": "Performance / data",
+    "severity": "medium",
+    "files": [
+      "src/services/memoryService.ts",
+      "src/hooks/useMemories.ts",
+      "src/hooks/useMemoryFilters.ts",
+      "src/pages/Vault.tsx"
+    ],
+    "instruction": "Merges performance-7 + performance-11. (1) performance-7: getAll() materializes the user's entire memory set (incl. photos) on Vault/Home/Statistics/Connections/Aiya mount. Add a non-breaking getPage(userId, offset, limit) (Dexie orderBy('date').reverse().limit(N)) and use it for the Vault list path; keep getAll for Statistics aggregates but consider not holding the photos column for list/aggregate use. (2) performance-11: in useMemoryFilters drop the redundant leading [...memories] clone (filter already returns new arrays; clone only before the in-place sort), memoize the sort separately from the filters, and keep dateRange referentially stable (store start/end as separate primitives) to avoid memo invalidation from a new object identity each change.",
+    "risk": "Preserve the getAll signature; add getPage so callers opt in. Pagination changes Vault's data source — verify load-more, filters, sort, and empty-state still behave. No DB migration."
+  },
+  {
+    "rank": 26,
+    "title": "Tighten PWA image runtime caching so Supabase photos use the larger cache",
+    "area": "Performance / PWA",
+    "severity": "low",
+    "files": [
+      "vite.config.ts"
+    ],
+    "instruction": "performance-12. The generic image-extension CacheFirst rule (maxEntries 100) can capture Supabase storage photo URLs that were intended for the supabase-storage-cache (maxEntries 200), evicting photos sooner. Exclude supabase.co/storage hosts from the broad image-extension regex (or raise its maxEntries) so storage photos deterministically land in the 200-entry cache.",
+    "risk": "Workbox config only; verify rule ordering and that storage photos hit the intended cache. No source/DB change."
+  },
+  {
+    "rank": 27,
+    "title": "Activate per-route error isolation and wire RouteErrorBoundary logging",
+    "area": "Error handling",
+    "severity": "medium",
+    "files": [
+      "src/components/Layout.tsx",
+      "src/components/RouteErrorBoundary.tsx"
+    ],
+    "instruction": "error-handling-1. RouteErrorBoundary is fully built (Retry/Go Home, i18n keys exist) but never mounted, so a page render crash bubbles to the root boundary and replaces the whole app (nav included). Wrap the shared <Outlet/> in Layout.tsx (~line 50) with RouteErrorBoundary, keyed by useLocation().pathname so it resets on navigation, isolating crashes to the broken page while nav/layout stay mounted. Add errorLoggingService.logError inside RouteErrorBoundary.componentDidCatch (mirror ErrorBoundary.tsx:28) — it currently only DEV-console.errors.",
+    "risk": "Additive; the root ErrorBoundary already catches+logs, so this is UX isolation + the missing log call (down-scoped from high). useLocation is already imported in Layout. Verify a forced render error in one page shows the route fallback with nav intact."
+  },
+  {
+    "rank": 28,
+    "title": "Stop leaking stack traces and map raw auth/Aiya/OAuth errors to i18n",
+    "area": "Error handling / i18n",
+    "severity": "medium",
+    "files": [
+      "src/components/ErrorBoundary.tsx",
+      "src/pages/Aiya.tsx",
+      "src/services/aiyaService.ts",
+      "src/hooks/useOAuth.ts",
+      "src/pages/ResetPassword.tsx",
+      "src/pages/Login.tsx",
+      "src/i18n.ts"
+    ],
+    "instruction": "Merges error-handling-2/4/5/6/10. (1) error-handling-2: in ErrorBoundary.render gate error.stack behind import.meta.env.DEV; in production show only the friendly localized message. (2) error-handling-4: in Aiya don't surface raw error.message — map known cases (429 limit, network) to i18n keys, fall back to t('aiyaError'), keep raw msg for logging; replace the hardcoded-Turkish throws in aiyaService (481, 517) with stable error codes. (3) error-handling-5: useOAuth lines 269/341 — use toast.error(t('oauthError')) and log the raw native string instead of showing hardcoded Turkish + raw English. (4) error-handling-6: ResetPassword (41) — map known auth errors to i18n, fall back to t('errorOccurred'), and add errorLoggingService.logError (currently never logs). (5) error-handling-10: Login (319) — map common Supabase auth messages to i18n keys, keep raw msg only in the log call.",
+    "risk": "User-facing strings must be tr+en (CLAUDE.md 2.5/2.18). Add an auth-error-message->i18n-key mapping helper to avoid duplication. No signatures/DB change. Verify error toasts/blocks render localized text, not English/mixed."
+  },
+  {
+    "rank": 29,
+    "title": "Stop swallowing errors in dailyQuestionService and draft/auth catch blocks",
+    "area": "Error handling",
+    "severity": "medium",
+    "files": [
+      "src/services/dailyQuestionService.ts",
+      "src/components/MemoryForm.tsx",
+      "src/App.tsx"
+    ],
+    "instruction": "Merges error-handling-3 + error-handling-8 + error-handling-9. (1) error-handling-3: dailyQuestionService.saveAnswer (178/165), hasAnsweredToday, getTodaysQuestion (101) return null on error with zero logging — call errorLoggingService.logError before returning the fallback so a failed answer save is not invisible (CLAUDE.md 1.8). (2) error-handling-8: MemoryForm draft save/restore catches (354,386,283,301) are comment-only — add DEV-guarded console.warn(error) and, on the restore path, clear the corrupted key so the next mount starts clean. (3) error-handling-9: App.tsx onAuthStateChange catches (167,186) swallow fetchUserData/ensureUserExists failures — add errorLoggingService.logError or DEV console.warn while keeping non-blocking behavior.",
+    "risk": "Logging-only; preserves existing control flow and fallbacks. No signature/DB change."
+  },
+  {
+    "rank": 30,
+    "title": "Wire errorLoggingService production transport",
+    "area": "Error handling / observability",
+    "severity": "medium",
+    "files": [
+      "src/services/errorLoggingService.ts"
+    ],
+    "instruction": "error-handling-7. sendToErrorService() is entirely commented-out placeholder, so in production errors only land in device localStorage (capped 100) with no remote visibility for crashes, OAuth/sync failures, or the global unhandledrejection handler. Wire it to a real sink (Sentry, or a Supabase edge function / table insert), or, if deferring, document the limitation with a clear TODO and add a user-triggerable export-logs path.",
+    "risk": "If using a Supabase table, that table needs RLS (CLAUDE.md 2.1) and a migration. Keep the localStorage fallback. Verify a thrown error is transmitted in a prod build."
+  },
+  {
+    "rank": 31,
+    "title": "Scope App store subscriptions and consolidate online/offline listeners",
+    "area": "State / effects",
+    "severity": "medium",
+    "files": [
+      "src/App.tsx",
+      "src/store/useStore.ts",
+      "src/components/OfflineIndicator.tsx"
+    ],
+    "instruction": "Merges state-effects-1 + state-effects-2. (1) state-effects-1: App.tsx does selector-less useStore() so it re-renders the whole routed tree on every openModalCount/isOnline/theme/setUser change. Read each slice with its own selector: const init = useStore(s=>s.init); const setUser = useStore(s=>s.setUser); const theme = useStore(s=>s.theme). (2) state-effects-2: useStore.init() registers window online/offline listeners whose cleanup() is never called (dead) and duplicates OfflineIndicator's own listeners. Remove the listener registration (and onlineListenersRegistered/onlineHandler globals + unused cleanup()) from init(), leaving OfflineIndicator as the sole owner.",
+    "risk": "Selector change is behavior-preserving but verify theme application and migration-prompt/setUser flows still work. Removing the store listeners assumes OfflineIndicator is always mounted (it is, in Layout) — confirm before deleting. No DB change."
+  },
+  {
+    "rank": 32,
+    "title": "Fix notification timer-ID persistence and minor effect-correctness issues",
+    "area": "State / effects",
+    "severity": "low",
+    "files": [
+      "src/services/notificationService.ts",
+      "src/hooks/useVoiceInput.ts",
+      "src/App.tsx",
+      "src/pages/Aiya.tsx"
+    ],
+    "instruction": "Merges state-effects-4/5/3/6/7. (1) state-effects-4: notificationService stores setInterval/setTimeout IDs in localStorage and clearInterval(Number(stored)) across reloads — invalid/colliding. Keep timer IDs in a module-level Map keyed by userId, and add the missing existing-interval clear to the web-fallback branch (339-348) before creating a new interval. (2) state-effects-5: add stopListening to startListening's dep array in useVoiceInput (or hoist it) — stale-capture risk. (3) state-effects-3: in App.tsx onAuthStateChange guard async setMigrationPrompt/setUser with a local `active` liveness flag set false in cleanup. (4) state-effects-6: centralize sync start into one ensureSyncStarted(userId) helper used by all branches and add an AbortController/generation counter so a sync completing after stop() doesn't flip flags for a stale user. (5) state-effects-7: store maxViewport in state (not a ref read during render) so isKeyboardOpen is derived purely from state.",
+    "risk": "Low-risk correctness cleanups; current behavior mostly works due to module guards. Verify reminders still schedule/cancel correctly and voice input + keyboard-open detection in Aiya are unaffected. No DB change."
+  },
+  {
+    "rank": 33,
+    "title": "Consolidate users column-select + new-user defaults; route users mutations through the service layer",
+    "area": "Code quality / services",
+    "severity": "medium",
+    "files": [
+      "src/lib/userService.ts",
+      "src/components/EditProfileSheet.tsx",
+      "src/components/SettingsSheet.tsx",
+      "src/lib/userMapper.ts",
+      "src/pages/Login.tsx"
+    ],
+    "instruction": "Merges code-quality-1/2/3/4. (1) Export one USER_SELECT_COLUMNS constant and reuse it in all four explicit selects (userService:19, EditProfileSheet:175, SettingsSheet:99/170) AND replace the select('*') at SettingsSheet:127 (which defeats the egress optimization by pulling avatar_url on every language toggle). (2) CLAUDE.md 2.4: add updateUser/deleteAccount to userService and have EditProfileSheet (125) and SettingsSheet (91,267) call those instead of inline supabase.from('users') and a raw delete that bypasses memoryService/Dexie; reuse fetchUserData. (3) Extract a single AIYA_MESSAGES_LIMIT constant for the magic 50 duplicated across userService:114/userMapper:16/Login:225,262; fix the empty catch at notificationService:294 (CLAUDE.md 1.8), cast main.tsx:12 window-as-any via a WindowWithCapacitor type, use a toast instead of native confirm in registerSW.ts:21, and hoist the duplicated WEB_VIBRATION_PATTERNS map in capacitor.ts:311/326.",
+    "risk": "Refactor with no behavior change intended, but >5 files — implement as one careful batch, keep fetchUserData/mapper signatures intact, and verify profile edit, account delete (still cascades), language toggle egress, and signup defaults. No DB migration."
+  },
+  {
+    "rank": 34,
+    "title": "Polish: drift-prone defaultValues, skeleton CLS, modal z-index, mobile affordances, dark hover",
+    "area": "UI / i18n polish",
+    "severity": "low",
+    "files": [
+      "src/components/MemoryFormPhotos.tsx",
+      "src/pages/Vault.tsx",
+      "src/components/VaultMemoryList.tsx",
+      "src/components/OfflineIndicator.tsx",
+      "src/components/ModalShell.tsx",
+      "src/pages/Aiya.tsx",
+      "src/components/MemoryCard.tsx"
+    ],
+    "instruction": "Merges i18n-10 + ui-ux-6/7/8/9/10/11/12. (1) i18n-10: remove the redundant/drifting defaultValue strings in MemoryFormPhotos (62,86) — the canonical key exists. (2) ui-ux-6: wrap the SettingsSheet collapsible Section body in <AnimatePresence initial={false}> so the exit height animation actually plays. (3) ui-ux-7: bump MemoryCard edit/delete buttons to >=44px (touch-target / w-11 h-11) keeping the 16px icon. (4) ui-ux-8: render a lightweight filter-row skeleton or reserve min-height during Vault load to cut CLS. (5) ui-ux-9: give OfflineIndicator a dedicated higher z (z-[60]/z-[110]) so it is deterministic vs the z-50 modal layer. (6) ui-ux-10: make the Aiya list-view delete button visible on touch (opacity-100 md:opacity-0 md:group-hover:opacity-100). (7) ui-ux-11: replace Aiya root inline height:'100vh' with .full-height/100dvh. (8) ui-ux-12: add a dark hover/active state to the Aiya chat-header Plus button (dark:hover:bg-primary/20).",
+    "risk": "All cosmetic/low-risk and independent; cherry-pick freely. Verify dark mode and mobile touch on the changed controls. No signatures/DB change."
+  }
+]
