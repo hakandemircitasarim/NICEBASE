@@ -1,3 +1,6 @@
 # IDE / local
 .cursor/
 .idea/
+
+# scratch icon work
+tmp_icon/

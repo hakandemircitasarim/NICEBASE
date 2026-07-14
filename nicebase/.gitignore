@@ -35,3 +35,6 @@ supabase/migration_history_dump.sql
 
 .vercel
 android/app/release.keystore
+
+# Supabase CLI local state (machine-specific)
+supabase/.temp/
