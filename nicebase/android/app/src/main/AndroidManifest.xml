@@ -56,12 +56,8 @@
          Play Store policy rejection. Reminders work fine with inexact alarms. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
-    <!-- Camera and Media Permissions -->
-    <!-- Android 13+ (API 33+) için yeni medya izinleri -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <!-- Android 12 ve altı için eski storage izni -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
-        android:maxSdkVersion="32" />
-    <!-- Camera permission -->
-    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- No media/camera permissions: photos are picked exclusively through the
+         system photo picker (<input type="file">), which needs none of them.
+         Declaring READ_MEDIA_IMAGES/CAMERA without such usage triggers Google
+         Play's Photo and Video Permissions policy review/rejection. -->
 </manifest>

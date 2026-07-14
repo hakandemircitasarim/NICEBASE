@@ -147,22 +147,6 @@ export async function compressImage(file: File, maxWidth: number = 1920, quality
   })
 }
 
-/**
- * Get image file from camera or gallery
- */
-export async function getImageFromCamera(): Promise<File | null> {
-  return new Promise((resolve) => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = 'image/*'
-    input.capture = 'environment' // Use back camera on mobile
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0]
-      resolve(file || null)
-    }
-    input.click()
-  })
-}
 
 
 
