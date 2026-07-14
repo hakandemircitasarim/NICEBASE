@@ -21,7 +21,7 @@ import { useStore } from '../store/useStore'
 import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import { hapticFeedback } from '../utils/haptic'
-import { normalizeConnectionKey } from '../utils/connections'
+import { cleanConnectionName, normalizeConnectionKey } from '../utils/connections'
 import SettingsSheet from '../components/SettingsSheet'
 import EditProfileSheet from '../components/EditProfileSheet'
 
@@ -99,19 +99,24 @@ export default function Profile() {
     return { totalMemories, coreMemories, totalConnections, currentStreak }
   }, [memories])
 
-  // Top connections
+  // Top connections — group by normalized key, display the original casing
+  // (first occurrence wins).
   const topConnections = useMemo(() => {
-    const connMap = new Map<string, number>()
+    const connMap = new Map<string, { name: string; count: number }>()
     for (const memory of memories) {
       for (const conn of memory.connections) {
         const key = normalizeConnectionKey(conn)
-        connMap.set(key, (connMap.get(key) || 0) + 1)
+        const entry = connMap.get(key)
+        if (entry) {
+          entry.count += 1
+        } else {
+          connMap.set(key, { name: cleanConnectionName(conn), count: 1 })
+        }
       }
     }
-    return Array.from(connMap.entries())
-      .sort((a, b) => b[1] - a[1])
+    return Array.from(connMap.values())
+      .sort((a, b) => b.count - a.count)
       .slice(0, 5)
-      .map(([name, count]) => ({ name, count }))
   }, [memories])
 
   // Avatar

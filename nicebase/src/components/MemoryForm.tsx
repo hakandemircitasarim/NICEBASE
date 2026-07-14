@@ -415,12 +415,19 @@ export default function MemoryForm({
     }
   }, [memory, userId, initialDate, t, initialCategories])
 
-  // Clear draft on save
+  // Purge BOTH persistence layers (localStorage draft + sessionStorage
+  // background snapshot) — used on successful save and on explicit discard so
+  // the text doesn't resurrect on next open.
   const clearDraft = useCallback(() => {
     try {
       localStorage.removeItem(`memory_draft_${userId}`)
     } catch (error) {
-      // Ignore
+      console.warn('[MemoryForm] draft clear failed:', error)
+    }
+    try {
+      sessionStorage.removeItem(`memory_form_state_${userId}`)
+    } catch (error) {
+      console.warn('[MemoryForm] snapshot clear failed:', error)
     }
   }, [userId])
 
@@ -585,11 +592,6 @@ export default function MemoryForm({
       setSaveSuccess(true)
       // Clear all draft storage on successful save
       clearDraft()
-      try {
-        sessionStorage.removeItem(`memory_form_state_${userId}`)
-      } catch (_) {
-        // Ignore
-      }
       await new Promise(r => setTimeout(r, 500))
 
       if (savedMemory) {
@@ -1414,6 +1416,12 @@ export default function MemoryForm({
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => {
+                      // Explicit discard: purge BOTH persistence layers (draft
+                      // + background snapshot) so the discarded text doesn't
+                      // resurrect on next open.
+                      if (!memory) {
+                        clearDraft()
+                      }
                       setShowDirtyConfirm(false)
                       onClose()
                     }}

@@ -30,6 +30,7 @@ import { notificationService } from '../services/notificationService'
 import { exportService } from '../services/exportService'
 import { hapticFeedback } from '../utils/haptic'
 import { getPublicWebBaseUrl } from '../utils/publicUrl'
+import { getLocalUserId } from '../utils/localUserId'
 import { errorLoggingService } from '../services/errorLoggingService'
 import { performanceService } from '../services/performanceService'
 import ConfirmationDialog from './ConfirmationDialog'
@@ -38,6 +39,7 @@ import TimePicker from './TimePicker'
 import { useModalPresence } from '../hooks/useModalPresence'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useEscapeKey } from '../hooks/useEscapeKey'
+import { useBackButton } from '../hooks/useBackButton'
 
 interface SettingsSheetProps {
   onClose: () => void
@@ -166,6 +168,10 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
   // iOS-safe scroll lock with proper restore (replaces manual body.overflow).
   useBodyScrollLock(true)
   useEscapeKey(onClose, true)
+  useBackButton(() => {
+    onClose()
+    return true
+  }, true)
 
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section)
@@ -239,8 +245,12 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     // Track whether the notification permission was denied so we don't ALSO
     // claim success below (#55/#57): the time is saved but no notification fires.
     let permissionDenied = false
+    // Only send daily_reminder_time when it actually changed (empty string
+    // counts as null) — an already-null value shouldn't be rewritten on every save.
+    const reminderChanged =
+      (dailyReminderTime || null) !== (user.dailyReminderTime || null)
     if (dailyReminderTime) {
-      updates.daily_reminder_time = dailyReminderTime
+      if (reminderChanged) updates.daily_reminder_time = dailyReminderTime
       notificationService.cancelReminder(user.id)
       const granted = await notificationService.requestPermission()
       if (granted) {
@@ -249,8 +259,10 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
         permissionDenied = true
       }
     } else {
-      // Reminder disabled — cancel BOTH the daily reminder and the streak
-      // protection notification so neither keeps firing.
+      // Reminder disabled — persist the cleared time (otherwise the old value
+      // comes back on refetch) and cancel BOTH the daily reminder and the
+      // streak protection notification so neither keeps firing.
+      if (reminderChanged) updates.daily_reminder_time = null
       notificationService.cancelReminder(user.id)
       notificationService.cancelStreakProtection(user.id)
     }
@@ -277,6 +289,13 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
         dailyReminderTime: dailyReminderTime || null,
         weeklySummaryDay: weeklyDayValue,
       })
+      reportResult()
+      return
+    }
+
+    // Nothing changed remotely — never send an empty payload (supabase
+    // .update({}) errors and would surface a false save failure).
+    if (Object.keys(updates).length === 0) {
       reportResult()
       return
     }
@@ -483,10 +502,12 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
   }
 
   const handleExport = async (format: 'json' | 'pdf' | 'csv') => {
-    if (!user) return
+    // Guests keep their memories in Dexie under a local user id — export works
+    // for them too by resolving the effective id.
+    const exportUserId = user?.id ?? getLocalUserId()
     try {
       toast.loading(t('exporting'), { id: 'export' })
-      const memories = await memoryService.getAll(user.id)
+      const memories = await memoryService.getAll(exportUserId)
       const filename = `nicebase-export-${new Date().toISOString().split('T')[0]}`
 
       if (format === 'json') {

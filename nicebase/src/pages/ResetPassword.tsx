@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { KeyRound } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import LoadingSpinner from '../components/LoadingSpinner'
+import { useBackButton } from '../hooks/useBackButton'
 import { errorLoggingService } from '../services/errorLoggingService'
 import { authErrorMessage } from '../utils/authErrors'
 
@@ -36,6 +37,13 @@ export default function ResetPassword() {
       .finally(() => setSessionChecked(true))
     return () => subscription.unsubscribe()
   }, [])
+
+  // Android hardware back: /reset-password renders OUTSIDE Layout, so an
+  // unconsumed back press would exit the app mid-reset. Go home instead.
+  useBackButton(() => {
+    navigate('/', { replace: true })
+    return true
+  })
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault()

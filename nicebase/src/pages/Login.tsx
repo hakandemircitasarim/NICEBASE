@@ -13,10 +13,12 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import OAuthButtons from '../components/OAuthButtons'
 import ForgotPasswordForm from '../components/ForgotPasswordForm'
 import { useOAuth } from '../hooks/useOAuth'
+import { useBackButton } from '../hooks/useBackButton'
 import { hapticFeedback } from '../utils/haptic'
 import { withTimeout } from '../utils/timeout'
 import { getPublicWebBaseUrl } from '../utils/publicUrl'
 import { isValidEmail as validateEmail } from '../utils/formValidation'
+import { currentLanguage } from '../lib/userDefaults'
 
 const AUTH_TIMEOUT_MS = 15000
 
@@ -82,6 +84,30 @@ export default function Login() {
     }
   }, [user, navigate])
 
+  // Reset the "check your inbox" state back to the plain login form.
+  const dismissPendingVerification = () => {
+    setPendingVerificationEmail(null)
+    setIsSignUp(false)
+    setPassword('')
+    setConfirmPassword('')
+    setAcceptedTerms(false)
+    setErrors({})
+  }
+
+  // Android hardware back: /login renders OUTSIDE Layout (no page-level
+  // handler beneath), so an unconsumed back press would exit the app.
+  // Dismiss the pending-verification sub-view if open; otherwise go home
+  // (the router bounces unauthenticated users straight back here). The
+  // forgot-password overlay registers its own handler on top while open.
+  useBackButton(() => {
+    if (pendingVerificationEmail) {
+      dismissPendingVerification()
+    } else {
+      navigate('/', { replace: true })
+    }
+    return true
+  })
+
   // Email validation - use utility function
   const isValidEmail = validateEmail
 
@@ -143,8 +169,8 @@ export default function Login() {
         error instanceof Error ? error : new Error('Resend verification error'),
         'error'
       )
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      toast.error(errorMessage || t('failedToSendEmail'))
+      const msg = error instanceof Error ? error.message : String(error || '')
+      toast.error(authErrorMessage(msg, t))
     } finally {
       setLoading(false)
     }
@@ -180,8 +206,8 @@ export default function Login() {
         error instanceof Error ? error : new Error('Password reset error'),
         'error'
       )
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      toast.error(errorMessage || t('errorOccurred'))
+      const msg = error instanceof Error ? error.message : String(error || '')
+      toast.error(authErrorMessage(msg, t))
     } finally {
       setForgotPasswordLoading(false)
     }
@@ -230,6 +256,15 @@ export default function Login() {
         if (!data.user) {
           // No user returned from signup
           toast.error(t('accountCreationFailed'))
+        } else if (!data.session && (data.user.identities?.length ?? 0) === 0) {
+          // Supabase enumeration protection: signing up with an already-registered
+          // confirmed email returns a fake user with NO identities and no session,
+          // and no confirmation mail is ever sent. Don't show the "check your
+          // inbox" state — point the user to login / password reset instead.
+          toast(t('emailAlreadyRegistered'), { duration: 6000, icon: 'ℹ️' })
+          setIsSignUp(false)
+          setConfirmPassword('')
+          setAcceptedTerms(false)
         } else if (!data.session) {
           // Email confirmation is required: signUp returned a user but NO session.
           // Do NOT setUser/navigate (that would drop the user into an
@@ -250,7 +285,7 @@ export default function Login() {
               aiya_messages_limit: 50,
               weekly_summary_day: null,
               daily_reminder_time: null,
-              language: 'tr',
+              language: currentLanguage(),
               theme: 'light',
               created_at: new Date().toISOString(),
             },
@@ -380,21 +415,14 @@ export default function Login() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setPendingVerificationEmail(null)
-                setIsSignUp(false)
-                setPassword('')
-                setConfirmPassword('')
-                setAcceptedTerms(false)
-                setErrors({})
-              }}
+              onClick={dismissPendingVerification}
               className="w-full text-primary hover:text-primary-dark font-medium text-sm transition-colors"
             >
               {t('backToLogin')}
             </button>
           </div>
         ) : (
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} noValidate className="space-y-5">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}

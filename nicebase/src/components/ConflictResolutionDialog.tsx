@@ -7,6 +7,7 @@ import { memoryService } from '../services/memoryService'
 import { hapticFeedback } from '../utils/haptic'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useEscapeKey } from '../hooks/useEscapeKey'
+import { useBackButton } from '../hooks/useBackButton'
 import toast from 'react-hot-toast'
 
 interface ConflictResolutionDialogProps {
@@ -27,6 +28,8 @@ export default function ConflictResolutionDialog({
   useBodyScrollLock(true)
   // Escape closes only while not mid-resolution.
   useEscapeKey(() => { if (!resolving) onClose() }, true)
+  // Hardware back closes only while not mid-resolution; always consumed.
+  useBackButton(() => { if (!resolving) onClose(); return true }, true)
 
   if (!cloudMemory) {
     return null

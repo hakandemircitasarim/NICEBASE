@@ -166,6 +166,7 @@ const resources = {
       confirmPassword: 'Şifre Tekrar',
       acceptTerms: 'Şartları kabul ediyorum',
       accountCreated: 'Hesap oluşturuldu! Lütfen e-postanızı doğrulayın.',
+      emailAlreadyRegistered: 'Bu e-posta zaten kayıtlı. Giriş yapmayı veya şifre sıfırlamayı deneyin.',
       privacyPolicy: 'Gizlilik Politikası',
       checkYourInbox: 'Gelen kutunuzu kontrol edin',
       verifyEmailInstructions: '{{email}} adresine bir doğrulama bağlantısı gönderdik. Girişi tamamlamak için lütfen e-postanızı doğrulayın.',
@@ -200,6 +201,7 @@ const resources = {
       profilePremiumDescription: 'Sınırsız özellikler ile deneyiminizi geliştirin',
       profileSettingsDescription: 'Tema, dil, bildirimler ve daha fazlası',
       noConnectionsYet: 'Henüz bağlantı yok',
+      connectionsNoSearchResults: 'Aramanla eşleşen bağlantı yok',
       premiumComingSoon: 'Premium yakında geliyor!',
       editProfile: 'Profili Düzenle',
       editProfileDescription: 'İsim, fotoğraf, hakkında ve diğer bilgileriniz',
@@ -454,9 +456,6 @@ const resources = {
       oneMonthAgo: '1 ay önce',
       monthsAgo: '{{count}} ay önce',
       thisYear: 'Bu yıl',
-      days_one: '{{count}} gün',
-      days_other: '{{count}} gün',
-      days: 'gün',
       protectedToday: 'Bugün korundu',
       addMemoryToday: 'Bugün anı ekle',
       startStreak: 'Seri Başlat',
@@ -464,6 +463,13 @@ const resources = {
       record: 'Rekor',
       keepGoingToBreakRecord: '{{count}} gün daha devam et, {{longest}} günlük rekorunu kır!',
       gettingStarted: 'Başlangıç',
+      oneWeek: 'Bir Hafta',
+      twoWeeks: 'İki Hafta',
+      magnificent: 'Muhteşem',
+      amazing: 'İnanılmaz',
+      legendary: 'Efsanevi',
+      daysUnit_one: 'gün',
+      daysUnit_other: 'gün',
       dayStreak: 'günlük seri',
       addFirstMemoryToStartStreak: 'İlk anını ekle, seriyi başlat!',
       quickAddAriaLabel: 'Hızlı anı ekle',
@@ -1324,6 +1330,7 @@ const resources = {
       confirmPassword: 'Confirm Password',
       acceptTerms: 'I accept the terms',
       accountCreated: 'Account created! Please verify your email.',
+      emailAlreadyRegistered: 'This e-mail is already registered. Try logging in or resetting your password.',
       privacyPolicy: 'Privacy Policy',
       checkYourInbox: 'Check your inbox',
       verifyEmailInstructions: 'We sent a confirmation link to {{email}}. Please verify your email to finish signing in.',
@@ -1358,6 +1365,7 @@ const resources = {
       profilePremiumDescription: 'Enhance your experience with unlimited features',
       profileSettingsDescription: 'Theme, language, notifications and more',
       noConnectionsYet: 'No connections yet',
+      connectionsNoSearchResults: 'No connections match your search',
       premiumComingSoon: 'Premium coming soon!',
       editProfile: 'Edit Profile',
       editProfileDescription: 'Name, photo, bio and other info',
@@ -1612,9 +1620,6 @@ const resources = {
       addFirstMemory: 'Add your first memory',
       breathing: 'Breathing',
       randomMemory: 'Random Memory',
-      days_one: '{{count}} day',
-      days_other: '{{count}} days',
-      days: 'days',
       protectedToday: 'Protected today',
       addMemoryToday: 'Add memory today',
       startStreak: 'Start Streak',
@@ -1622,6 +1627,13 @@ const resources = {
       record: 'Record',
       keepGoingToBreakRecord: 'Keep going for {{count}} more days to break your {{longest}}-day record!',
       gettingStarted: 'Getting Started',
+      oneWeek: 'One Week',
+      twoWeeks: 'Two Weeks',
+      magnificent: 'Magnificent',
+      amazing: 'Amazing',
+      legendary: 'Legendary',
+      daysUnit_one: 'day',
+      daysUnit_other: 'days',
       dayStreak: 'day streak',
       addFirstMemoryToStartStreak: 'Add your first memory to start a streak!',
       quickAddAriaLabel: 'Quick add memory',
@@ -2336,16 +2348,20 @@ export const getTextDirection = (lang: string): 'ltr' | 'rtl' => {
   return rtlLanguages.includes(lang) ? 'rtl' : 'ltr'
 }
 
-// Update document direction when language changes
+// Update document direction and language when language changes.
+// `lang` matters beyond semantics: CSS text-transform follows it, so a stale
+// lang="tr" turns English "high" into "HİGH" (Turkish dotted capital İ).
 i18n.on('languageChanged', (lng) => {
   if (typeof document !== 'undefined') {
     document.documentElement.dir = getTextDirection(lng)
+    document.documentElement.lang = lng
   }
 })
 
-// Set initial direction
+// Set initial direction and language
 if (typeof document !== 'undefined') {
   document.documentElement.dir = getTextDirection(i18n.language)
+  document.documentElement.lang = i18n.language
 }
 
 export default i18n

@@ -16,6 +16,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import ConfirmationDialog from '../components/ConfirmationDialog'
 import MarkdownText from '../components/MarkdownText'
 import { aiyaService, routeMessage, buildTieredMemoryContext } from '../services/aiyaService'
+import { errorLoggingService } from '../services/errorLoggingService'
 import { hapticFeedback } from '../utils/haptic'
 import { generateUUID } from '../utils/uuid'
 import { parseLocalDate } from '../utils/dateFormat'
@@ -87,6 +88,29 @@ function saveJson(key: string, value: unknown) {
     }
     return false
   }
+}
+
+// ─── Deletion tombstones ─────────────────────────────────
+// Chat ids deleted locally but possibly not yet in the cloud. Kept per user so
+// the startup cloud/local merge can never resurrect a deleted chat; each load
+// retries the cloud delete and un-tombstones the id once the row is gone.
+function tombstoneKey(userId: string) {
+  return `aiya_deleted_${userId}`
+}
+
+function loadTombstones(userId: string): string[] {
+  const stored = loadJson<string[]>(tombstoneKey(userId))
+  return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : []
+}
+
+function addTombstone(userId: string, chatId: string) {
+  const list = loadTombstones(userId)
+  if (!list.includes(chatId)) saveJson(tombstoneKey(userId), [...list, chatId])
+}
+
+function removeTombstone(userId: string, chatId: string) {
+  const list = loadTombstones(userId)
+  if (list.includes(chatId)) saveJson(tombstoneKey(userId), list.filter((id) => id !== chatId))
 }
 
 function trimMessages(msgs: AiyaMessage[]) {
@@ -655,6 +679,24 @@ export default function Aiya() {
           }
         }
 
+        // Never let tombstoned (locally-deleted) chats resurrect — drop them
+        // from the cloud result BEFORE merging, and retry each pending cloud
+        // delete in the background (un-tombstoned once the row is gone).
+        if (userId && !userId.startsWith('local')) {
+          const tombstones = loadTombstones(userId)
+          if (tombstones.length > 0) {
+            if (cloudChats) {
+              const tombstoned = new Set(tombstones)
+              cloudChats = cloudChats.filter((c) => !tombstoned.has(c.id))
+            }
+            for (const deadId of tombstones) {
+              void aiyaService.deleteChat(userId, deadId).then((deleted) => {
+                if (deleted) removeTombstone(userId, deadId)
+              })
+            }
+          }
+        }
+
         // Step 3: Use FUNCTIONAL update to preserve any chats created during the async fetch
         const mergedFromCloud = cloudChats && Array.isArray(cloudChats) && cloudChats.length > 0 ? cloudChats : null
 
@@ -765,10 +807,11 @@ export default function Aiya() {
   const debouncedChats = useDebounce(chats, 2000)
 
   // ─── Persist chats to localStorage ─────────────────────
+  // Empty arrays are persisted too (deleting the LAST chat must stick); the
+  // `loaded` guard alone prevents clobbering storage before the initial load.
   useEffect(() => {
     if (!loaded) return
-    if (chats.length === 0) return
-    
+
     try {
       saveJson(chatsKey, chats)
       if (import.meta.env.DEV) {
@@ -859,7 +902,10 @@ export default function Aiya() {
   }, [scrollToBottom, loadDraft])
 
   const deleteChat = useCallback((id: string) => {
-    // Clean up draft
+    // Offline-first: remove the chat locally right away so deletion works
+    // without a network. For cloud users, tombstone the id FIRST so the
+    // startup cloud/local merge can never resurrect it, then clean up the
+    // cloud row in the background (retried on the next load if it fails).
     saveDraft(id, '')
     setChats((prev) => prev.filter((c) => c.id !== id))
     if (activeChatId === id) {
@@ -867,7 +913,24 @@ export default function Aiya() {
       setView('list')
     }
     hapticFeedback('success')
-  }, [activeChatId, saveDraft])
+
+    if (userId && !userId.startsWith('local')) {
+      addTombstone(userId, id)
+      void aiyaService.deleteChat(userId, id).then((deleted) => {
+        if (deleted) {
+          removeTombstone(userId, id)
+        } else {
+          // Local delete already succeeded — keep the tombstone so the next
+          // load retries the cloud cleanup; no toast needed.
+          errorLoggingService.logError(
+            new Error(`[Aiya] Cloud chat delete deferred (id: ${id})`),
+            'warning',
+            userId
+          )
+        }
+      })
+    }
+  }, [activeChatId, saveDraft, userId])
 
   const goToList = useCallback(() => {
     // Save current draft before going to list
@@ -898,9 +961,13 @@ export default function Aiya() {
     try {
       const cloud = await aiyaService.loadChats(userId)
       if (cloud && cloud.length > 0) {
+        // Same tombstone guard as loadData — a retry must not resurrect a
+        // chat deleted locally while its cloud row is still pending cleanup.
+        const tombstoned = new Set(loadTombstones(userId))
         setChats((prev) => {
           const map = new Map(prev.map((c) => [c.id, c]))
           for (const c of cloud) {
+            if (tombstoned.has(c.id)) continue
             const ex = map.get(c.id)
             if (!ex || c.updatedAt >= ex.updatedAt) map.set(c.id, c)
           }
@@ -1658,7 +1725,7 @@ export default function Aiya() {
         isOpen={deleteConfirm.isOpen}
         onClose={() => setDeleteConfirm({ isOpen: false, chatId: null })}
         onConfirm={() => {
-          if (deleteConfirm.chatId) deleteChat(deleteConfirm.chatId)
+          if (deleteConfirm.chatId) void deleteChat(deleteConfirm.chatId)
           setDeleteConfirm({ isOpen: false, chatId: null })
         }}
         title={t('aiyaDeleteChat', { defaultValue: 'Sohbeti Sil' })}

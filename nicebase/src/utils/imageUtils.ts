@@ -26,7 +26,10 @@ export function supportsAVIF(): Promise<boolean> {
     canvas.height = 1
     canvas.toBlob(
       (blob) => {
-        if (!blob) {
+        // Chromium silently falls back to PNG when AVIF encoding is
+        // unsupported — the blob's actual type must match, or every photo
+        // would be "compressed" as lossless PNG.
+        if (!blob || blob.type !== 'image/avif') {
           resolve(false)
           return
         }
@@ -79,7 +82,7 @@ export async function compressImage(file: File, maxWidth: number = 1920, quality
         if (avifSupported) {
           canvas.toBlob(
             (blob) => {
-              if (blob) {
+              if (blob && blob.type === 'image/avif') {
                 const reader = new FileReader()
                 reader.onload = () => resolve(reader.result as string)
                 reader.onerror = () => tryWebP()
@@ -99,7 +102,7 @@ export async function compressImage(file: File, maxWidth: number = 1920, quality
           if (supportsWebP()) {
             canvas.toBlob(
               (blob) => {
-                if (blob) {
+                if (blob && blob.type === 'image/webp') {
                   const reader = new FileReader()
                   reader.onload = () => resolve(reader.result as string)
                   reader.onerror = () => tryJPEG()

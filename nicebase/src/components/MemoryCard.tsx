@@ -8,6 +8,7 @@ import {
 import { Memory } from '../types'
 import { hapticFeedback } from '../utils/haptic'
 import { useLongPress } from '../hooks/useLongPress'
+import { useBackButton } from '../hooks/useBackButton'
 import { parseLocalDate, toLocalISODate } from '../utils/dateFormat'
 import ProgressiveImage from './ProgressiveImage'
 
@@ -84,13 +85,14 @@ function MemoryCard({
   const catMeta = CATEGORY_META[memory.category] || CATEGORY_META.uncategorized
   const CatIcon = catMeta.icon
 
-  // Only show sync badge if memory has been unsynced for more than 5 minutes
+  // Only show sync badge if memory has been unsynced for more than 5 minutes.
+  // Guest (local-only) memories can never sync — never badge them.
   const isSyncStale = useMemo(() => {
-    if (memory.synced) return false
+    if (isLocalUser || memory.synced) return false
     const createdAt = new Date(memory.createdAt).getTime()
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000
     return createdAt < fiveMinutesAgo
-  }, [memory.synced, memory.createdAt])
+  }, [isLocalUser, memory.synced, memory.createdAt])
 
   // Aiya classification only realistically runs shortly after a memory syncs.
   // If a memory is still 'uncategorized' well past that window (rate limit,
@@ -135,6 +137,9 @@ function MemoryCard({
     setShowContextMenu(false)
     action()
   }
+
+  // Android hardware back closes the long-press menu instead of navigating.
+  useBackButton(() => { setShowContextMenu(false); return true }, showContextMenu)
 
   return (
     <div className="container-responsive">
@@ -240,13 +245,25 @@ function MemoryCard({
                 className={`rounded-lg cursor-pointer touch-manipulation overflow-hidden bg-gray-100 dark:bg-gray-700 ${
                   memory.photos.length === 1 ? 'h-48' : 'h-28'
                 }`}
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation()
+                  // In bulk-select mode a tap anywhere on the card (photos
+                  // included) toggles selection — never open the viewer.
+                  if (bulkMode) {
+                    onSelect()
+                    return
+                  }
                   hapticFeedback('light')
                   onImageClick(memory.photos, idx)
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
+                    e.stopPropagation()
+                    if (bulkMode) {
+                      onSelect()
+                      return
+                    }
                     hapticFeedback('light')
                     onImageClick(memory.photos, idx)
                   }
@@ -312,7 +329,10 @@ function MemoryCard({
             <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
-              onClick={() => handleContextAction(onEdit)}
+              onClick={(e) => {
+                e.stopPropagation()
+                handleContextAction(onEdit)
+              }}
               className="w-11 h-11 flex items-center justify-center rounded-lg text-primary hover:bg-primary/10 transition-colors touch-manipulation"
               aria-label={t('edit')}
               title={t('edit')}
@@ -322,7 +342,10 @@ function MemoryCard({
             <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
-              onClick={() => handleContextAction(onDelete)}
+              onClick={(e) => {
+                e.stopPropagation()
+                handleContextAction(onDelete)
+              }}
               className="w-11 h-11 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation"
               aria-label={t('delete')}
               title={t('delete')}
@@ -390,6 +413,9 @@ export default memo(MemoryCard, (prevProps, nextProps) => {
   if (prevProps.memory !== nextProps.memory) {
     const memoryChanged =
       prevProps.memory.id !== nextProps.memory.id ||
+      // userId itself is never rendered — only the derived "is local user"
+      // flag matters (badge/label logic), so compare that instead.
+      prevProps.memory.userId?.startsWith('local-') !== nextProps.memory.userId?.startsWith('local-') ||
       prevProps.memory.text !== nextProps.memory.text ||
       prevProps.memory.date !== nextProps.memory.date ||
       prevProps.memory.intensity !== nextProps.memory.intensity ||

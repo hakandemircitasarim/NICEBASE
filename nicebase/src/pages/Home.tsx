@@ -168,9 +168,12 @@ export default function Home() {
     setShowForm(true)
   }, [hapticFeedback, dailyQuestion])
 
-  // Setup notifications function
+  // Setup notifications function. Only ask for the system permission when the
+  // user actually has something scheduled — SettingsSheet requests it when the
+  // user enables reminders there.
   const setupNotifications = useCallback(async () => {
     if (!user) return
+    if (user.dailyReminderTime == null && user.weeklySummaryDay == null) return
     await notificationService.requestPermission()
     if (user.dailyReminderTime) {
       notificationService.scheduleDailyReminder(user.dailyReminderTime, userId, streak.currentStreak)
@@ -564,11 +567,18 @@ export default function Home() {
         className="w-full mb-6 sm:mb-7"
       >
         <motion.button
-          onClick={() => handleNeedSupport(false)}
-          disabled={isBreathing || memories.length === 0}
+          // Stays enabled while breathing so the nested Skip button remains
+          // tappable (children of a disabled button never receive clicks);
+          // the no-op guard prevents re-triggering during the pause.
+          onClick={() => {
+            if (isBreathing) return
+            handleNeedSupport(false)
+          }}
+          disabled={memories.length === 0}
+          aria-disabled={isBreathing}
           whileHover={!prefersReducedMotion && !isBreathing && memories.length > 0 ? { scale: 1.01 } : {}}
           whileTap={!prefersReducedMotion && !isBreathing && memories.length > 0 ? { scale: 0.99 } : {}}
-          className="w-full bg-gradient-to-br from-primary/10 via-primary/5 to-transparent dark:from-primary/20 dark:via-primary/10 dark:to-transparent border-2 border-primary/30 dark:border-primary/40 p-6 sm:p-8 rounded-3xl hover:border-primary/50 shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden"
+          className={`w-full bg-gradient-to-br from-primary/10 via-primary/5 to-transparent dark:from-primary/20 dark:via-primary/10 dark:to-transparent border-2 border-primary/30 dark:border-primary/40 p-6 sm:p-8 rounded-3xl hover:border-primary/50 shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden ${isBreathing ? 'cursor-default' : ''}`}
         >
           {!isBreathing && memories.length > 0 && (
             <motion.div
@@ -933,7 +943,7 @@ export default function Home() {
                 {streak.currentStreak}
               </motion.p>
               <span className="text-sm text-gray-500 dark:text-gray-400 font-semibold">
-                {t('days', { count: streak.currentStreak })}
+                {t('daysUnit', { count: streak.currentStreak })}
               </span>
             </div>
             {streak.currentStreak > 0 && (

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark-theme window background; keep in sync with the web app's
+         dark background (Tailwind gray-900, see src/index.css). -->
+    <color name="windowBackgroundDark">#FF111827</color>
+</resources>

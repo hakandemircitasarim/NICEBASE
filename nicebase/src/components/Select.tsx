@@ -6,6 +6,7 @@ import { hapticFeedback } from '../utils/haptic'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useDebounce } from '../hooks/useDebounce'
 import { useModalPresence } from '../hooks/useModalPresence'
+import { useBackButton } from '../hooks/useBackButton'
 
 interface SelectOption {
   value: string | number
@@ -108,6 +109,8 @@ export default function Select({
       triggerRef.current?.focus()
     }
   }
+
+  useBackButton(() => { closeDropdown(); return true }, isOpen)
 
   const handleSelect = (optionValue: string | number, restoreFocus = false) => {
     if (disabled) return

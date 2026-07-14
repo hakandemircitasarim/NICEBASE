@@ -160,10 +160,12 @@ export default function Statistics() {
         if (c in categoryCount) categoryCount[c]++
       })
     })
-    const categoryData = Object.entries(categoryCount).map(([key, value]) => ({
-      name: t(`categories.${key}`) || key,
-      value,
-    }))
+    const categoryData = Object.entries(categoryCount)
+      .filter(([_, value]) => value > 0)
+      .map(([key, value]) => ({
+        name: t(`categories.${key}`) || key,
+        value,
+      }))
 
     // Life area distribution
     const lifeAreaCount: Record<LifeArea, number> = {
@@ -440,7 +442,7 @@ export default function Statistics() {
               <BarChart data={stats.monthlyData}>
                 <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                 <XAxis dataKey="month" tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
-                <YAxis tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
+                <YAxis allowDecimals={false} tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
                 <Tooltip content={<CustomTooltip seriesLabel={t('memories')} />} />
                 <Bar dataKey="count" fill="#FF6B35" radius={[8, 8, 0, 0]} />
               </BarChart>
@@ -472,7 +474,7 @@ export default function Statistics() {
                   cy="50%"
                   labelLine={false}
                   label={renderPieLabel}
-                  outerRadius={80}
+                  outerRadius={70}
                   fill="#8884d8"
                   dataKey="value"
                 >
@@ -501,7 +503,7 @@ export default function Statistics() {
             <BarChart data={stats.intensityDistribution}>
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
               <XAxis dataKey="intensity" tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
-              <YAxis tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
+              <YAxis allowDecimals={false} tick={{ className: 'fill-gray-500 dark:fill-gray-400 text-xs' }} />
               <Tooltip content={<CustomTooltip seriesLabel={t('memories')} />} />
               <Bar dataKey="count" fill="#FF6B35" radius={[8, 8, 0, 0]} />
             </BarChart>
@@ -528,7 +530,7 @@ export default function Statistics() {
                   cy="50%"
                   labelLine={false}
                   label={renderPieLabel}
-                  outerRadius={80}
+                  outerRadius={70}
                   fill="#8884d8"
                   dataKey="value"
                 >

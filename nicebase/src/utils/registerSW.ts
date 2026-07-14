@@ -1,8 +1,30 @@
 // Service Worker Registration
+import { isNativePlatform } from './platform'
 import i18n from '../i18n'
 import { errorLoggingService } from '../services/errorLoggingService'
 
 export function registerServiceWorker() {
+  // Native WebView: skip SW — a stale cached bundle after a store update would
+  // self-reload mid-session. Also unregister any SW a previous app version
+  // installed: it would otherwise keep serving its stale precache forever.
+  if (isNativePlatform()) {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => { void registration.unregister() })
+      }).catch((error) => {
+        console.warn('SW cleanup failed:', error)
+      })
+      if ('caches' in window) {
+        caches.keys().then((cacheNames) => {
+          cacheNames.forEach((cacheName) => { void caches.delete(cacheName) })
+        }).catch((error) => {
+          console.warn('SW cache cleanup failed:', error)
+        })
+      }
+    }
+    return
+  }
+
   // Only register service worker in production
   if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     // Dynamic import for PWA register

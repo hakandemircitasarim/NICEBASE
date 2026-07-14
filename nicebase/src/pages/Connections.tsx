@@ -10,6 +10,7 @@ import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import { memoryService } from '../services/memoryService'
 import { useModalPresence } from '../hooks/useModalPresence'
+import { useBackButton } from '../hooks/useBackButton'
 import {
   buildConnectionDisplayMap,
   cleanConnectionName,
@@ -83,6 +84,8 @@ export default function Connections() {
     setRenameTarget(null)
     setRenameValue('')
   }
+
+  useBackButton(() => { if (!busy) closeRename(); return true }, !!renameTarget)
 
   const applyRename = async () => {
     if (!renameTarget) return
@@ -232,23 +235,32 @@ export default function Connections() {
       </div>
 
       {stats.length === 0 ? (
-        <div className="text-center py-16 px-4">
-          <Users className="mx-auto text-gray-400 dark:text-gray-500 mb-4" size={64} />
-          <h3 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-2">
-            {t('noConnections')}
-          </h3>
-          <p className="text-gray-500 dark:text-gray-400 text-base mb-6">
-            {t('noConnectionsDescription')}
-          </p>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => navigate('/vault?action=add')}
-            className="px-6 py-3 gradient-primary text-white rounded-xl font-semibold hover:shadow-lg transition-all touch-manipulation"
-          >
-            {t('addMemory')}
-          </motion.button>
-        </div>
+        query.trim() ? (
+          <div className="text-center py-16 px-4">
+            <Search className="mx-auto text-gray-400 dark:text-gray-500 mb-4" size={64} />
+            <p className="text-gray-500 dark:text-gray-400 text-base">
+              {t('connectionsNoSearchResults')}
+            </p>
+          </div>
+        ) : (
+          <div className="text-center py-16 px-4">
+            <Users className="mx-auto text-gray-400 dark:text-gray-500 mb-4" size={64} />
+            <h3 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-2">
+              {t('noConnections')}
+            </h3>
+            <p className="text-gray-500 dark:text-gray-400 text-base mb-6">
+              {t('noConnectionsDescription')}
+            </p>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => navigate('/vault?action=add')}
+              className="px-6 py-3 gradient-primary text-white rounded-xl font-semibold hover:shadow-lg transition-all touch-manipulation"
+            >
+              {t('addMemory')}
+            </motion.button>
+          </div>
+        )
       ) : (
         <div className="space-y-3">
           {stats.map((c) => (
@@ -324,6 +336,11 @@ export default function Connections() {
               <input
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !busy && cleanConnectionName(renameValue)) {
+                    void applyRename()
+                  }
+                }}
                 placeholder={t('renameConnectionPlaceholder')}
                 className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none touch-manipulation"
                 autoFocus

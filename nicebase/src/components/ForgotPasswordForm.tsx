@@ -5,6 +5,7 @@ import LoadingSpinner from './LoadingSpinner'
 import { hapticFeedback } from '../utils/haptic'
 import { useModalPresence } from '../hooks/useModalPresence'
 import { useEscapeKey } from '../hooks/useEscapeKey'
+import { useBackButton } from '../hooks/useBackButton'
 
 interface ForgotPasswordFormProps {
   email: string
@@ -24,6 +25,16 @@ export default function ForgotPasswordForm({
   const { t } = useTranslation()
   useModalPresence(true)
   useEscapeKey(onClose, !loading)
+  // Android hardware back closes the overlay (same as the cancel button)
+  // instead of falling through to the page handler. While a request is in
+  // flight the press is consumed but ignored, matching the disabled cancel.
+  useBackButton(() => {
+    if (!loading) {
+      hapticFeedback('light')
+      onClose()
+    }
+    return true
+  })
 
   return (
     <motion.div
@@ -47,7 +58,7 @@ export default function ForgotPasswordForm({
         <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
           {t('enterEmailToReset')}
         </p>
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={onSubmit} noValidate className="space-y-4">
           <div>
             <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">
               {t('email')}

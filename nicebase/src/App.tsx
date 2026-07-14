@@ -7,6 +7,7 @@ import Login from './pages/Login'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import { fetchUserData, ensureUserExists } from './lib/userService'
+import { currentLanguage } from './lib/userDefaults'
 import { withTimeout } from './utils/timeout'
 import { initializeNativeApp, updateStatusBar } from './utils/capacitor'
 import { memorySyncService } from './services/memorySyncService'
@@ -48,7 +49,7 @@ function minimalUserFromSession(session: Session): User {
     aiyaMessagesLimit: 50,
     weeklySummaryDay: null,
     dailyReminderTime: null,
-    language: 'tr',
+    language: currentLanguage(),
     theme: 'light',
     createdAt: session.user.created_at ?? new Date().toISOString(),
   }

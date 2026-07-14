@@ -37,7 +37,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
  * 2. Anchor element download (web browsers)
  * 3. Data URL in new window (fallback for WebViews)
  */
-async function downloadBlob(blob: Blob, filename: string): Promise<void> {
+export async function downloadBlob(blob: Blob, filename: string): Promise<void> {
   // Strategy 1: Web Share API with files (works well on Android native)
   if (isNative() || navigator.share) {
     try {

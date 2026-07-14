@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { CloudUpload, AlertTriangle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useBackButton } from '../hooks/useBackButton'
 
 interface MigrationPromptProps {
   show: boolean
@@ -22,6 +23,16 @@ export default function MigrationPrompt({
   onCancelDelete,
 }: MigrationPromptProps) {
   const { t } = useTranslation()
+
+  // Hardware back must never dismiss the prompt (a decision is required) or
+  // exit the app underneath it. On the delete-confirmation step it steps back
+  // to the safe first screen; otherwise it is consumed with no action.
+  useBackButton(() => {
+    if (confirmDelete) {
+      onCancelDelete()
+    }
+    return true
+  }, show)
 
   return (
     <AnimatePresence>

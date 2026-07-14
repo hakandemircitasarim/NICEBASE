@@ -709,6 +709,38 @@ export const aiyaService = {
     }
   },
 
+  // Deletes a chat from the cloud so the startup cloud/local merge can't
+  // resurrect it. Returns true when the cloud row is gone (or there was
+  // nothing to do — local users have no cloud rows), false when it could NOT
+  // be deleted (no session, network/query failure) so the caller can keep a
+  // tombstone and retry later. Never throws.
+  async deleteChat(userId: string, chatId: string): Promise<boolean> {
+    // Skip cloud operations for local/offline users — RLS would reject them
+    if (userId.startsWith('local')) return true
+    if (!(await hasActiveSessionCached())) return false
+
+    try {
+      const { error } = await supabase
+        .from('aiya_chats')
+        .delete()
+        .eq('id', chatId)
+        .eq('user_id', userId)
+
+      if (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[aiyaService] Failed to delete chat:', error.message)
+        }
+        return false
+      }
+      return true
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[aiyaService] Failed to delete chat:', error)
+      }
+      return false
+    }
+  },
+
   async buildProfile(params: {
     memories: Memory[]
     history: AiyaMessage[]

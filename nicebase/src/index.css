@@ -4,6 +4,8 @@
 
 @layer base {
   :root {
+    /* Native UA widgets (date inputs, checkboxes, scrollbars) follow the theme */
+    color-scheme: light;
     --toast-bg: #fff;
     --toast-color: #1f2937;
     --safe-area-inset-top: env(safe-area-inset-top);
@@ -13,6 +15,7 @@
   }
 
   .dark {
+    color-scheme: dark;
     --toast-bg: #1f2937;
     --toast-color: #f9fafb;
   }

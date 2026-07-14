@@ -3,7 +3,7 @@ import { mapUserFromSupabase } from './userMapper'
 import { User } from '../types'
 import { errorLoggingService } from '../services/errorLoggingService'
 import { SupabaseError } from '../types/supabase'
-import { DEFAULT_AIYA_LIMIT, DEFAULT_LANGUAGE, DEFAULT_THEME } from './userDefaults'
+import { DEFAULT_AIYA_LIMIT, DEFAULT_THEME, currentLanguage } from './userDefaults'
 
 /**
  * Fetches user data from Supabase by user ID
@@ -130,7 +130,7 @@ export async function ensureUserExists(
         aiya_messages_limit: DEFAULT_AIYA_LIMIT,
         weekly_summary_day: null,
         daily_reminder_time: null,
-        language: DEFAULT_LANGUAGE,
+        language: currentLanguage(),
         theme: DEFAULT_THEME,
         created_at: new Date().toISOString(),
       },

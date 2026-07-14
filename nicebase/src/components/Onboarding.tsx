@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Sparkles, Archive, Heart, MessageCircle, BarChart3, Trophy } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { useModalPresence } from '../hooks/useModalPresence'
+import { useBackButton } from '../hooks/useBackButton'
 
 interface OnboardingProps {
   onComplete: () => void
@@ -62,6 +63,12 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     onComplete()
   }
 
+  // Android back mirrors the X/skip control while the tour is open.
+  useBackButton(() => {
+    skip()
+    return true
+  }, true)
+
   const Icon = steps[step].icon
 
   return (
@@ -76,7 +83,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
-          className="bg-white dark:bg-gray-800 rounded-3xl max-w-md w-full shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+          className="bg-white dark:bg-gray-800 rounded-3xl max-w-md w-full shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[90vh] supports-[max-height:90dvh]:max-h-[90dvh] overflow-y-auto overscroll-contain"
         >
           <div className="relative p-8">
             <button

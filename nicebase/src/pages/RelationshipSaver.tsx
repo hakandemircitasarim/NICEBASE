@@ -12,11 +12,15 @@ import { useMemories } from '../hooks/useMemories'
 import { useNotifications } from '../hooks/useNotifications'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { buildConnectionDisplayMap, normalizeConnectionKey } from '../utils/connections'
+import { formatMemoryDate, toLocalISODate } from '../utils/dateFormat'
+import { downloadBlob } from '../services/exportService'
+import { useBackButton } from '../hooks/useBackButton'
 
 type ConnectionOption = { key: string; label: string }
 
 export default function RelationshipSaver() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = (i18n?.language || 'tr').startsWith('tr') ? 'tr-TR' : 'en-US'
   const userId = useUserId()
   const location = useLocation()
   const navigate = useNavigate()
@@ -132,6 +136,9 @@ export default function RelationshipSaver() {
     }
   }, [isFullScreen])
 
+  // Android hardware back exits full-screen instead of leaving the page.
+  useBackButton(() => { setIsFullScreen(false); return true }, isFullScreen)
+
   // Share functionality
   const handleShare = async () => {
     if (!currentMemory) return
@@ -165,7 +172,7 @@ export default function RelationshipSaver() {
   }
 
   // Export as text
-  const handleExport = () => {
+  const handleExport = async () => {
     if (filteredMemories.length === 0) return
 
     try {
@@ -175,7 +182,7 @@ export default function RelationshipSaver() {
 
       filteredMemories.forEach((memory, index) => {
         exportText += `${t('exportMemoryLabel')} ${index + 1}/${filteredMemories.length}\n`
-        exportText += `${t('exportDateLabel')}: ${new Date(memory.date).toLocaleDateString()}\n`
+        exportText += `${t('exportDateLabel')}: ${formatMemoryDate(memory.date, locale)}\n`
         exportText += `${t('exportIntensityLabel')}: ${memory.intensity}/10\n`
         exportText += `${t('exportCategoryLabel')}: ${t(`categories.${memory.category}`)}\n`
         exportText += `\n${memory.text}\n\n`
@@ -183,14 +190,14 @@ export default function RelationshipSaver() {
       })
 
       const blob = new Blob([exportText], { type: 'text/plain;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${connectionName}_anilari_${new Date().toISOString().split('T')[0]}.txt`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      // Transliterate Turkish letters before stripping so names like
+      // 'Çağla' become 'cagla' instead of being mangled to 'aa'.
+      const trMap: Record<string, string> = { 'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u' }
+      const safeName = connectionName
+        .toLocaleLowerCase('tr-TR')
+        .replace(/[çğıöşü]/g, ch => trMap[ch])
+        .replace(/[^a-z0-9-_]/g, '') || 'connection'
+      await downloadBlob(blob, `${safeName}-memories-${toLocalISODate()}.txt`)
       toast.success(t('exported', { defaultValue: 'Dışa aktarıldı!' }), { duration: 2000 })
     } catch (error) {
       console.error('Export failed:', error)
@@ -533,7 +540,7 @@ export default function RelationshipSaver() {
                     {currentMemory.intensity}/10
                   </span>
                   <span className="text-xs font-semibold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-3 py-1.5 rounded-full">
-                    {new Date(currentMemory.date).toLocaleDateString()}
+                    {formatMemoryDate(currentMemory.date, locale)}
                   </span>
                 </div>
               </div>

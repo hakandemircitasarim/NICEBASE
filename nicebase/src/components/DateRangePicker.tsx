@@ -6,6 +6,7 @@ import { tr, enUS } from 'date-fns/locale'
 import { useTranslation } from 'react-i18next'
 import { hapticFeedback } from '../utils/haptic'
 import { useModalPresence } from '../hooks/useModalPresence'
+import { useBackButton } from '../hooks/useBackButton'
 
 interface DateRangePickerProps {
   startDate: string // YYYY-MM-DD format
@@ -171,6 +172,8 @@ export default function DateRangePicker({ startDate, endDate, onChange, onClose 
     setIsOpen(false)
     onClose?.()
   }
+
+  useBackButton(() => { handleClose(); return true }, isOpen)
 
   const handleDateClick = (date: Date) => {
     hapticFeedback('light')

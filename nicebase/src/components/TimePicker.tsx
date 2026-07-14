@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { hapticFeedback } from '../utils/haptic'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useModalPresence } from '../hooks/useModalPresence'
+import { useBackButton } from '../hooks/useBackButton'
 
 interface TimePickerProps {
   value: string // HH:mm format
@@ -148,6 +149,8 @@ export default function TimePicker({
   const handleClose = () => {
     setIsOpen(false)
   }
+
+  useBackButton(() => { handleClose(); return true }, isOpen)
 
   const handleApply = () => {
     // Never commit a time the user didn't actively pick.

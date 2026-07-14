@@ -221,9 +221,9 @@ export const initializeStatusBar = async (isDarkMode: boolean = false) => {
     const StatusBar = await loadStatusBar()
     if (!StatusBar) return
 
-    // Set status bar style based on dark mode
+    // Style.Dark = dark BACKGROUND (light icons), Style.Light = light BACKGROUND (dark icons).
     await StatusBar.setStyle({
-      style: isDarkMode ? 'light' : 'dark',
+      style: isDarkMode ? 'dark' : 'light',
     })
 
     // Set background color to match body background (gray-50 light / gray-900 dark)
@@ -397,15 +397,11 @@ export const setupAppListeners = async () => {
           }
         }
 
-        // No handler consumed it — navigate back if we can, else exit the app
-        // from the root route (without this, back on the home screen did nothing).
-        if (window.history.length > 1) {
-          window.history.back()
-        } else {
-          App.exitApp().catch((error) => {
-            if (import.meta.env.DEV) console.warn('exitApp failed:', error)
-          })
-        }
+        // No handler consumed it — Layout consumes back on every non-home route,
+        // so an unconsumed event means we're at the root: exit the app.
+        App.exitApp().catch((error) => {
+          if (import.meta.env.DEV) console.warn('exitApp failed:', error)
+        })
       })
     }
   } catch (error) {

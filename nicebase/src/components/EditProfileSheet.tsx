@@ -19,6 +19,7 @@ import { hapticFeedback } from '../utils/haptic'
 import { useModalPresence } from '../hooks/useModalPresence'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useEscapeKey } from '../hooks/useEscapeKey'
+import { useBackButton } from '../hooks/useBackButton'
 
 interface EditProfileSheetProps {
   onClose: () => void
@@ -58,15 +59,23 @@ export default function EditProfileSheet({ onClose }: EditProfileSheetProps) {
     onClose()
   }
 
-  useModalPresence(true)
-  // iOS-safe scroll lock with proper restore (replaces manual body.overflow).
-  useBodyScrollLock(true)
-  useEscapeKey(() => {
+  // Shared Escape/Android-back dismiss: peel off the unsaved-changes confirm
+  // first; otherwise request close (which raises the confirm when dirty).
+  const dismiss = () => {
     if (showDirtyConfirm) {
       setShowDirtyConfirm(false)
       return
     }
     requestClose()
+  }
+
+  useModalPresence(true)
+  // iOS-safe scroll lock with proper restore (replaces manual body.overflow).
+  useBodyScrollLock(true)
+  useEscapeKey(dismiss, true)
+  useBackButton(() => {
+    dismiss()
+    return true
   }, true)
 
   const handleAvatarPick = () => {
@@ -77,49 +86,60 @@ export default function EditProfileSheet({ onClose }: EditProfileSheetProps) {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // Max 2MB
-    if (file.size > 2 * 1024 * 1024) {
+    // Generous pre-check only for absurd files — normal photos are downscaled
+    // to 256px below, so the real size limit applies to the FINAL output.
+    if (file.size > 25 * 1024 * 1024) {
       toast.error(t('avatarTooLarge'))
       return
     }
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
+    // Decode via an object URL — avoids materializing a multi-MB base64
+    // string (FileReader.readAsDataURL) just to feed the <img> decoder.
+    const objectUrl = URL.createObjectURL(file)
 
-      // Resize image to max 256px for efficiency
-      const img = new Image()
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        const maxSize = 256
-        let w = img.width
-        let h = img.height
+    // Resize image to max 256px for efficiency
+    const img = new Image()
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      const canvas = document.createElement('canvas')
+      const maxSize = 256
+      let w = img.width
+      let h = img.height
 
-        if (w > h) {
-          if (w > maxSize) {
-            h = (h * maxSize) / w
-            w = maxSize
-          }
-        } else {
-          if (h > maxSize) {
-            w = (w * maxSize) / h
-            h = maxSize
-          }
+      if (w > h) {
+        if (w > maxSize) {
+          h = (h * maxSize) / w
+          w = maxSize
         }
-
-        canvas.width = w
-        canvas.height = h
-        const ctx = canvas.getContext('2d')
-        ctx?.drawImage(img, 0, 0, w, h)
-
-        const resized = canvas.toDataURL('image/jpeg', 0.8)
-        setAvatarPreview(resized)
-        setAvatarData(resized)
-        hapticFeedback('light')
+      } else {
+        if (h > maxSize) {
+          w = (w * maxSize) / h
+          h = maxSize
+        }
       }
-      img.src = result
+
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')
+      ctx?.drawImage(img, 0, 0, w, h)
+
+      const resized = canvas.toDataURL('image/jpeg', 0.8)
+      // Max 2MB — validated on the final (downscaled) image
+      const base64Payload = resized.split(',')[1] || ''
+      const finalBytes = Math.ceil((base64Payload.length * 3) / 4)
+      if (finalBytes > 2 * 1024 * 1024) {
+        toast.error(t('avatarTooLarge'))
+        return
+      }
+      setAvatarPreview(resized)
+      setAvatarData(resized)
+      hapticFeedback('light')
     }
-    reader.readAsDataURL(file)
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      toast.error(t('imageLoadError'))
+    }
+    img.src = objectUrl
 
     // Reset so same file can be picked again
     e.target.value = ''
