@@ -163,13 +163,12 @@ export default defineConfig({
       },
       output: {
         manualChunks: (id) => {
-          // Charts: recharts + its d3/victory deps. Only the lazy Statistics
-          // route uses them, so keep them OUT of the always-loaded react-vendor
-          // chunk. (They don't import a second React — react stays in
-          // react-vendor and is shared.)
-          if (id.includes('recharts') || id.includes('victory-vendor') || id.includes('/d3-')) {
-            return 'charts-vendor'
-          }
+          // recharts + d3/victory deps deliberately have NO manual chunk: forcing
+          // them into a 'charts-vendor' chunk pulled Rollup's shared CJS interop
+          // helpers in with them, which made react-vendor import charts-vendor
+          // (a chunk cycle) and crash the production build at startup with
+          // "Cannot read properties of undefined (reading 'forwardRef')".
+          // Auto-chunking folds them into the lazy Statistics route instead.
           // React and core
           if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
             return 'react-vendor'
