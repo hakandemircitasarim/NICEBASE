@@ -95,6 +95,14 @@ export default function Connections() {
     const oldKey = renameTarget.key
     const newKey = normalizeConnectionKey(newName)
 
+    // Detect a real merge: renaming to a name that normalizes to a DIFFERENT,
+    // already-existing connection folds the two together across all memories.
+    // Check the full memory set (not the search-filtered `stats`) so the
+    // feedback stays honest even when a query is hiding the merge target.
+    const mergesIntoExisting =
+      newKey !== oldKey &&
+      memories.some(m => m.connections.some(c => normalizeConnectionKey(c) === newKey))
+
     setBusy(true)
     try {
       // Update every memory where any connection matches oldKey (normalized).
@@ -110,8 +118,11 @@ export default function Connections() {
         setProgress({ current: done, total: affected.length })
       }
 
-      // If rename turns into an existing key, this effectively "merges" them.
-      if (oldKey !== newKey) {
+      // Be honest about what happened: a merge combined two people, a plain
+      // rename kept one, and a same-key edit just changed the casing.
+      if (mergesIntoExisting) {
+        toast(t('connectionsMerged'))
+      } else if (oldKey !== newKey) {
         toast.success(t('connectionRenamed'))
       } else {
         toast.success(t('connectionUpdated'))

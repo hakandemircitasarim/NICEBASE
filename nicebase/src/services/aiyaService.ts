@@ -676,7 +676,9 @@ export const aiyaService = {
       // instead of syncing ALL chats every time, which wastes egress bandwidth
       const FIVE_MINUTES = 5 * 60 * 1000
       const now = Date.now()
-      const recentChats = chats.filter((c) => now - c.updatedAt < FIVE_MINUTES)
+      // Never sync empty (zero-message) chats — a phantom New Chat left unsent
+      // shouldn't create a cloud row. Defense-in-depth alongside client pruning.
+      const recentChats = chats.filter((c) => c.messages.length > 0 && now - c.updatedAt < FIVE_MINUTES)
 
       if (recentChats.length === 0) return
 

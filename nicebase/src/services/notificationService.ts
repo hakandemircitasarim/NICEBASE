@@ -557,5 +557,129 @@ export const notificationService = {
       localStorage.removeItem(`streak_protection_${userId}`)
     }
   },
+
+  // Weekly summary notification — fires once a week on the chosen weekday.
+  // `day` follows the app convention 0=Sunday..6=Saturday, while Capacitor's
+  // `schedule.on.weekday` is 1=Sunday..7=Saturday, hence weekday = day + 1.
+  async scheduleWeeklySummary(day: number, userId: string) {
+    const title = i18n.t('weeklySummaryTitle')
+    const body = i18n.t('weeklySummaryBody')
+
+    // Clear any previously scheduled WEB timer for this user before re-arming so
+    // repeated saves don't leak a setTimeout and fire duplicate summaries.
+    const prevTimeoutId = localStorage.getItem(`weekly_summary_timeout_${userId}`)
+    if (prevTimeoutId) {
+      clearTimeout(Number(prevTimeoutId))
+      localStorage.removeItem(`weekly_summary_timeout_${userId}`)
+    }
+
+    // Remember the chosen day so cancel/refetch flows can reason about it.
+    localStorage.setItem(`weekly_summary_${userId}`, JSON.stringify({ day }))
+
+    // ms until the next occurrence of the chosen weekday at 09:00 local time.
+    const msUntilNextWeekday = (): number => {
+      const now = new Date()
+      const next = new Date()
+      next.setHours(9, 0, 0, 0)
+      let delta = (day - now.getDay() + 7) % 7
+      if (delta === 0 && next <= now) delta = 7
+      next.setDate(next.getDate() + delta)
+      return next.getTime() - now.getTime()
+    }
+
+    // Web platform (and native plugin-load fallback): a simple self-rescheduling
+    // weekly timer. Kept intentionally lightweight — the native repeating
+    // schedule below is the primary delivery path.
+    const scheduleWeb = () => {
+      const timeoutId = setTimeout(() => {
+        notificationService.showNotification(title, {
+          body,
+          tag: 'weekly-summary',
+          requireInteraction: false,
+        })
+        scheduleWeb() // re-arm for the following week
+      }, msUntilNextWeekday())
+      localStorage.setItem(`weekly_summary_timeout_${userId}`, timeoutId.toString())
+    }
+
+    // Native platform - repeating weekly local notification.
+    if (isNativePlatform()) {
+      try {
+        const LocalNotifications = await loadLocalNotifications()
+        if (!LocalNotifications) {
+          // Plugin failed to load — fall back to web scheduling.
+          scheduleWeb()
+          return
+        }
+
+        // Cancel any existing weekly summary for this user before re-arming.
+        const nId = notificationId(userId, 2)
+        await LocalNotifications.cancel({ notifications: [{ id: nId }] })
+
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              title,
+              body,
+              id: nId, // prefix 2 — distinct from daily (1) / streak (3)
+              schedule: {
+                on: { weekday: day + 1 }, // Capacitor: 1=Sunday..7=Saturday
+                repeats: true,
+              },
+              channelId: 'daily-reminder', // reuse existing reminder channel
+              actionTypeId: 'WEEKLY_SUMMARY',
+              extra: { userId, type: 'weekly-summary', day },
+            },
+          ],
+        })
+      } catch (error) {
+        errorLoggingService.logError(
+          error instanceof Error ? error : new Error('Failed to schedule weekly summary'),
+          'warning',
+          userId
+        )
+      }
+      return
+    }
+
+    // Web platform - self-rescheduling weekly timer.
+    scheduleWeb()
+  },
+
+  async cancelWeeklySummary(userId: string) {
+    // Native platform - cancel scheduled notification.
+    if (isNativePlatform()) {
+      try {
+        const LocalNotifications = await loadLocalNotifications()
+        if (!LocalNotifications) {
+          // Fallback to web cancellation.
+          const timeoutId = localStorage.getItem(`weekly_summary_timeout_${userId}`)
+          if (timeoutId) {
+            clearTimeout(parseInt(timeoutId, 10))
+            localStorage.removeItem(`weekly_summary_timeout_${userId}`)
+          }
+          return
+        }
+        const weeklyNId = notificationId(userId, 2)
+        await LocalNotifications.cancel({
+          notifications: [{ id: weeklyNId }],
+        })
+      } catch (error) {
+        errorLoggingService.logError(
+          error instanceof Error ? error : new Error('Failed to cancel weekly summary'),
+          'warning',
+          userId
+        )
+      }
+    }
+
+    // Always clean up web state too (in case native fell back to web scheduling).
+    localStorage.removeItem(`weekly_summary_${userId}`)
+    const timeoutId = localStorage.getItem(`weekly_summary_timeout_${userId}`)
+    if (timeoutId) {
+      clearTimeout(Number(timeoutId))
+      localStorage.removeItem(`weekly_summary_timeout_${userId}`)
+    }
+  },
 }
 

@@ -38,7 +38,11 @@ export const gamificationService = {
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     )
     const coreMemories = memories.filter(m => m.isCore).length
-    const categories = new Set(memories.map(m => m.category)).size
+    // Count EVERY tagged category (multi-select array), falling back to the
+    // deprecated single `category` only when the array is empty — mirrors Insights.
+    const categories = new Set(
+      memories.flatMap(m => (m.categories && m.categories.length > 0 ? m.categories : [m.category]))
+    ).size
     const lifeAreas = new Set(memories.map(m => m.lifeArea)).size
     const connections = new Set(memories.flatMap(m => m.connections).map(normalizeConnectionKey)).size
 
@@ -107,8 +111,8 @@ export const gamificationService = {
         id: 'category-explorer',
         name: 'Kategori Kaşifi',
         nameEn: 'Category Explorer',
-        description: 'Tüm kategorilerde anı oluştur',
-        descriptionEn: 'Create memories in all categories',
+        description: '4 farklı kategoride anı oluştur',
+        descriptionEn: 'Create memories in 4 different categories',
         icon: '🌈',
         unlocked: categories >= 4,
         unlockedAt: null,
@@ -117,8 +121,8 @@ export const gamificationService = {
         id: 'life-explorer',
         name: 'Yaşam Kaşifi',
         nameEn: 'Life Explorer',
-        description: 'Tüm yaşam alanlarında anı oluştur',
-        descriptionEn: 'Create memories in all life areas',
+        description: '8 farklı yaşam alanında anı oluştur',
+        descriptionEn: 'Create memories in 8 different life areas',
         icon: '🌍',
         unlocked: lifeAreas >= 8,
         unlockedAt: null,
@@ -153,8 +157,14 @@ export const gamificationService = {
     const streak = await streakService.calculateStreak(userId, memories)
     const totalMemories = memories.length
     const coreMemories = memories.filter(m => m.isCore).length
+    // Guard against null/undefined intensity from legacy cloud rows so the
+    // average never renders NaN — default missing values to 5 (mirrors Insights).
+    const norm = (raw: number | null | undefined) => {
+      const n = Number(raw)
+      return Number.isFinite(n) ? Math.min(10, Math.max(1, Math.round(n))) : 5
+    }
     const avgIntensity = memories.length > 0
-      ? memories.reduce((sum, m) => sum + m.intensity, 0) / memories.length
+      ? memories.reduce((s, m) => s + norm(m.intensity), 0) / memories.length
       : 0
 
     const achievements: Achievement[] = [

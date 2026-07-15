@@ -5,6 +5,7 @@
 
 import { db } from '../lib/db'
 import { generateUUID } from './uuid'
+import { errorLoggingService } from '../services/errorLoggingService'
 
 const LOCAL_USER_ID_KEY = 'nicebase_local_user_id'
 const MIGRATION_DONE_KEY = 'nicebase_local_migration_done'
@@ -132,8 +133,16 @@ export async function migrateLocalMemories(cloudUserId: string): Promise<number>
     }
 
     return localMemories.length
-  } catch {
-    // Migration is best-effort
-    return 0
+  } catch (err) {
+    // Distinguish a REAL failure from the benign "nothing to migrate" (0) case:
+    // previously both returned 0, so a failed migration was indistinguishable
+    // from success and the user (who explicitly asked to back up device-only
+    // memories) got no signal while their memories silently stayed local-only.
+    errorLoggingService.logError(
+      err instanceof Error ? err : new Error(`Local memory migration failed: ${String(err)}`),
+      'error',
+      cloudUserId
+    )
+    throw err instanceof Error ? err : new Error('Local memory migration failed')
   }
 }

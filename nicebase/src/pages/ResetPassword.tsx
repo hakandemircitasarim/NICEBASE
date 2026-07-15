@@ -100,7 +100,14 @@ export default function ResetPassword() {
           </div>
         ) : !sessionReady ? (
           <div className="text-center py-4">
-            <p className="text-red-500 font-semibold">{t('resetLinkInvalid')}</p>
+            <p className="text-red-500 font-semibold mb-4">{t('resetLinkInvalid')}</p>
+            <button
+              type="button"
+              onClick={() => navigate('/login', { replace: true })}
+              className="w-full py-3 rounded-xl bg-primary text-white font-semibold hover:bg-primary-dark transition-colors"
+            >
+              {t('backToLogin')}
+            </button>
           </div>
         ) : success ? (
           <div className="text-center py-4">

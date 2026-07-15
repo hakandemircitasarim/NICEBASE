@@ -884,25 +884,39 @@ export default function Home() {
           </div>
         </motion.div>
         <motion.div
+          role="button"
+          tabIndex={0}
+          aria-label={t('insightsTitle')}
           initial={{ scale: 0.9 }}
           animate={{ scale: 1 }}
           whileHover={prefersReducedMotion ? {} : { scale: 1.02 }}
           onClick={() => {
+            hapticFeedback('light')
             if (streak.currentStreak > 0) {
-              hapticFeedback('light')
               const messages = [
                 t('streakContinuesMessages.message1', { count: streak.currentStreak }),
                 t('streakContinuesMessages.message2', { count: streak.currentStreak }),
                 t('streakContinuesMessages.message3', { count: streak.currentStreak }),
               ]
-              showSuccess(messages[Math.floor(Math.random() * messages.length)], { duration: 3000 })
+              showSuccess(messages[Math.floor(Math.random() * messages.length)], { duration: 2000 })
+            }
+            // The streak card now leads to Progress (Insights), where the streak,
+            // longest streak and goals live — previously it only fired a toast and
+            // was a dead end for keyboard/screen-reader users.
+            navigate('/insights')
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              hapticFeedback('light')
+              navigate('/insights')
             }
           }}
-          className={`bg-gradient-to-br from-primary/10 via-primary/5 to-primary-dark/10 border-2 ${
+          className={`bg-gradient-to-br from-primary/10 via-primary/5 to-primary-dark/10 border-2 cursor-pointer ${
             streak.currentStreak > 0
-              ? 'border-primary/50 dark:border-primary/40 cursor-pointer shadow-lg shadow-primary/10'
+              ? 'border-primary/50 dark:border-primary/40 shadow-lg shadow-primary/10'
               : 'border-primary/30 dark:border-primary/20'
-          } rounded-2xl p-5 sm:p-6 hover:shadow-xl hover:shadow-primary/20 transition-all duration-300 relative overflow-hidden touch-manipulation col-span-2 sm:col-span-1`}
+          } rounded-2xl p-5 sm:p-6 hover:shadow-xl hover:shadow-primary/20 transition-all duration-300 relative overflow-hidden touch-manipulation col-span-2 sm:col-span-1 focus:outline-none focus:ring-2 focus:ring-primary/50`}
         >
           {streak.currentStreak > 0 && (
             <>

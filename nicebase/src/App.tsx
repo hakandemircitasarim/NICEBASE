@@ -17,6 +17,8 @@ import OfflineIndicator from './components/OfflineIndicator'
 import LoadingSpinner from './components/LoadingSpinner'
 import MigrationPrompt from './components/MigrationPrompt'
 import AppLockGate from './components/AppLockGate'
+import toast from 'react-hot-toast'
+import i18n from './i18n'
 
 // Lazy load pages for code splitting
 const Home = lazy(() => import('./pages/Home'))
@@ -80,14 +82,24 @@ function App() {
   const handleMigrationAccept = useCallback(async () => {
     const { userId } = migrationPrompt
     setMigrationPrompt((p) => ({ ...p, show: false }))
-    const count = await migrateLocalMemories(userId)
-    if (count > 0) {
-      memorySyncService.start(userId)
-      // The migration reassigned Dexie rows to the cloud id in place; nothing
-      // changed userId, so mounted lists won't re-query on their own. Bump the
-      // shared signal so the current view (e.g. Home) shows the memories
-      // immediately instead of only after navigating away and back.
-      bumpMemoriesRefresh()
+    try {
+      const count = await migrateLocalMemories(userId)
+      if (count > 0) {
+        memorySyncService.start(userId)
+        // The migration reassigned Dexie rows to the cloud id in place; nothing
+        // changed userId, so mounted lists won't re-query on their own. Bump the
+        // shared signal so the current view (e.g. Home) shows the memories
+        // immediately instead of only after navigating away and back.
+        bumpMemoriesRefresh()
+        // The user explicitly asked to back up device-only memories — confirm it
+        // worked (previously this was silent, so success and failure looked the
+        // same and a failed migration read as "nothing happened").
+        toast.success(i18n.t('migrationSuccess', { count }))
+      }
+    } catch {
+      // migrateLocalMemories now throws (and logs) on a real failure instead of
+      // swallowing it — tell the user their memories are still only on-device.
+      toast.error(i18n.t('migrationFailed'))
     }
   }, [migrationPrompt, bumpMemoriesRefresh])
 

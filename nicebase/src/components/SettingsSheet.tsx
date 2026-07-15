@@ -270,6 +270,17 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     // Track whether the notification permission was denied so we don't ALSO
     // claim success below (#55/#57): the time is saved but no notification fires.
     let permissionDenied = false
+    const weeklyDayValue = weeklySummaryDay ? parseInt(weeklySummaryDay) : null
+
+    // Both the daily reminder and the weekly summary deliver via local
+    // notifications, so request permission ONCE up front when either is being
+    // enabled and share the single grant between them.
+    let granted = false
+    if (dailyReminderTime || weeklyDayValue !== null) {
+      granted = await notificationService.requestPermission()
+      if (!granted) permissionDenied = true
+    }
+
     // Only send daily_reminder_time when it actually changed (empty string
     // counts as null) — an already-null value shouldn't be rewritten on every save.
     const reminderChanged =
@@ -277,11 +288,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     if (dailyReminderTime) {
       if (reminderChanged) updates.daily_reminder_time = dailyReminderTime
       notificationService.cancelReminder(user.id)
-      const granted = await notificationService.requestPermission()
       if (granted) {
         notificationService.scheduleDailyReminder(dailyReminderTime, user.id)
-      } else {
-        permissionDenied = true
       }
     } else {
       // Reminder disabled — persist the cleared time (otherwise the old value
@@ -291,8 +299,20 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
       notificationService.cancelReminder(user.id)
       notificationService.cancelStreakProtection(user.id)
     }
-    const weeklyDayValue = weeklySummaryDay ? parseInt(weeklySummaryDay) : null
-    if (weeklySummaryDay) updates.weekly_summary_day = weeklyDayValue
+
+    // Weekly summary — mirror the daily reminder's change tracking (including
+    // clearing to null) and actually schedule/cancel the local notification so
+    // the setting is no longer a dead end.
+    const weeklyChanged = weeklyDayValue !== (user.weeklySummaryDay ?? null)
+    if (weeklyChanged) updates.weekly_summary_day = weeklyDayValue
+    if (weeklyDayValue !== null) {
+      notificationService.cancelWeeklySummary(user.id)
+      if (granted) {
+        notificationService.scheduleWeeklySummary(weeklyDayValue, user.id)
+      }
+    } else {
+      notificationService.cancelWeeklySummary(user.id)
+    }
 
     // Show the success/denied feedback once, after both the daily reminder and
     // the weekly day have been handled — never both an error and a success.
@@ -843,6 +863,11 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
                   onChange={(val) => setWeeklySummaryDay(val.toString())}
                   placeholder={t('select')}
                   options={[
+                    {
+                      value: '',
+                      label: t('weeklySummaryOff'),
+                      icon: <Calendar size={16} />,
+                    },
                     {
                       value: '0',
                       label: t('sunday'),

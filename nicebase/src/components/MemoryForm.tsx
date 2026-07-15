@@ -679,7 +679,13 @@ export default function MemoryForm({
       }
       setFormData(prev => ({ ...prev, photos: [...prev.photos, ...newPhotos] }))
       hapticFeedback('success')
-      
+
+      // The user selected more photos than the remaining slots allowed — the
+      // extras were dropped, so tell them instead of silently truncating.
+      if (files.length > maxPhotos) {
+        toast(t('maxPhotosReached'))
+      }
+
       // Restore focus if textarea was focused
       if (wasFocused && textareaRef.current) {
         setTimeout(() => {

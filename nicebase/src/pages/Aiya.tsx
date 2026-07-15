@@ -899,7 +899,9 @@ export default function Aiya() {
   const createNewChat = useCallback(() => {
     const id = generateUUID()
     const chat: AiyaChat = { id, title: '', messages: [], createdAt: Date.now(), updatedAt: Date.now() }
-    setChats((prev) => [chat, ...prev])
+    // Prune any existing empty chat (a prior unsent New Chat) before prepending
+    // so tapping + from within an unsent chat doesn't leave a phantom behind.
+    setChats((prev) => [chat, ...prev.filter((c) => c.messages.length > 0)])
     setActiveChatId(id)
     setView('chat')
     setInput('')
@@ -958,9 +960,17 @@ export default function Aiya() {
   }, [activeChatId, saveDraft, userId])
 
   const goToList = useCallback(() => {
-    // Save current draft before going to list
-    if (activeChatId && input.trim()) {
-      saveDraft(activeChatId, input)
+    if (activeChatId) {
+      const current = chatsRef.current.find((c) => c.id === activeChatId)
+      if (current && current.messages.length === 0) {
+        // Prune the phantom empty chat (New Chat opened but nothing sent) so it
+        // doesn't linger in the list or sync to the cloud; drop its draft too.
+        setChats((prev) => prev.filter((c) => c.id !== activeChatId || c.messages.length > 0))
+        saveDraft(activeChatId, '')
+      } else if (input.trim()) {
+        // Non-empty chat — preserve the in-progress draft.
+        saveDraft(activeChatId, input)
+      }
     }
     setView('list')
     setShowMenu(false)
@@ -1078,7 +1088,9 @@ export default function Aiya() {
     setChats((prev) => {
       return prev.map((c) => {
         if (c.id !== targetChatId) return c
-        const updated = trimMessages([...c.messages, userMsg])
+        // Persist the FULL thread — don't truncate stored history (the model
+        // context is bounded separately below), so scrollback never vanishes.
+        const updated = [...c.messages, userMsg]
         const title = c.title || generateTitle(text, t)
         return { ...c, messages: updated, title, updatedAt: Date.now() }
       })
@@ -1141,7 +1153,8 @@ export default function Aiya() {
       setChats((prev) => {
         return prev.map((c) => {
           if (c.id !== targetChatId) return c
-          const updated = trimMessages([...c.messages, aiyaMsg])
+          // Persist the FULL thread (model context is bounded separately).
+          const updated = [...c.messages, aiyaMsg]
           return { ...c, messages: updated, updatedAt: Date.now() }
         })
       })

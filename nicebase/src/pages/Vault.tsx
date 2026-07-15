@@ -27,9 +27,12 @@ export default function Vault() {
   const { showSuccess, showError, hapticFeedback } = useNotifications()
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
-  // Home's "core memories" stat card navigates here with { isCore: true } so the
-  // vault opens pre-filtered to core memories.
-  const initialIsCore = Boolean((location.state as { isCore?: boolean } | null)?.isCore)
+  // Home navigates here with state: { isCore: true } from the "core memories"
+  // stat card, or { filterMonth, filterDay } from the "X months ago today" card.
+  const navState = location.state as { isCore?: boolean; filterMonth?: number; filterDay?: number } | null
+  const initialIsCore = Boolean(navState?.isCore)
+  const initialFilterMonth = typeof navState?.filterMonth === 'number' ? navState.filterMonth : null
+  const initialFilterDay = typeof navState?.filterDay === 'number' ? navState.filterDay : null
   const [showForm, setShowForm] = useState(false)
   const [editingMemory, setEditingMemory] = useState<Memory | undefined>()
   const [selectedMemories, setSelectedMemories] = useState<Set<string>>(new Set())
@@ -64,8 +67,11 @@ export default function Vault() {
     setSearchConnections,
     isCore,
     setIsCore,
+    filterMonth,
+    filterDay,
+    setFilterDate,
     clearFilters,
-  } = useMemoryFilters(memories, { isCore: initialIsCore })
+  } = useMemoryFilters(memories, { isCore: initialIsCore, filterMonth: initialFilterMonth, filterDay: initialFilterDay })
 
   // Mark that a real load has started (or finished) so the empty state can't
   // flash before the first skeleton frame.
@@ -80,7 +86,7 @@ export default function Vault() {
   // doesn't carry into a freshly filtered (possibly smaller) result set.
   useEffect(() => {
     setDisplayCount(20)
-  }, [searchQuery, selectedCategory, selectedLifeArea, sortBy, dateRange.start, dateRange.end, searchConnections, isCore])
+  }, [searchQuery, selectedCategory, selectedLifeArea, sortBy, dateRange.start, dateRange.end, searchConnections, isCore, filterMonth, filterDay])
 
   useEffect(() => {
     const action = searchParams.get('action')
@@ -118,7 +124,9 @@ export default function Vault() {
         try {
           await memoryService.delete(id)
           hapticFeedback('success')
-          showSuccess(t('memoryDeleted'))
+          // One success channel per action: keep the full-screen SuccessAnimation
+          // (consistent with save) — the duplicate toast was removed so the user
+          // doesn't get two simultaneous confirmations for one delete.
           setSuccessMessage(t('memoryDeleted'))
           setShowSuccessAnimation(true)
           setTimeout(() => setShowSuccessAnimation(false), 2000)
@@ -139,16 +147,22 @@ export default function Vault() {
       type: 'danger',
       onConfirm: async () => {
         const selectedIds = Array.from(selectedMemories)
-        try {
-          await Promise.all(selectedIds.map(id => memoryService.delete(id)))
+        // allSettled (not all): on a partial failure the successfully-deleted
+        // memories must still disappear and selection/bulk-mode must reset —
+        // otherwise the list lies (stale rows stay) and the user only sees a
+        // generic error. Always reconcile state, then report the real outcome.
+        const results = await Promise.allSettled(selectedIds.map(id => memoryService.delete(id)))
+        const failed = results.filter(r => r.status === 'rejected').length
+        const succeeded = selectedIds.length - failed
+        setSelectedMemories(new Set())
+        setBulkMode(false)
+        await refreshMemories()
+        if (failed === 0) {
           hapticFeedback('success')
-          showSuccess(t('memoriesDeleted', { count: selectedMemories.size }))
-          setSelectedMemories(new Set())
-          setBulkMode(false)
-          await refreshMemories()
-        } catch (error) {
+          showSuccess(t('memoriesDeleted', { count: succeeded }))
+        } else {
           hapticFeedback('error')
-          showError(t('bulkDeleteError'))
+          showError(t('bulkDeletePartial', { count: failed }))
         }
       },
     })
@@ -250,20 +264,34 @@ export default function Vault() {
         onConnectionsChange={setSearchConnections}
       />
 
-      {/* Core-only filter chip (arrived from Home's "core memories" card) —
-          visible + removable so the user understands and can clear it. */}
-      {isCore && (
-        <div className="mb-4">
-          <button
-            onClick={() => {
-              hapticFeedback('light')
-              setIsCore(false)
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-sm font-semibold touch-manipulation"
-          >
-            <span>⭐ {t('coreOnly')}</span>
-            <span className="text-yellow-500">✕</span>
-          </button>
+      {/* Active nav-driven filter chips (from Home's stat / on-this-day cards) —
+          visible + removable so the user understands and can clear them. */}
+      {(isCore || (filterMonth != null && filterDay != null)) && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {isCore && (
+            <button
+              onClick={() => {
+                hapticFeedback('light')
+                setIsCore(false)
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-sm font-semibold touch-manipulation"
+            >
+              <span>⭐ {t('coreOnly')}</span>
+              <span className="text-yellow-500">✕</span>
+            </button>
+          )}
+          {filterMonth != null && filterDay != null && (
+            <button
+              onClick={() => {
+                hapticFeedback('light')
+                setFilterDate(null, null)
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-sm font-semibold touch-manipulation"
+            >
+              <span>📅 {t('onThisDay', { defaultValue: 'bugün' })}</span>
+              <span className="text-blue-500">✕</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -303,7 +331,8 @@ export default function Vault() {
             dateRange.start ||
             dateRange.end ||
             searchConnections.length > 0 ||
-            isCore
+            isCore ||
+            (filterMonth != null && filterDay != null)
           )}
           onClearFilters={handleClearFilters}
           onAddMemory={handleAddMemory}

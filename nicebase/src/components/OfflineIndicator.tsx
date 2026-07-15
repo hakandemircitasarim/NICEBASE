@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store/useStore'
 import { motion, AnimatePresence } from 'framer-motion'
-import { WifiOff } from 'lucide-react'
+import { Wifi, WifiOff } from 'lucide-react'
 
 export default function OfflineIndicator() {
   const { t } = useTranslation()
@@ -65,7 +65,7 @@ export default function OfflineIndicator() {
               animate={isOnline ? {} : { rotate: [0, -10, 10, -10, 10, 0] }}
               transition={{ duration: 0.5, repeat: isOnline ? 0 : Infinity, repeatDelay: 2 }}
             >
-              <WifiOff size={18} />
+              {isOnline ? <Wifi size={18} /> : <WifiOff size={18} />}
             </motion.div>
             <span className="text-sm font-medium flex-1">
               {isOnline 

@@ -12,6 +12,10 @@ interface FilterOptions {
   dateRange?: { start: string; end: string }
   searchConnections?: string[]
   isCore?: boolean
+  // "On this day" (month + day-of-month across all years) — passed from Home's
+  // "X months ago today" card via navigation state.
+  filterMonth?: number | null
+  filterDay?: number | null
 }
 
 interface UseMemoryFiltersReturn {
@@ -23,6 +27,8 @@ interface UseMemoryFiltersReturn {
   dateRange: { start: string; end: string }
   searchConnections: string[]
   isCore: boolean
+  filterMonth: number | null
+  filterDay: number | null
   setSearchQuery: (query: string) => void
   setSelectedCategory: (category: MemoryCategory | 'all') => void
   setSelectedLifeArea: (lifeArea: LifeArea | 'all') => void
@@ -30,6 +36,7 @@ interface UseMemoryFiltersReturn {
   setDateRange: (range: { start: string; end: string }) => void
   setSearchConnections: (connections: string[]) => void
   setIsCore: (isCore: boolean) => void
+  setFilterDate: (month: number | null, day: number | null) => void
   clearFilters: () => void
 }
 
@@ -58,6 +65,8 @@ export function useMemoryFilters(
     initialOptions.searchConnections || []
   )
   const [isCore, setIsCore] = useState<boolean>(initialOptions.isCore ?? false)
+  const [filterMonth, setFilterMonth] = useState<number | null>(initialOptions.filterMonth ?? null)
+  const [filterDay, setFilterDay] = useState<number | null>(initialOptions.filterDay ?? null)
 
   const debouncedSearchQuery = useDebounce(searchQuery, 300)
 
@@ -113,6 +122,15 @@ export function useMemoryFilters(
       filtered = filtered.filter(m => m.isCore)
     }
 
+    // "On this day" filter (month + day across all years) — from Home's
+    // "X months ago today" card.
+    if (filterMonth != null && filterDay != null) {
+      filtered = filtered.filter(m => {
+        const d = parseLocalDate(m.date)
+        return d.getMonth() === filterMonth && d.getDate() === filterDay
+      })
+    }
+
     // Sort
     if (sortBy === 'date') {
       filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -130,6 +148,8 @@ export function useMemoryFilters(
     dateRange,
     searchConnections,
     isCore,
+    filterMonth,
+    filterDay,
   ])
 
   const clearFilters = () => {
@@ -140,6 +160,8 @@ export function useMemoryFilters(
     setDateRange({ start: '', end: '' })
     setSearchConnections([])
     setIsCore(false)
+    setFilterMonth(null)
+    setFilterDay(null)
   }
 
   return {
@@ -151,6 +173,8 @@ export function useMemoryFilters(
     dateRange,
     searchConnections,
     isCore,
+    filterMonth,
+    filterDay,
     setSearchQuery,
     setSelectedCategory,
     setSelectedLifeArea,
@@ -158,6 +182,10 @@ export function useMemoryFilters(
     setDateRange,
     setSearchConnections,
     setIsCore,
+    setFilterDate: (month: number | null, day: number | null) => {
+      setFilterMonth(month)
+      setFilterDay(day)
+    },
     clearFilters,
   }
 }
