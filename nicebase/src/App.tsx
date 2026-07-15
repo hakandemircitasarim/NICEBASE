@@ -16,14 +16,16 @@ import Toaster from './components/Toaster'
 import OfflineIndicator from './components/OfflineIndicator'
 import LoadingSpinner from './components/LoadingSpinner'
 import MigrationPrompt from './components/MigrationPrompt'
+import AppLockGate from './components/AppLockGate'
 
 // Lazy load pages for code splitting
 const Home = lazy(() => import('./pages/Home'))
 const Vault = lazy(() => import('./pages/Vault'))
 const RelationshipSaver = lazy(() => import('./pages/RelationshipSaver'))
 const Aiya = lazy(() => import('./pages/Aiya'))
-const Statistics = lazy(() => import('./pages/Statistics'))
-const Achievements = lazy(() => import('./pages/Achievements'))
+// Statistics + Achievements + Badges were three overlapping surfaces; they are
+// merged into one "Progress" page (Insights). The old routes redirect here.
+const Insights = lazy(() => import('./pages/Insights'))
 const Profile = lazy(() => import('./pages/Profile'))
 const Connections = lazy(() => import('./pages/Connections'))
 const ResetPassword = lazy(() => import('./pages/ResetPassword'))
@@ -60,6 +62,7 @@ function App() {
   // openModalCount/isOnline change.
   const init = useStore((s) => s.init)
   const setUser = useStore((s) => s.setUser)
+  const bumpMemoriesRefresh = useStore((s) => s.bumpMemoriesRefresh)
   const theme = useStore((s) => s.theme)
   const syncStartedForRef = useRef<string | null>(null)
   const subscriptionRef = useRef<{ unsubscribe: () => void } | null>(null)
@@ -80,8 +83,13 @@ function App() {
     const count = await migrateLocalMemories(userId)
     if (count > 0) {
       memorySyncService.start(userId)
+      // The migration reassigned Dexie rows to the cloud id in place; nothing
+      // changed userId, so mounted lists won't re-query on their own. Bump the
+      // shared signal so the current view (e.g. Home) shows the memories
+      // immediately instead of only after navigating away and back.
+      bumpMemoriesRefresh()
     }
-  }, [migrationPrompt])
+  }, [migrationPrompt, bumpMemoriesRefresh])
 
   const handleMigrationReject = useCallback(() => {
     setMigrationPrompt((p) => ({ ...p, confirmDelete: true }))
@@ -294,29 +302,34 @@ function App() {
         onConfirmDelete={handleMigrationConfirmDelete}
         onCancelDelete={handleMigrationCancelDelete}
       />
-      <Suspense fallback={
-        <div className="min-h-screen flex items-center justify-center">
-          <LoadingSpinner size="lg" />
-        </div>
-      }>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Home />} />
-            <Route path="vault" element={<Vault />} />
-            <Route path="relationship-saver" element={<RelationshipSaver />} />
-            <Route path="aiya" element={<Aiya />} />
-            <Route path="statistics" element={<Statistics />} />
-            <Route path="achievements" element={<Achievements />} />
-            <Route path="profile" element={<Profile />} />
-            <Route path="profile/connections" element={<Connections />} />
-            <Route path="add-memory" element={<AddMemory />} />
+      <AppLockGate>
+        <Suspense fallback={
+          <div className="min-h-screen flex items-center justify-center">
+            <LoadingSpinner size="lg" />
+          </div>
+        }>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/" element={<Layout />}>
+              <Route index element={<Home />} />
+              <Route path="vault" element={<Vault />} />
+              <Route path="relationship-saver" element={<RelationshipSaver />} />
+              <Route path="aiya" element={<Aiya />} />
+              <Route path="insights" element={<Insights />} />
+              {/* Retired routes now redirect into the merged Progress page so any
+                  deep links / notifications / old shortcuts keep working. */}
+              <Route path="statistics" element={<Navigate to="/insights?tab=overview" replace />} />
+              <Route path="achievements" element={<Navigate to="/insights?tab=goals" replace />} />
+              <Route path="profile" element={<Profile />} />
+              <Route path="profile/connections" element={<Connections />} />
+              <Route path="add-memory" element={<AddMemory />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Suspense>
+          </Routes>
+        </Suspense>
+      </AppLockGate>
     </>
   )
 }

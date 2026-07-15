@@ -125,7 +125,9 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
   }
 
   const handleDoubleClick = (e: React.MouseEvent) => {
-    if (scale === 1) {
+    // Toggle on the zoomed flag (not scale===1) so a partially pinch-zoomed
+    // image also double-taps back to reset instead of snapping to 2x.
+    if (!isZoomed) {
       const rect = imageRef.current?.getBoundingClientRect()
       if (rect && containerRef.current) {
         const containerRect = containerRef.current.getBoundingClientRect()
@@ -257,11 +259,13 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
           onClick={(e) => {
-            if (!isZoomed) {
-              e.stopPropagation()
-            } else {
-              resetZoom()
-            }
+            // Always keep clicks on the image content from bubbling to the
+            // backdrop (which dismisses). Do NOT reset zoom here: a double-tap
+            // fires two clicks before dblclick, and resetting on the first click
+            // made the second double-tap re-zoom instead of toggling out. Reset
+            // is handled by the double-tap handler, the ZoomOut button, Escape,
+            // and Android back.
+            e.stopPropagation()
           }}
           className="relative max-w-4xl w-full max-h-[90dvh] overflow-hidden touch-none"
           onTouchStart={(e) => {

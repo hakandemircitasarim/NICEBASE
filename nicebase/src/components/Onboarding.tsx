@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Sparkles, Archive, Heart, MessageCircle, BarChart3, Trophy } from 'lucide-react'
+import { X, Sparkles, Archive, Heart, MessageCircle, BarChart3 } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { useModalPresence } from '../hooks/useModalPresence'
 import { useBackButton } from '../hooks/useBackButton'
@@ -39,13 +39,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     },
     {
       icon: BarChart3,
-      title: t('statistics'),
+      title: t('insightsTitle'),
       description: t('onboardingStatistics'),
-    },
-    {
-      icon: Trophy,
-      title: t('badgesAndAchievements'),
-      description: t('onboardingAchievements'),
     },
   ]
 

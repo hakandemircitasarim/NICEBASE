@@ -6,7 +6,6 @@ import {
   Settings as SettingsIcon,
   Users,
   BarChart3,
-  Trophy,
   ChevronRight,
   Heart,
   Flame,
@@ -16,7 +15,6 @@ import {
   MapPin,
   Cake,
 } from 'lucide-react'
-import toast from 'react-hot-toast'
 import { useStore } from '../store/useStore'
 import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
@@ -24,6 +22,7 @@ import { hapticFeedback } from '../utils/haptic'
 import { cleanConnectionName, normalizeConnectionKey } from '../utils/connections'
 import SettingsSheet from '../components/SettingsSheet'
 import EditProfileSheet from '../components/EditProfileSheet'
+import Paywall from '../components/Paywall'
 
 export default function Profile() {
   const { t, i18n } = useTranslation()
@@ -35,6 +34,7 @@ export default function Profile() {
   const { memories } = useMemories(userId)
   const [showSettings, setShowSettings] = useState(false)
   const [showEditProfile, setShowEditProfile] = useState(false)
+  const [showPaywall, setShowPaywall] = useState(false)
 
   // Load profile data from localStorage fallback on mount
   useEffect(() => {
@@ -277,7 +277,7 @@ export default function Profile() {
         <button
           onClick={() => {
             hapticFeedback('light')
-            navigate('/statistics')
+            navigate('/insights')
           }}
           className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 text-center hover:border-primary/40 transition-all touch-manipulation"
         >
@@ -383,7 +383,7 @@ export default function Profile() {
           </div>
         </motion.button>
 
-        {/* Statistics Section */}
+        {/* Progress Section — merged Statistics + Achievements + Badges */}
         <motion.button
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
@@ -391,7 +391,7 @@ export default function Profile() {
           whileTap={{ scale: 0.98 }}
           onClick={() => {
             hapticFeedback('light')
-            navigate('/statistics')
+            navigate('/insights')
           }}
           className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 sm:p-5 hover:border-primary/40 transition-all touch-manipulation text-left"
         >
@@ -404,44 +404,10 @@ export default function Profile() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-bold text-gray-900 dark:text-gray-100">
-                {t('statistics')}
+                {t('insightsTitle')}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {t('profileStatisticsDescription')}
-              </p>
-            </div>
-            <ChevronRight
-              size={20}
-              className="text-gray-400 dark:text-gray-500 flex-shrink-0"
-            />
-          </div>
-        </motion.button>
-
-        {/* Achievements Section */}
-        <motion.button
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => {
-            hapticFeedback('light')
-            navigate('/achievements')
-          }}
-          className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 sm:p-5 hover:border-primary/40 transition-all touch-manipulation text-left"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center flex-shrink-0">
-              <Trophy
-                className="text-yellow-600 dark:text-yellow-400"
-                size={22}
-              />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-gray-900 dark:text-gray-100">
-                {t('achievements')}
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {t('profileAchievementsDescription')}
+                {t('profileInsightsDescription')}
               </p>
             </div>
             <ChevronRight
@@ -460,7 +426,7 @@ export default function Profile() {
             whileTap={{ scale: 0.98 }}
             onClick={() => {
               hapticFeedback('light')
-              toast(t('premiumComingSoon'))
+              setShowPaywall(true)
             }}
             className="w-full bg-gradient-to-r from-primary/10 to-yellow-500/10 dark:from-primary/20 dark:to-yellow-500/20 border border-primary/30 rounded-2xl p-4 sm:p-5 hover:border-primary/50 transition-all touch-manipulation text-left"
           >
@@ -537,6 +503,13 @@ export default function Profile() {
       <AnimatePresence>
         {showEditProfile && (
           <EditProfileSheet onClose={() => setShowEditProfile(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* Premium Paywall */}
+      <AnimatePresence>
+        {showPaywall && (
+          <Paywall onClose={() => setShowPaywall(false)} />
         )}
       </AnimatePresence>
     </div>

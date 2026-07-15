@@ -8,6 +8,9 @@
  * - "Ceyda", " ceyda " and "CEYDA" are treated as the same connection for filtering/counting
  * - display keeps the user's casing as much as possible
  */
+import { Memory } from '../types'
+import { parseLocalDate } from './dateFormat'
+
 export function cleanConnectionName(name: string): string {
   return name.trim().replace(/\s+/g, ' ')
 }
@@ -53,6 +56,50 @@ export function buildConnectionDisplayMap(connections: string[]): Map<string, st
     if (!map.has(key)) map.set(key, cleaned)
   }
   return map
+}
+
+export type ConnectionStat = {
+  key: string
+  name: string
+  count: number
+  lastUsed: string | null
+}
+
+/**
+ * Aggregates per-connection stats from a set of memories: one entry per unique
+ * (normalized) connection with its display name (first occurrence), the number
+ * of memories referencing it, and the most-recent memory date (`lastUsed`).
+ *
+ * Sorted by count desc, then name asc (locale-aware). Centralizes what
+ * Connections.tsx computes inline so multiple screens agree on the numbers.
+ */
+export function buildConnectionStats(
+  memories: Pick<Memory, 'connections' | 'date'>[],
+  locale?: string
+): ConnectionStat[] {
+  const displayMap = buildConnectionDisplayMap(memories.flatMap(m => m.connections))
+  const map = new Map<string, ConnectionStat>()
+
+  for (const [key, name] of displayMap.entries()) {
+    map.set(key, { key, name, count: 0, lastUsed: null })
+  }
+
+  for (const memory of memories) {
+    for (const raw of memory.connections) {
+      const k = normalizeConnectionKey(raw)
+      const entry = map.get(k) ?? { key: k, name: cleanConnectionName(raw), count: 0, lastUsed: null }
+      entry.count += 1
+      if (!entry.lastUsed || parseLocalDate(memory.date) > parseLocalDate(entry.lastUsed)) {
+        entry.lastUsed = memory.date
+      }
+      map.set(k, entry)
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count
+    return a.name.localeCompare(b.name, locale, { sensitivity: 'base' })
+  })
 }
 
 

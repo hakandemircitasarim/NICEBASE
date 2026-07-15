@@ -151,14 +151,15 @@ export default defineConfig({
   ],
   build: {
     rollupOptions: {
-      external: (id) => {
-        // @capacitor/core must be bundled — it provides registerPlugin() and the native bridge.
-        // @capgo plugins also need it bundled so their imports resolve correctly.
-        if (id === '@capacitor/core') return false
-        // @capacitor/app is statically imported in memorySyncService — must be bundled
-        if (id === '@capacitor/app') return false
-        // Other @capacitor/* plugins are external — only loaded in native via dynamic import
-        if (id.startsWith('@capacitor/')) return true
+      external: () => {
+        // Nothing is externalized. Previously all @capacitor/* plugins except
+        // core/app were marked external, which left literal
+        // `import("@capacitor/local-notifications")` bare specifiers in the
+        // output. In the Capacitor WebView (served from https://localhost with
+        // no import map) those resolve to https://localhost/@capacitor/... → 404,
+        // so the dynamic import REJECTED and notifications/haptics/status-bar
+        // silently failed (permission dialog never showed, reminders never
+        // scheduled). Bundling them lets Rollup emit resolvable lazy chunks.
         return false
       },
       output: {

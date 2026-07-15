@@ -20,12 +20,31 @@ export default function Layout() {
   // Register Android back button handler with React Router
   const handleBackButton = useCallback((): boolean => {
     const currentPath = locationRef.current.pathname
-    // If on a sub-page, navigate back to the parent/home
+    // If on a sub-page, navigate back to the logical parent (NOT always home).
     if (currentPath === '/') {
       // On home page - let native handle (exit app)
       return false
     }
-    // Navigate to home for all other pages
+    // Explicit parent map so back is deterministic regardless of how the page
+    // was reached (e.g. Statistics/Insights/Connections were opened from
+    // Profile, so back should return to Profile — not Home).
+    const PARENT: Record<string, string> = {
+      '/insights': '/profile',
+      '/statistics': '/profile',
+      '/achievements': '/profile',
+      '/profile/connections': '/profile',
+    }
+    const parent = PARENT[currentPath]
+    if (parent) {
+      navigate(parent)
+      return true
+    }
+    // Otherwise honour real history when there is any (vault, relationship-saver,
+    // aiya, add-memory), falling back to home on a cold start / deep link.
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      navigate(-1)
+      return true
+    }
     navigate('/', { replace: true })
     return true
   }, [navigate])

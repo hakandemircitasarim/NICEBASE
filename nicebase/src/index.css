@@ -55,10 +55,12 @@
     padding-right: 0;
   }
 
-  /* Android native: no extra page-level top padding needed — native insets handle it. */
-  html.native-android main > div {
-    padding-top: 0 !important;
-  }
+  /* Android native: the native content view already pads content by exactly the
+     status-bar height (MainActivity insets listener). We intentionally KEEP each
+     page root's own py-8/py-10 so there is visible breathing room below the
+     status bar — matching iOS/web (safe-area inset + ~32px). Previously this
+     zeroed page top padding, leaving headings (e.g. the "İyi geceler" greeting)
+     flush against the status bar. */
 
   /* Theme transition only on body background — avoids mass re-paint on theme toggle */
 

@@ -375,8 +375,13 @@ serve(async (req) => {
 
   // Apply the burst limiter up front.
   if (normalizedAction === 'classify' || normalizedAction === 'category') {
-    // Unmetered path → fail CLOSED so it always has a ceiling.
-    if (!(await enforceRateLimit('classify', RATE_CLASSIFY_MAX, RATE_CLASSIFY_WINDOW_S, true))) {
+    // Fail OPEN (was CLOSED): when check_aiya_rate_limit is transiently
+    // unreachable (permission/DB blip) the limiter returned false and the client
+    // swallowed the 429 → auto-categorisation silently STOPPED for everyone while
+    // chat kept working. Classification is cheap (gpt-4o-mini) and only fired on
+    // memory create, so a limiter outage must not kill it. The fixed-window
+    // ceiling still applies whenever the limiter IS reachable.
+    if (!(await enforceRateLimit('classify', RATE_CLASSIFY_MAX, RATE_CLASSIFY_WINDOW_S, false))) {
       return jsonResponse({ error: 'Rate limit exceeded' }, 429)
     }
   } else if (isCounted || normalizedAction === 'profile') {

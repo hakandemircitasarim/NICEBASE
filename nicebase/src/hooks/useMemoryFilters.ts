@@ -11,6 +11,7 @@ interface FilterOptions {
   sortBy?: 'date' | 'intensity'
   dateRange?: { start: string; end: string }
   searchConnections?: string[]
+  isCore?: boolean
 }
 
 interface UseMemoryFiltersReturn {
@@ -21,12 +22,14 @@ interface UseMemoryFiltersReturn {
   sortBy: 'date' | 'intensity'
   dateRange: { start: string; end: string }
   searchConnections: string[]
+  isCore: boolean
   setSearchQuery: (query: string) => void
   setSelectedCategory: (category: MemoryCategory | 'all') => void
   setSelectedLifeArea: (lifeArea: LifeArea | 'all') => void
   setSortBy: (sortBy: 'date' | 'intensity') => void
   setDateRange: (range: { start: string; end: string }) => void
   setSearchConnections: (connections: string[]) => void
+  setIsCore: (isCore: boolean) => void
   clearFilters: () => void
 }
 
@@ -54,6 +57,7 @@ export function useMemoryFilters(
   const [searchConnections, setSearchConnections] = useState<string[]>(
     initialOptions.searchConnections || []
   )
+  const [isCore, setIsCore] = useState<boolean>(initialOptions.isCore ?? false)
 
   const debouncedSearchQuery = useDebounce(searchQuery, 300)
 
@@ -104,6 +108,11 @@ export function useMemoryFilters(
       filtered = filtered.filter(m => m.lifeArea === selectedLifeArea)
     }
 
+    // Core-only filter (e.g. arriving from Home's "core memories" stat card)
+    if (isCore) {
+      filtered = filtered.filter(m => m.isCore)
+    }
+
     // Sort
     if (sortBy === 'date') {
       filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -120,6 +129,7 @@ export function useMemoryFilters(
     sortBy,
     dateRange,
     searchConnections,
+    isCore,
   ])
 
   const clearFilters = () => {
@@ -129,6 +139,7 @@ export function useMemoryFilters(
     setSortBy('date')
     setDateRange({ start: '', end: '' })
     setSearchConnections([])
+    setIsCore(false)
   }
 
   return {
@@ -139,12 +150,14 @@ export function useMemoryFilters(
     sortBy,
     dateRange,
     searchConnections,
+    isCore,
     setSearchQuery,
     setSelectedCategory,
     setSelectedLifeArea,
     setSortBy,
     setDateRange,
     setSearchConnections,
+    setIsCore,
     clearFilters,
   }
 }

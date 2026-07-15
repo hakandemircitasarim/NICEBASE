@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import toast from 'react-hot-toast'
 import { Memory } from '../types'
 import { memoryService } from '../services/memoryService'
+import { useStore } from '../store/useStore'
 
 interface UseMemoriesOptions {
   autoLoad?: boolean
@@ -30,6 +31,10 @@ export function useMemories(
   const [memories, setMemories] = useState<Memory[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  // Global refresh signal — bumped after cross-component mutations (e.g. the
+  // local→cloud memory migration in App) so a mounted list re-queries Dexie
+  // without needing a route remount.
+  const memoriesRefreshKey = useStore((s) => s.memoriesRefreshKey)
   
   // Store onLoadComplete in a ref to prevent infinite re-renders
   const onLoadCompleteRef = useRef(onLoadComplete)
@@ -71,7 +76,9 @@ export function useMemories(
     if (autoLoad) {
       loadMemories()
     }
-  }, [autoLoad, loadMemories])
+    // memoriesRefreshKey is intentionally in the deps (not in loadMemories' own
+    // deps) so a bump re-queries without changing refreshMemories' identity.
+  }, [autoLoad, loadMemories, memoriesRefreshKey])
 
   return {
     memories,

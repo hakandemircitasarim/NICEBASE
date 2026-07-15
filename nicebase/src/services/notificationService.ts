@@ -3,7 +3,6 @@ import i18n from '../i18n'
 import { isNativePlatform } from '../utils/platform'
 import { errorLoggingService } from './errorLoggingService'
 import { parseLocalDate } from '../utils/dateFormat'
-import type { WindowWithCapacitor } from '../types/capacitor'
 
 /**
  * Generate a stable numeric notification ID from a userId and prefix.
@@ -24,83 +23,87 @@ function notificationId(userId: string, prefix: number): number {
 const MAX_NOTIFICATION_ID = 2147483647
 let transientNotificationCounter = 0
 
-// Load Capacitor notification plugins - in native they're available via window, in web they're not
+// Load the Capacitor LocalNotifications plugin. Now that vite bundles
+// @capacitor/* (it used to externalize them, leaving unresolvable bare
+// specifiers that silently rejected in the WebView), this dynamic import
+// resolves to a real lazy chunk on native. PushNotifications was dropped: there
+// is no FCM (no google-services.json) and requesting POST_NOTIFICATIONS through
+// two plugins was redundant and let a stale push result override a granted
+// local result.
 //
-// IMPORTANT: These functions return plain wrapper objects, NOT the raw Capacitor plugin.
-// Returning a Capacitor plugin directly from an async function triggers the "thenable trap":
-// Promise.resolve(plugin) calls plugin.then(), causing "Plugin.then() is not implemented on android".
-async function loadPushNotifications() {
-  if (!isNativePlatform()) return null
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let p: any
-    if (typeof window !== 'undefined') {
-      const plugins = (window as WindowWithCapacitor).CapacitorPlugins
-      if (plugins?.PushNotifications) {
-        p = plugins.PushNotifications
-      }
-    }
-    if (!p) {
-      const module = await import('@capacitor/push-notifications')
-      p = module.PushNotifications
-    }
-    // Plain wrapper — no .then() property, safe to return from async function
-    return { requestPermissions: () => p.requestPermissions() as Promise<{ receive: string }> }
-  } catch {
-    return null
-  }
-}
-
+// IMPORTANT: returns a plain wrapper object, NOT the raw Capacitor plugin —
+// returning a plugin from an async fn triggers the "thenable trap"
+// (Promise.resolve(plugin) calls plugin.then()).
 async function loadLocalNotifications() {
   if (!isNativePlatform()) return null
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let p: any
-    if (typeof window !== 'undefined') {
-      const plugins = (window as WindowWithCapacitor).CapacitorPlugins
-      if (plugins?.LocalNotifications) {
-        p = plugins.LocalNotifications
-      }
-    }
-    if (!p) {
-      const module = await import('@capacitor/local-notifications')
-      p = module.LocalNotifications
-    }
-    // Plain wrapper — no .then() property, safe to return from async function
+    const module = await import('@capacitor/local-notifications')
+    const p = module.LocalNotifications
     return {
       requestPermissions: () => p.requestPermissions() as Promise<{ display: string }>,
+      checkPermissions: () => p.checkPermissions() as Promise<{ display: string }>,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      schedule: (opts: any) => p.schedule(opts) as Promise<void>,
-      cancel: (opts: { notifications: { id: number }[] }) => p.cancel(opts) as Promise<void>,
+      schedule: (opts: any) => p.schedule(opts).then(() => undefined),
+      cancel: (opts: { notifications: { id: number }[] }) => p.cancel(opts).then(() => undefined),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      createChannel: (opts: any) => p.createChannel(opts).then(() => undefined),
     }
-  } catch {
+  } catch (error) {
+    // Do NOT swallow — a failed import here was the silent root cause of
+    // "notifications denied without ever prompting".
+    errorLoggingService.logError(
+      error instanceof Error ? error : new Error('Failed to load LocalNotifications plugin'),
+      'warning'
+    )
     return null
+  }
+}
+
+// Android 8+ requires a notification channel before anything will display.
+// Nothing created these before, so scheduled reminders silently never showed.
+// Idempotent: createChannel is a no-op if the channel already exists.
+async function ensureChannels(): Promise<void> {
+  if (!isNativePlatform()) return
+  try {
+    const LocalNotifications = await loadLocalNotifications()
+    if (!LocalNotifications) return
+    const channels = [
+      { id: 'daily-reminder', name: i18n.t('dailyReminderTitle'), importance: 4 },
+      { id: 'streak-protection', name: 'NICEBASE', importance: 4 },
+      { id: 'random-memory', name: 'NICEBASE', importance: 3 },
+      { id: 'default', name: 'NICEBASE', importance: 3 },
+    ]
+    for (const ch of channels) {
+      await LocalNotifications.createChannel({
+        id: ch.id,
+        name: ch.name,
+        importance: ch.importance,
+        visibility: 1,
+      })
+    }
+  } catch (error) {
+    errorLoggingService.logError(
+      error instanceof Error ? error : new Error('Failed to create notification channels'),
+      'warning'
+    )
   }
 }
 
 export const notificationService = {
   async requestPermission(): Promise<boolean> {
-    // Native platform (Android/iOS)
+    // Native platform (Android/iOS) — LocalNotifications only.
     if (isNativePlatform()) {
-      // Try LocalNotifications first (more reliable on Android 13+)
       try {
         const LocalNotifications = await loadLocalNotifications()
-        if (LocalNotifications) {
-          const result = await (LocalNotifications as { requestPermissions: () => Promise<{ display: string }> }).requestPermissions()
-          if (result.display === 'granted') return true
+        if (!LocalNotifications) return false
+        const result = await LocalNotifications.requestPermissions()
+        const granted = result.display === 'granted'
+        if (granted) {
+          // Channels must exist for scheduled notifications to actually display.
+          await ensureChannels()
         }
-      } catch {
-        // LocalNotifications permission request failed — try PushNotifications
-      }
-
-      // Fallback to PushNotifications
-      try {
-        const PushNotifications = await loadPushNotifications()
-        if (!PushNotifications) return false
-        const result = await (PushNotifications as { requestPermissions: () => Promise<{ receive: string }> }).requestPermissions()
-        return result.receive === 'granted'
+        return granted
       } catch (error) {
         errorLoggingService.logError(
           error instanceof Error ? error : new Error('Failed to request notification permissions'),
@@ -126,6 +129,34 @@ export const notificationService = {
 
     return false
   },
+
+  // Current permission WITHOUT prompting — lets the UI reflect real state and
+  // distinguish "never asked" (prompt) from "blocked" (denied, dialog won't
+  // reappear → guide the user to system settings).
+  async checkPermission(): Promise<'granted' | 'denied' | 'prompt' | 'unsupported'> {
+    if (isNativePlatform()) {
+      try {
+        const LocalNotifications = await loadLocalNotifications()
+        if (!LocalNotifications) return 'unsupported'
+        const result = await LocalNotifications.checkPermissions()
+        const d = result.display
+        if (d === 'granted') return 'granted'
+        if (d === 'denied') return 'denied'
+        return 'prompt' // 'prompt' | 'prompt-with-rationale'
+      } catch (error) {
+        if (import.meta.env.DEV) console.warn('[notifications] checkPermission failed:', error)
+        return 'unsupported'
+      }
+    }
+    if (!('Notification' in window)) return 'unsupported'
+    const p = Notification.permission
+    if (p === 'granted') return 'granted'
+    if (p === 'denied') return 'denied'
+    return 'prompt'
+  },
+
+  // Exposed so native init / SettingsSheet can pre-create channels.
+  ensureChannels,
 
   async showNotification(title: string, options?: NotificationOptions) {
     // Native platform (Android/iOS)

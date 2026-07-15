@@ -219,7 +219,14 @@ export const memoryService = {
         }
       }
     } catch (err) {
-      if (import.meta.env.DEV) console.warn('[memoryService] Auto-categorize failed:', err)
+      // Was DEV-only — so in production classification failed completely silently
+      // (no category, no reason). Log it as a warning so failures are observable.
+      // The message often carries the real cause (rate-limit / server / session).
+      errorLoggingService.logError(
+        err instanceof Error ? err : new Error(`Auto-categorize failed: ${String(err)}`),
+        'warning',
+        userId
+      )
     }
   },
 

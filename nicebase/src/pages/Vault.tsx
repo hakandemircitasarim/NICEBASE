@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { memoryService } from '../services/memoryService'
@@ -26,6 +26,10 @@ export default function Vault() {
   const { memories, loading, error, refreshMemories } = useMemories(userId)
   const { showSuccess, showError, hapticFeedback } = useNotifications()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  // Home's "core memories" stat card navigates here with { isCore: true } so the
+  // vault opens pre-filtered to core memories.
+  const initialIsCore = Boolean((location.state as { isCore?: boolean } | null)?.isCore)
   const [showForm, setShowForm] = useState(false)
   const [editingMemory, setEditingMemory] = useState<Memory | undefined>()
   const [selectedMemories, setSelectedMemories] = useState<Set<string>>(new Set())
@@ -58,8 +62,10 @@ export default function Vault() {
     setSortBy,
     setDateRange,
     setSearchConnections,
+    isCore,
+    setIsCore,
     clearFilters,
-  } = useMemoryFilters(memories)
+  } = useMemoryFilters(memories, { isCore: initialIsCore })
 
   // Mark that a real load has started (or finished) so the empty state can't
   // flash before the first skeleton frame.
@@ -74,7 +80,7 @@ export default function Vault() {
   // doesn't carry into a freshly filtered (possibly smaller) result set.
   useEffect(() => {
     setDisplayCount(20)
-  }, [searchQuery, selectedCategory, selectedLifeArea, sortBy, dateRange.start, dateRange.end, searchConnections])
+  }, [searchQuery, selectedCategory, selectedLifeArea, sortBy, dateRange.start, dateRange.end, searchConnections, isCore])
 
   useEffect(() => {
     const action = searchParams.get('action')
@@ -241,6 +247,23 @@ export default function Vault() {
         onConnectionsChange={setSearchConnections}
       />
 
+      {/* Core-only filter chip (arrived from Home's "core memories" card) —
+          visible + removable so the user understands and can clear it. */}
+      {isCore && (
+        <div className="mb-4">
+          <button
+            onClick={() => {
+              hapticFeedback('light')
+              setIsCore(false)
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-sm font-semibold touch-manipulation"
+          >
+            <span>⭐ {t('coreOnly')}</span>
+            <span className="text-yellow-500">✕</span>
+          </button>
+        </div>
+      )}
+
       {error && !loading ? (
         // Distinct error state — a failed load must not masquerade as
         // "no memories yet". Offer a retry instead of an "add memory" CTA.
@@ -276,7 +299,8 @@ export default function Vault() {
             selectedLifeArea !== 'all' ||
             dateRange.start ||
             dateRange.end ||
-            searchConnections.length > 0
+            searchConnections.length > 0 ||
+            isCore
           )}
           onClearFilters={handleClearFilters}
           onAddMemory={handleAddMemory}

@@ -10,6 +10,7 @@ import {
   MessageCircle, MoreVertical, X, LifeBuoy, Pencil,
 } from 'lucide-react'
 import { useStore } from '../store/useStore'
+import Paywall from '../components/Paywall'
 import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -413,6 +414,10 @@ export default function Aiya() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  // When the error IS the usage cap, render warm copy + a Premium CTA instead of
+  // the red "an error occurred" box.
+  const [errorIsLimit, setErrorIsLimit] = useState(false)
+  const [showPaywall, setShowPaywall] = useState(false)
   const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null)
   const [profileSummary, setProfileSummary] = useState('')
   const [profileMeta, setProfileMeta] = useState<AiyaProfileMeta | null>(null)
@@ -524,8 +529,16 @@ export default function Aiya() {
   const systemPrompt = systemPromptFull
 
   // ─── Auto-scroll ───────────────────────────────────────
+  // Scroll the chat container directly to its true bottom. Using the container
+  // (not scrollIntoView on a zero-height sentinel, which defaults to block:'start'
+  // and can touch ancestor scrollers) reaches the real bottom deterministically.
   const scrollToBottom = useCallback((smooth = true) => {
-    chatEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' })
+    const c = chatContainerRef.current
+    if (c) {
+      c.scrollTo({ top: c.scrollHeight, behavior: smooth ? 'smooth' : 'instant' })
+    } else {
+      chatEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant', block: 'end' })
+    }
   }, [])
 
   // ─── Viewport height tracking (keyboard detection — same as ModalShell) ───
@@ -595,7 +608,19 @@ export default function Aiya() {
   }, [view, scrollToBottom])
 
   useEffect(() => {
-    if (view === 'chat') scrollToBottom()
+    if (view !== 'chat') return
+    // While a reply is in flight, pin HARD and instantly so the just-sent message
+    // + typing indicator stay glued to the bottom through the same-commit layout
+    // churn (typing dots insert, chips row collapse, keyboard/viewport reflow).
+    // A lone smooth scrollIntoView got stranded mid-animation — that was the
+    // "unwanted upward scroll" that corrected itself when the reply landed.
+    if (sending) {
+      scrollToBottom(false)
+      const raf = requestAnimationFrame(() => scrollToBottom(false))
+      const timer = setTimeout(() => scrollToBottom(false), 120)
+      return () => { cancelAnimationFrame(raf); clearTimeout(timer) }
+    }
+    scrollToBottom()
   }, [messages.length, sending, view, scrollToBottom])
 
   useEffect(() => {
@@ -1029,10 +1054,12 @@ export default function Aiya() {
     // Pre-flight: don't start an optimistic send that is guaranteed to dead-end
     // (gives immediate, specific feedback instead of typing-dots → 30s → error).
     if (usageInfo && usageInfo.used >= usageInfo.limit) {
+      setErrorIsLimit(true)
       setErrorMessage(t('aiyaLimitReached'))
       return
     }
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setErrorIsLimit(false)
       setErrorMessage(t('aiyaNetworkError'))
       return
     }
@@ -1044,6 +1071,7 @@ export default function Aiya() {
     // Clear draft on send
     if (targetChatId) saveDraft(targetChatId, '')
     setErrorMessage(null)
+    setErrorIsLimit(false)
 
     const userMsg: AiyaMessage = { role: 'user', content: text, ts: Date.now() }
 
@@ -1136,10 +1164,12 @@ export default function Aiya() {
       // Map known failures to localized copy; never surface a raw/English message.
       const lower = raw.toLowerCase()
       let friendly: string
-      if (lower.includes('usage limit') || lower.includes('429')) friendly = t('aiyaLimitReached')
+      const isLimit = lower.includes('usage limit') || lower.includes('429')
+      if (isLimit) friendly = t('aiyaLimitReached')
       else if (lower.includes('rate limit')) friendly = t('aiyaRateLimited')
       else if (lower.includes('network') || lower.includes('timeout') || lower.includes('failed to fetch') || lower.includes('fetch')) friendly = t('aiyaNetworkError')
       else friendly = t('aiyaError')
+      setErrorIsLimit(isLimit)
       setErrorMessage(friendly)
       // Keep the user's bubble in the thread, flagged failed, with a tap-to-retry
       // affordance (deleting it read as the message vanishing). It is excluded
@@ -1180,8 +1210,8 @@ export default function Aiya() {
   // retry would delete the bubble and then early-return, losing the message.
   const handleRetry = useCallback((text: string, chatId: string) => {
     if (sending) return
-    if (usageInfo && usageInfo.used >= usageInfo.limit) { setErrorMessage(t('aiyaLimitReached')); return }
-    if (typeof navigator !== 'undefined' && !navigator.onLine) { setErrorMessage(t('aiyaNetworkError')); return }
+    if (usageInfo && usageInfo.used >= usageInfo.limit) { setErrorIsLimit(true); setErrorMessage(t('aiyaLimitReached')); return }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) { setErrorIsLimit(false); setErrorMessage(t('aiyaNetworkError')); return }
     // Guards passed — the send will proceed, so it's safe to drop the failed
     // bubble (handleSend re-adds it) and clear the error.
     setChats((prev) => prev.map((c) => {
@@ -1566,7 +1596,8 @@ export default function Aiya() {
           {/* Typing indicator */}
           {sending && <TypingDots />}
 
-          {/* Error */}
+          {/* Error — warm, non-blaming treatment for the usage cap (with a
+              Premium CTA); the red "an error occurred" box only for real errors. */}
           {errorMessage && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -1574,10 +1605,23 @@ export default function Aiya() {
               role="alert"
               className="mx-4 my-2"
             >
-              <div className="text-xs sm:text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 rounded-2xl">
-                <p className="font-medium mb-1">{t('aiyaError')}</p>
-                <p className="text-red-500 dark:text-red-300 break-words">{errorMessage}</p>
-              </div>
+              {errorIsLimit ? (
+                <div className="text-xs sm:text-sm text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 px-4 py-3 rounded-2xl">
+                  <p className="font-semibold mb-1">{t('aiyaLimitTitle')}</p>
+                  <p className="text-orange-600 dark:text-orange-300 break-words mb-3">{errorMessage}</p>
+                  <button
+                    onClick={() => setShowPaywall(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl gradient-primary text-white text-sm font-semibold shadow-md touch-manipulation"
+                  >
+                    {t('aiyaLimitCta')}
+                  </button>
+                </div>
+              ) : (
+                <div className="text-xs sm:text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 rounded-2xl">
+                  <p className="font-medium mb-1">{t('aiyaError')}</p>
+                  <p className="text-red-500 dark:text-red-300 break-words">{errorMessage}</p>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -1624,9 +1668,15 @@ export default function Aiya() {
         {/* Usage cap: at-limit banner, or a near-limit "N left" hint. */}
         {usageInfo && usageInfo.used >= usageInfo.limit ? (
           <div className="container-padding pt-3 max-w-4xl mx-auto w-full">
-            <p className="text-xs sm:text-sm text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 px-4 py-2.5 rounded-2xl text-center">
-              {t('aiyaLimitReached')}
-            </p>
+            <div className="text-xs sm:text-sm text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 px-4 py-2.5 rounded-2xl text-center">
+              <p>{t('aiyaLimitReached')}</p>
+              <button
+                onClick={() => setShowPaywall(true)}
+                className="mt-2 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl gradient-primary text-white text-xs sm:text-sm font-semibold shadow-md touch-manipulation"
+              >
+                {t('aiyaLimitCta')}
+              </button>
+            </div>
           </div>
         ) : usageInfo && usageInfo.limit > 0 && usageInfo.used / usageInfo.limit >= 0.8 ? (
           <div className="container-padding pt-2 max-w-4xl mx-auto w-full">
@@ -1732,6 +1782,11 @@ export default function Aiya() {
         message={t('aiyaDeleteChatConfirm', { defaultValue: 'Bu sohbeti silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.' })}
         type="danger"
       />
+
+      {/* Premium paywall — opened from the usage-limit CTA */}
+      <AnimatePresence>
+        {showPaywall && <Paywall onClose={() => setShowPaywall(false)} />}
+      </AnimatePresence>
 
       {/* #66: "What Aiya remembers about you" — transparency + a clear control */}
       <AnimatePresence>

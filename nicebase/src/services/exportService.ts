@@ -32,57 +32,63 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /**
- * Downloads a blob — tries multiple strategies for compatibility:
- * 1. Web Share API with files (native Android)
- * 2. Anchor element download (web browsers)
- * 3. Data URL in new window (fallback for WebViews)
+ * Persists/exports a blob for the user. Platform-split so it actually delivers a
+ * file on every target instead of silently no-op'ing on native (the old
+ * 3-strategy web-only fallthrough always resolved successfully even when nothing
+ * reached the device, so callers showed a false "exported" toast).
+ *
+ * - Web: anchor `download` on an object URL (the reliable browser path).
+ * - Native (Capacitor): write to the Documents directory via @capacitor/filesystem,
+ *   then open the system share sheet via @capacitor/share so the user can save/send
+ *   it. A cancelled share is NOT a failure (the file is already on disk).
+ *
+ * THROWS on a genuine failure so the caller's catch can show an error toast
+ * instead of a false success.
  */
 export async function downloadBlob(blob: Blob, filename: string): Promise<void> {
-  // Strategy 1: Web Share API with files (works well on Android native)
-  if (isNative() || navigator.share) {
-    try {
-      const file = new File([blob], filename, { type: blob.type })
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: filename })
-        return
-      }
-    } catch (err) {
-      // User cancelled or API not available — try next strategy
-      if (err instanceof Error && err.name === 'AbortError') return
-    }
-  }
-
-  // Strategy 2: Anchor element download (standard web)
-  try {
+  if (!isNative()) {
+    // Web: standard anchor download.
     const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    link.style.display = 'none'
-    document.body.appendChild(link)
-    link.click()
-    // Small delay before cleanup to ensure download starts
-    setTimeout(() => {
+    try {
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      link.style.display = 'none'
+      document.body.appendChild(link)
+      link.click()
       document.body.removeChild(link)
-      URL.revokeObjectURL(url)
-    }, 1000)
-
-    // On native, anchor click may silently fail — check if we need fallback
-    if (!isNative()) return
-  } catch {
-    // Anchor approach failed — try data URL fallback
+    } finally {
+      // Revoke after a tick so the download has a chance to start.
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    }
+    return
   }
 
-  // Strategy 3: Data URL fallback (works in most WebViews)
+  // Native: write the file to Documents, then share it.
+  const dataUrl = await blobToDataUrl(blob)
+  const base64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl
+
+  const { Filesystem, Directory } = await import('@capacitor/filesystem')
+  const writeResult = await Filesystem.writeFile({
+    path: filename,
+    data: base64,
+    directory: Directory.Documents,
+    recursive: true,
+  })
+
+  // Surface the file through the share sheet. If sharing is unavailable or the
+  // user dismisses it, the file is already saved to Documents — not a failure.
   try {
-    const dataUrl = await blobToDataUrl(blob)
-    const win = window.open(dataUrl, '_blank')
-    if (!win) {
-      // Popup blocked — try direct location change for data URL
-      window.location.href = dataUrl
-    }
-  } catch {
-    throw new Error('Export failed: could not download file')
+    const { Share } = await import('@capacitor/share')
+    await Share.share({
+      title: filename,
+      url: writeResult.uri,
+      dialogTitle: filename,
+    })
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') return
+    // Share failed but the file was written — swallow so the export still counts
+    // as successful (the file lives in Documents).
   }
 }
 

@@ -15,6 +15,10 @@ interface AppState {
   language: 'tr' | 'en'
   hasCompletedOnboarding: boolean
   openModalCount: number
+  // Monotonic signal that mounted memory lists (useMemories) subscribe to, so a
+  // cross-component mutation (e.g. accepting the local→cloud migration in App)
+  // can force an immediate re-query without a route remount.
+  memoriesRefreshKey: number
   setUser: (user: User | null) => void
   setTheme: (theme: 'light' | 'dark') => void
   // Set the theme preference; when 'system', resolves to the current OS scheme
@@ -26,6 +30,8 @@ interface AppState {
   resetOnboarding: () => void
   incrementModalCount: () => void
   decrementModalCount: () => void
+  // Bump memoriesRefreshKey so every mounted useMemories re-queries Dexie.
+  bumpMemoriesRefresh: () => void
   checkOnlineStatus: () => void
   init: () => Promise<void>
 }
@@ -107,6 +113,7 @@ export const useStore = create<AppState>((set, get) => ({
   language: getStoredLanguage(),
   hasCompletedOnboarding: getStoredOnboarding(),
   openModalCount: 0,
+  memoriesRefreshKey: 0,
 
   setUser: (user) => {
     set({ user })
@@ -186,6 +193,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   decrementModalCount: () => {
     set({ openModalCount: Math.max(0, get().openModalCount - 1) })
+  },
+
+  bumpMemoriesRefresh: () => {
+    set({ memoriesRefreshKey: get().memoriesRefreshKey + 1 })
   },
 
   checkOnlineStatus: () => {

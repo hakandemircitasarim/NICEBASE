@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
-import { ChevronLeft, ChevronRight, Heart, Maximize2, Minimize2, Share2, Download, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Heart, Maximize2, Minimize2, Share2, Download, X, Search } from 'lucide-react'
 import { Memory } from '../types'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { useSwipe } from '../hooks/useSwipe'
@@ -11,12 +11,33 @@ import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import { useNotifications } from '../hooks/useNotifications'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { buildConnectionDisplayMap, normalizeConnectionKey } from '../utils/connections'
+import { buildConnectionStats, normalizeConnectionKey } from '../utils/connections'
 import { formatMemoryDate, toLocalISODate } from '../utils/dateFormat'
 import { downloadBlob } from '../services/exportService'
 import { useBackButton } from '../hooks/useBackButton'
 
-type ConnectionOption = { key: string; label: string }
+// Deterministic avatar colors so a person keeps the same tile hue across the
+// list and the compact header. Full class strings (not built dynamically) so
+// Tailwind's JIT scanner picks them up.
+const AVATAR_COLORS = [
+  'bg-rose-500', 'bg-pink-500', 'bg-fuchsia-500', 'bg-purple-500',
+  'bg-indigo-500', 'bg-blue-500', 'bg-sky-500', 'bg-cyan-500',
+  'bg-teal-500', 'bg-emerald-500', 'bg-green-500', 'bg-amber-500',
+  'bg-orange-500', 'bg-red-500',
+]
+
+function avatarColor(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}
+
+function avatarInitial(name: string): string {
+  const trimmed = name.trim()
+  return trimmed ? trimmed[0].toLocaleUpperCase() : '?'
+}
 
 export default function RelationshipSaver() {
   const { t, i18n } = useTranslation()
@@ -26,24 +47,29 @@ export default function RelationshipSaver() {
   const navigate = useNavigate()
   const { memories, loading, error, refreshMemories } = useMemories(userId)
   const { hapticFeedback } = useNotifications()
-  const [connections, setConnections] = useState<ConnectionOption[]>([])
   const [selectedConnectionKey, setSelectedConnectionKey] = useState<string>('')
   const [filteredMemories, setFilteredMemories] = useState<Memory[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [showImageModal, setShowImageModal] = useState(false)
   const [requestedConnectionKey, setRequestedConnectionKey] = useState<string>('')
   const [isFullScreen, setIsFullScreen] = useState(false)
-  const [autoPlay, setAutoPlay] = useState(false)
-  const autoPlayIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const [connectionQuery, setConnectionQuery] = useState('')
 
-  useEffect(() => {
-    // Extract unique connections from memories
-    const map = buildConnectionDisplayMap(memories.flatMap(m => m.connections))
-    const options = Array.from(map.entries())
-      .map(([key, label]) => ({ key, label }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-    setConnections(options)
-  }, [memories])
+  // Per-connection stats (name, memory count, last-used) sorted most-remembered
+  // first. Centralized in the shared helper so this page and the Connections hub
+  // agree on the numbers.
+  const stats = useMemo(() => buildConnectionStats(memories, locale), [memories, locale])
+
+  // Locale-aware name filter for the picker, matching the Connections hub.
+  const filteredConnections = useMemo(() => {
+    const q = connectionQuery.trim().toLocaleLowerCase(locale)
+    if (!q) return stats
+    return stats.filter(s => s.name.toLocaleLowerCase(locale).includes(q))
+  }, [stats, connectionQuery, locale])
+
+  const selectedStat = selectedConnectionKey
+    ? stats.find(c => c.key === selectedConnectionKey)
+    : undefined
 
   useEffect(() => {
     if (selectedConnectionKey) {
@@ -65,9 +91,9 @@ export default function RelationshipSaver() {
   // Apply requested connection once options are ready
   useEffect(() => {
     if (!requestedConnectionKey) return
-    const exists = connections.some(c => c.key === requestedConnectionKey)
+    const exists = stats.some(c => c.key === requestedConnectionKey)
     if (exists) setSelectedConnectionKey(requestedConnectionKey)
-  }, [connections, requestedConnectionKey])
+  }, [stats, requestedConnectionKey])
 
 
   // Helper functions - must be defined before useSwipe
@@ -98,32 +124,6 @@ export default function RelationshipSaver() {
     } : undefined,
   })
 
-  // Auto-play functionality
-  useEffect(() => {
-    if (autoPlay && filteredMemories.length > 0 && currentIndex < filteredMemories.length - 1) {
-      autoPlayIntervalRef.current = setInterval(() => {
-        setCurrentIndex(prev => {
-          if (prev < filteredMemories.length - 1) {
-            return prev + 1
-          }
-          // Reached the end, stop autoplay
-          setAutoPlay(false)
-          return prev
-        })
-      }, 5000) // 5 seconds per memory
-    } else {
-      if (autoPlayIntervalRef.current) {
-        clearInterval(autoPlayIntervalRef.current)
-        autoPlayIntervalRef.current = null
-      }
-    }
-    return () => {
-      if (autoPlayIntervalRef.current) {
-        clearInterval(autoPlayIntervalRef.current)
-      }
-    }
-  }, [autoPlay, filteredMemories.length, currentIndex])
-
   // Full-screen mode
   useEffect(() => {
     if (isFullScreen) {
@@ -143,7 +143,7 @@ export default function RelationshipSaver() {
   const handleShare = async () => {
     if (!currentMemory) return
     
-    const connectionName = connections.find(c => c.key === selectedConnectionKey)?.label || 'Connection'
+    const connectionName = stats.find(c => c.key === selectedConnectionKey)?.name || 'Connection'
     const shareText = `${t('shareMemoryCount', { connection: connectionName, count: filteredMemories.length })}\n\n"${currentMemory.text.substring(0, 100)}${currentMemory.text.length > 100 ? '...' : ''}"\n\n${t('shareTagline')}`
 
     if (navigator.share) {
@@ -176,7 +176,7 @@ export default function RelationshipSaver() {
     if (filteredMemories.length === 0) return
 
     try {
-      const connectionName = connections.find(c => c.key === selectedConnectionKey)?.label || 'Connection'
+      const connectionName = stats.find(c => c.key === selectedConnectionKey)?.name || 'Connection'
       let exportText = `${t('shareTitle', { connection: connectionName })}\n`
       exportText += `${'='.repeat(40)}\n\n`
 
@@ -253,7 +253,7 @@ export default function RelationshipSaver() {
         </p>
       </motion.div>
 
-      {connections.length === 0 ? (
+      {stats.length === 0 ? (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -288,45 +288,89 @@ export default function RelationshipSaver() {
         </motion.div>
       ) : (
         <>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6"
-          >
-            <label className="block text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">
-              {t('selectConnection')}
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {connections.map(conn => {
-                const isActive = conn.key === selectedConnectionKey
-                return (
+          {selectedStat ? (
+            /* Selected: collapse the list into a compact header strip. */
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 flex items-center gap-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 shadow-sm"
+            >
+              <div className={`w-11 h-11 rounded-full ${avatarColor(selectedStat.name)} flex items-center justify-center flex-shrink-0 text-white font-bold text-lg`}>
+                {avatarInitial(selectedStat.name)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-gray-900 dark:text-gray-100 truncate">{selectedStat.name}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {t('connectionMemoryCount', { count: filteredMemories.length })}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  hapticFeedback('light')
+                  setSelectedConnectionKey('')
+                }}
+                className="text-sm font-semibold text-primary hover:text-primary-dark transition-colors touch-manipulation px-3 py-1.5 rounded-lg flex-shrink-0"
+              >
+                {t('changeConnection')}
+              </button>
+            </motion.div>
+          ) : (
+            /* Picker: scannable list of people, most-remembered first. */
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6"
+            >
+              <label className="block text-sm font-bold mb-3 text-gray-800 dark:text-gray-200">
+                {t('selectConnection')}
+              </label>
+
+              {stats.length > 8 && (
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                  <input
+                    value={connectionQuery}
+                    onChange={(e) => setConnectionQuery(e.target.value)}
+                    placeholder={t('searchConnectionsPlaceholder')}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none touch-manipulation"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {filteredConnections.map(conn => (
                   <motion.button
                     key={conn.key}
-                    whileTap={{ scale: 0.95 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={() => {
-                      setSelectedConnectionKey(isActive ? '' : conn.key)
+                      setSelectedConnectionKey(conn.key)
                       hapticFeedback('light')
                     }}
-                    className={`px-4 py-2.5 rounded-2xl text-sm font-semibold transition-all touch-manipulation border-2 ${
-                      isActive
-                        ? 'gradient-primary text-white border-transparent shadow-lg shadow-primary/25'
-                        : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-primary/30'
-                    }`}
+                    className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 hover:border-primary/40 transition-all touch-manipulation text-left"
                   >
-                    <span className="flex items-center gap-1.5">
-                      <Heart size={14} className={isActive ? 'text-white' : 'text-primary'} />
-                      {conn.label}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-11 h-11 rounded-full ${avatarColor(conn.name)} flex items-center justify-center flex-shrink-0 text-white font-bold text-lg`}>
+                        {avatarInitial(conn.name)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-gray-900 dark:text-gray-100 truncate">{conn.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {t('connectionMemoryCount', { count: conn.count })}
+                          {conn.lastUsed ? ` • ${t('lastUsed')}: ${formatMemoryDate(conn.lastUsed, locale)}` : ''}
+                        </p>
+                      </div>
+                      <ChevronRight size={18} className="text-gray-400 flex-shrink-0" />
+                    </div>
                   </motion.button>
-                )
-              })}
-            </div>
-            {connections.length === 0 && (
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                {t('noConnections', { defaultValue: 'Henüz bağlantı yok' })}
-              </p>
-            )}
-          </motion.div>
+                ))}
+                {filteredConnections.length === 0 && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+                    {t('connectionsNoSearchResults')}
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          )}
 
           {selectedConnectionKey && filteredMemories.length === 0 && (
             <motion.div
@@ -370,25 +414,6 @@ export default function RelationshipSaver() {
                     {isFullScreen ? <Minimize2 size={18} className="text-gray-600 dark:text-gray-300" /> : <Maximize2 size={18} className="text-gray-600 dark:text-gray-300" />}
                     <span className="text-sm font-semibold hidden sm:inline text-gray-700 dark:text-gray-300">
                       {isFullScreen ? t('exitFullScreen', { defaultValue: 'Çık' }) : t('enterFullScreen', { defaultValue: 'Tam Ekran' })}
-                    </span>
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => {
-                      hapticFeedback('light')
-                      setAutoPlay(!autoPlay)
-                    }}
-                    className={`px-4 py-2.5 rounded-xl transition-all touch-manipulation flex items-center gap-2 shadow-sm ${
-                      autoPlay
-                        ? 'bg-gradient-to-r from-primary to-orange-500 text-white border-2 border-transparent'
-                        : 'bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 hover:border-primary/50 hover:bg-primary/5 text-gray-700 dark:text-gray-300'
-                    }`}
-                    aria-label={autoPlay ? t('stopAutoPlay', { defaultValue: 'Otomatik oynatmayı durdur' }) : t('startAutoPlay', { defaultValue: 'Otomatik oynat' })}
-                  >
-                    <span className="text-base font-bold">{autoPlay ? '⏸' : '▶'}</span>
-                    <span className="text-sm font-semibold hidden sm:inline">
-                      {autoPlay ? t('pause', { defaultValue: 'Duraklat' }) : t('play', { defaultValue: 'Oynat' })}
                     </span>
                   </motion.button>
                 </div>

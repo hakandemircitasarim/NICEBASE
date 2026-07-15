@@ -820,8 +820,22 @@ export default function Home() {
         className="grid grid-cols-2 sm:grid-cols-3 gap-5 sm:gap-6 mb-6"
       >
         <motion.div
+          role="button"
+          tabIndex={0}
+          aria-label={t('viewTotalMemories')}
           whileHover={{ y: -2 }}
-          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-5 sm:p-6 shadow-card hover:shadow-card-elevated hover:border-primary/40 transition-all duration-300 touch-manipulation"
+          onClick={() => {
+            hapticFeedback('light')
+            navigate('/vault')
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              hapticFeedback('light')
+              navigate('/vault')
+            }
+          }}
+          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-5 sm:p-6 shadow-card hover:shadow-card-elevated hover:border-primary/40 transition-all duration-300 touch-manipulation cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/50"
         >
           <p className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-300 mb-1.5 font-semibold uppercase tracking-wider">{t('totalMemories')}</p>
           <div className="flex items-end gap-2">
@@ -839,8 +853,22 @@ export default function Home() {
           </div>
         </motion.div>
         <motion.div
+          role="button"
+          tabIndex={0}
+          aria-label={t('viewCoreMemories')}
           whileHover={{ y: -2 }}
-          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-5 sm:p-6 shadow-card hover:shadow-card-elevated hover:border-primary/40 transition-all duration-300 touch-manipulation"
+          onClick={() => {
+            hapticFeedback('light')
+            navigate('/vault', { state: { isCore: true } })
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              hapticFeedback('light')
+              navigate('/vault', { state: { isCore: true } })
+            }
+          }}
+          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-5 sm:p-6 shadow-card hover:shadow-card-elevated hover:border-primary/40 transition-all duration-300 touch-manipulation cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/50"
         >
           <p className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-300 mb-1.5 font-semibold uppercase tracking-wider">{t('coreMemories')}</p>
           <div className="flex items-end gap-2">

@@ -28,6 +28,8 @@ import { memorySyncService } from '../services/memorySyncService'
 import { mapUserFromSupabase } from '../lib/userMapper'
 import { notificationService } from '../services/notificationService'
 import { exportService } from '../services/exportService'
+import { appLockService } from '../services/appLockService'
+import PinPad from './PinPad'
 import { hapticFeedback } from '../utils/haptic'
 import { getPublicWebBaseUrl } from '../utils/publicUrl'
 import { getLocalUserId } from '../utils/localUserId'
@@ -125,6 +127,18 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     { failed: 0, abandoned: 0 }
   )
   const [retryingBackups, setRetryingBackups] = useState(false)
+  // Real notification permission state so the UI reflects it (was always showing
+  // "denied" because the request silently failed on native).
+  const [notifPermission, setNotifPermission] = useState<
+    'granted' | 'denied' | 'prompt' | 'unsupported' | 'checking'
+  >('checking')
+  // App-lock (PIN) state + multi-step PIN flow.
+  const [appLockEnabled, setAppLockEnabled] = useState(() => appLockService.isEnabled())
+  const [pinFlow, setPinFlow] = useState<
+    null | 'set-new' | 'set-confirm' | 'disable' | 'change-current' | 'change-new' | 'change-confirm'
+  >(null)
+  const [tempPin, setTempPin] = useState('')
+  const [pinError, setPinError] = useState('')
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean
     title: string
@@ -164,6 +178,17 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
   useEffect(() => {
     refreshBackupStatus()
   }, [refreshBackupStatus])
+
+  // Reflect the OS notification permission state.
+  useEffect(() => {
+    let cancelled = false
+    notificationService.checkPermission().then((p) => {
+      if (!cancelled) setNotifPermission(p)
+    }).catch(() => {
+      if (!cancelled) setNotifPermission('unsupported')
+    })
+    return () => { cancelled = true }
+  }, [])
 
   // iOS-safe scroll lock with proper restore (replaces manual body.overflow).
   useBodyScrollLock(true)
@@ -326,9 +351,21 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
   }
 
   const handleEnableNotifications = async () => {
+    // Re-check first: if the OS already blocked us, requesting again won't show a
+    // dialog (Android won't re-prompt after denial) — guide to settings instead.
+    const current = await notificationService.checkPermission()
+    if (current === 'denied') {
+      setNotifPermission('denied')
+      toast.error(t('notificationPermissionBlocked'), { duration: 5000 })
+      return
+    }
     const granted = await notificationService.requestPermission()
+    const next = await notificationService.checkPermission()
+    setNotifPermission(next)
     if (granted) {
       toast.success(t('notificationsEnabled'))
+    } else if (next === 'denied') {
+      toast.error(t('notificationPermissionBlocked'), { duration: 5000 })
     } else {
       toast.error(t('notificationPermissionDenied'))
     }
@@ -501,6 +538,80 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     }
   }
 
+  const closePinFlow = () => {
+    setPinFlow(null)
+    setTempPin('')
+    setPinError('')
+  }
+
+  // Drives every stage of the PIN set / confirm / disable / change flow.
+  const handlePinComplete = async (pin: string) => {
+    setPinError('')
+    switch (pinFlow) {
+      case 'set-new':
+        setTempPin(pin)
+        setPinFlow('set-confirm')
+        break
+      case 'set-confirm':
+        if (pin !== tempPin) {
+          setTempPin('')
+          setPinError(t('pinMismatch'))
+          setPinFlow('set-new')
+          return
+        }
+        await appLockService.setPin(pin)
+        setAppLockEnabled(true)
+        hapticFeedback('success')
+        toast.success(t('appLockEnabledMsg'))
+        closePinFlow()
+        break
+      case 'disable': {
+        const ok = await appLockService.verifyPin(pin)
+        if (!ok) { setPinError(t('incorrectPin')); return }
+        await appLockService.clearPin()
+        setAppLockEnabled(false)
+        hapticFeedback('success')
+        toast.success(t('appLockDisabledMsg'))
+        closePinFlow()
+        break
+      }
+      case 'change-current': {
+        const ok = await appLockService.verifyPin(pin)
+        if (!ok) { setPinError(t('incorrectPin')); return }
+        setPinFlow('change-new')
+        break
+      }
+      case 'change-new':
+        setTempPin(pin)
+        setPinFlow('change-confirm')
+        break
+      case 'change-confirm':
+        if (pin !== tempPin) {
+          setTempPin('')
+          setPinError(t('pinMismatch'))
+          setPinFlow('change-new')
+          return
+        }
+        await appLockService.setPin(pin)
+        hapticFeedback('success')
+        toast.success(t('pinSet'))
+        closePinFlow()
+        break
+    }
+  }
+
+  const pinFlowTitle = (): { title: string; subtitle?: string } => {
+    switch (pinFlow) {
+      case 'set-new': return { title: t('setPin'), subtitle: t('appLockPrivacyNote') }
+      case 'set-confirm': return { title: t('confirmPin') }
+      case 'disable': return { title: t('enterCurrentPin') }
+      case 'change-current': return { title: t('enterCurrentPin') }
+      case 'change-new': return { title: t('enterNewPin') }
+      case 'change-confirm': return { title: t('confirmPin') }
+      default: return { title: '' }
+    }
+  }
+
   const handleExport = async (format: 'json' | 'pdf' | 'csv') => {
     // Guests keep their memories in Dexie under a local user id — export works
     // for them too by resolving the effective id.
@@ -659,6 +770,10 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
                 hapticFeedback('light')
                 resetOnboarding()
                 onClose()
+                // The onboarding tour only renders on the Home route, so navigate
+                // there — otherwise (opened from Profile) re-arming the flag looks
+                // like a dead button because nothing appears.
+                navigate('/')
               }}
               className="w-full flex items-center gap-3 p-4 touch-manipulation text-left"
             >
@@ -682,12 +797,26 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
             title={t('notifications')}
           >
             <div className="space-y-4 mt-3">
-              <button
-                onClick={handleEnableNotifications}
-                className="w-full px-4 py-2.5 bg-primary text-white rounded-xl font-semibold hover:bg-primary-dark transition-colors touch-manipulation text-sm"
-              >
-                {t('grantNotificationPermission')}
-              </button>
+              {notifPermission === 'granted' ? (
+                <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 text-sm font-semibold">
+                  <Bell size={16} />
+                  {t('notificationStatusOn')}
+                </div>
+              ) : notifPermission === 'denied' ? (
+                <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3">
+                  <p className="text-sm text-amber-800 dark:text-amber-300">
+                    {t('notificationPermissionBlocked')}
+                  </p>
+                </div>
+              ) : (
+                <button
+                  onClick={handleEnableNotifications}
+                  disabled={notifPermission === 'checking'}
+                  className="w-full px-4 py-2.5 bg-primary text-white rounded-xl font-semibold hover:bg-primary-dark transition-colors touch-manipulation text-sm disabled:opacity-60"
+                >
+                  {notifPermission === 'checking' ? t('notificationChecking') : t('grantNotificationPermission')}
+                </button>
+              )}
               <div>
                 <label className="block text-sm font-medium mb-2">
                   {t('dailyReminderTime')}
@@ -908,6 +1037,39 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
                 >
                   {t('changePassword')}
                 </button>
+
+                {/* App lock (PIN) — a privacy gate on the journal. */}
+                <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <p className="font-semibold text-gray-900 dark:text-gray-100 text-sm">{t('appLock')}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t('appLockDescription')}</p>
+                    </div>
+                  </div>
+                  {appLockEnabled ? (
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => { hapticFeedback('light'); setPinError(''); setTempPin(''); setPinFlow('change-current') }}
+                        className="w-full text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-4 py-2.5 rounded-xl font-semibold transition-colors touch-manipulation border border-blue-200 dark:border-blue-800 text-sm"
+                      >
+                        {t('changePin')}
+                      </button>
+                      <button
+                        onClick={() => { hapticFeedback('light'); setPinError(''); setTempPin(''); setPinFlow('disable') }}
+                        className="w-full text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 px-4 py-2.5 rounded-xl font-semibold transition-colors touch-manipulation border border-red-200 dark:border-red-800 text-sm"
+                      >
+                        {t('disableAppLock')}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { hapticFeedback('light'); setPinError(''); setTempPin(''); setPinFlow('set-new') }}
+                      className="w-full text-primary hover:bg-primary/5 px-4 py-2.5 rounded-xl font-semibold transition-colors touch-manipulation border-2 border-primary/30 text-sm"
+                    >
+                      {t('enableAppLock')}
+                    </button>
+                  )}
+                </div>
               </div>
             </Section>
           )}
@@ -1025,6 +1187,19 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
         message={confirmDialog.message}
         type={confirmDialog.type}
       />
+
+      {/* App-lock PIN entry overlay (set / confirm / disable / change) */}
+      {pinFlow && (
+        <div className="fixed inset-0 z-[60] bg-white dark:bg-gray-900 flex flex-col">
+          <PinPad
+            title={pinFlowTitle().title}
+            subtitle={pinFlowTitle().subtitle}
+            error={pinError}
+            onComplete={handlePinComplete}
+            onCancel={closePinFlow}
+          />
+        </div>
+      )}
     </>
   )
 }
