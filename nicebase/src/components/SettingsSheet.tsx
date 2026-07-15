@@ -502,6 +502,37 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
     }
   }
 
+  // Success-path local cleanup, factored out so it can ALSO run when the server
+  // delete succeeded but its HTTP response was lost (see handleDeleteAccount's
+  // catch): clears local data, drops the session, and routes back to login.
+  const finishAccountDeletion = async () => {
+    // Server data is gone — now clear every local trace of the account.
+    try {
+      await Promise.all([
+        db.memories.clear(),
+        db.connections.clear(),
+        db.syncQueue.clear(),
+        db.syncQueueV2.clear(),
+      ])
+    } catch (dbError) {
+      errorLoggingService.logError(
+        dbError instanceof Error ? dbError : new Error('Local DB clear failed after account deletion'),
+        'warning'
+      )
+    }
+    localStorage.clear()
+    // The auth user no longer exists; the server-side revoke may 4xx — only
+    // the local session cleanup matters here.
+    try {
+      await supabase.auth.signOut({ scope: 'local' })
+    } catch { /* session already invalid — local state is cleared below */ }
+    setUser(null)
+
+    toast.success(t('accountDeletedSuccessfully'), { duration: 3000 })
+    onClose()
+    navigate('/login')
+  }
+
   const handleDeleteAccount = async () => {
     if (!user) return
 
@@ -521,32 +552,32 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
         throw new Error(`delete-account failed: ${JSON.stringify(data)}`)
       }
 
-      // Server data is gone — now clear every local trace of the account.
-      try {
-        await Promise.all([
-          db.memories.clear(),
-          db.connections.clear(),
-          db.syncQueue.clear(),
-          db.syncQueueV2.clear(),
-        ])
-      } catch (dbError) {
-        errorLoggingService.logError(
-          dbError instanceof Error ? dbError : new Error('Local DB clear failed after account deletion'),
-          'warning'
-        )
-      }
-      localStorage.clear()
-      // The auth user no longer exists; the server-side revoke may 4xx — only
-      // the local session cleanup matters here.
-      try {
-        await supabase.auth.signOut({ scope: 'local' })
-      } catch { /* session already invalid — local state is cleared below */ }
-      setUser(null)
-
-      toast.success(t('accountDeletedSuccessfully'), { duration: 3000 })
-      onClose()
-      navigate('/login')
+      await finishAccountDeletion()
     } catch (error) {
+      // Resilience for a response lost AFTER the server delete succeeded: the
+      // auth user is gone but invoke() reports an error, and any retry now sends
+      // an invalidated JWT that the edge fn rejects with 401 forever — so local
+      // cleanup would never run. Detect "already deleted" and finish locally.
+      // A FunctionsHttpError carries the Response on `.context`, so a 401 there
+      // means the account is gone; otherwise re-check the session (no user =>
+      // token already invalidated by the delete).
+      const status = (error as { context?: { status?: number } } | null)?.context?.status
+      let alreadyDeleted = status === 401
+      if (!alreadyDeleted) {
+        try {
+          const { data: userData } = await supabase.auth.getUser()
+          if (!userData?.user) alreadyDeleted = true
+        } catch { /* re-check failed (network) — fall through to transient error */ }
+      }
+
+      if (alreadyDeleted) {
+        // Treated as success: finishAccountDeletion shows accountDeletedSuccessfully.
+        await finishAccountDeletion()
+        return
+      }
+
+      // Genuine transient/5xx/network failure — surface it so a retry can still
+      // converge once the server (or connection) recovers.
       errorLoggingService.logError(
         error instanceof Error
           ? error

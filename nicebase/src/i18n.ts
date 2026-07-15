@@ -1278,6 +1278,8 @@ const resources = {
       connectionsMerged: 'Bağlantılar birleştirildi',
       weeklySummaryTitle: 'Haftalık Özet',
       weeklySummaryBody: 'Bu haftaki anılarına göz atma zamanı 💛',
+      aiyaMessageTooLong: 'Mesaj çok uzun, lütfen biraz kısalt',
+      imageTooLarge: 'Görsel çok büyük, lütfen daha küçük bir tane seç',
     },
   },
   en: {
@@ -2530,6 +2532,8 @@ const resources = {
       connectionsMerged: 'Connections merged',
       weeklySummaryTitle: 'Weekly Summary',
       weeklySummaryBody: 'Time to look back on this week’s memories 💛',
+      aiyaMessageTooLong: 'That message is too long — please shorten it a bit',
+      imageTooLarge: 'That image is too large — please pick a smaller one',
     },
   },
 }

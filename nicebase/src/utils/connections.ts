@@ -12,7 +12,11 @@ import { Memory } from '../types'
 import { parseLocalDate } from './dateFormat'
 
 export function cleanConnectionName(name: string): string {
-  return name.trim().replace(/\s+/g, ' ')
+  // Cap at 100 chars so a separator-less paste can't produce an arbitrarily
+  // long connection name that gets saved to memory.connections[], synced, and
+  // injected raw into Aiya's prompt. Applied here (the shared entry point) so
+  // ALL save/sync paths — parseConnectionTokens, dedupe, stats — stay bounded.
+  return name.trim().replace(/\s+/g, ' ').slice(0, 100)
 }
 
 export function normalizeConnectionKey(name: string): string {

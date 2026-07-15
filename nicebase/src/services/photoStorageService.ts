@@ -155,6 +155,56 @@ export const photoStorageService = {
 
     return out
   },
+
+  /**
+   * Delete the Storage objects behind the given photo URLs. Called when a memory
+   * is deleted or a photo is dropped/replaced on edit — without this, the DB row
+   * goes but the uploaded object leaks forever and stays publicly retrievable.
+   *
+   * Best-effort: skips local/base64 refs (never uploaded), logs failures via
+   * errorLoggingService, and NEVER throws — a failed Storage cleanup must not
+   * fail (or roll back) the DB write that triggered it.
+   */
+  async removePhotosByUrl(urls: string[]): Promise<void> {
+    if (!urls || urls.length === 0) return
+
+    // Only remote http(s) URLs map to a Storage object. Local refs
+    // (local: / data:) were never uploaded, so there is nothing to remove.
+    const remoteUrls = urls.filter(
+      (u) => typeof u === 'string' && !isLocalPhotoRef(u) && /^https?:\/\//i.test(u)
+    )
+    if (remoteUrls.length === 0) return
+
+    // Public URL convention (see ensureRemotePhotoUrls / getPublicUrl):
+    //   <origin>/storage/v1/object/public/<bucket>/<userId>/<memoryId>/<uuid>.<ext>
+    // The storage path is everything AFTER `/public/<bucket>/`.
+    const marker = `/storage/v1/object/public/${bucket}/`
+    const paths: string[] = []
+    for (const url of remoteUrls) {
+      const idx = url.indexOf(marker)
+      if (idx === -1) continue // Not a public URL for our bucket — skip.
+      // Drop any query string (e.g. ?token=) and decode the escaped segments.
+      const raw = url.slice(idx + marker.length).split('?')[0]
+      let path = raw
+      try {
+        path = decodeURIComponent(raw)
+      } catch {
+        // Malformed percent-encoding — fall back to the raw path.
+      }
+      if (path) paths.push(path)
+    }
+    if (paths.length === 0) return
+
+    try {
+      const { error } = await supabase.storage.from(bucket).remove(paths)
+      if (error) throw error
+    } catch (err) {
+      errorLoggingService.logError(
+        err instanceof Error ? err : new Error(`Photo cleanup failed: ${String(err)}`),
+        'warning'
+      )
+    }
+  },
 }
 
 

@@ -114,9 +114,14 @@ export async function migrateLocalMemories(cloudUserId: string): Promise<number>
     const now = new Date().toISOString()
     for (const m of localMemories) {
       const updatedMemory = { ...m, userId: cloudUserId, synced: false, updatedAt: now }
-      await db.memories.update(m.id, { userId: cloudUserId, synced: false, updatedAt: now })
-      // Enqueue a 'create' operation so syncAll() picks it up
+      // Enqueue the 'create' FIRST, then re-assign the row. If we crash between
+      // the two, the queue item (whose payload already carries cloudUserId) lets
+      // syncAll() push the memory; whereas the old order (update then enqueue)
+      // could leave a row with the cloud id but no queue item — never re-selected
+      // by the local-* filter, stranded unsynced forever. addToSyncQueue dedupes
+      // on user:entity:create, so re-running this migration is safe.
       await addToSyncQueue('create', updatedMemory, cloudUserId)
+      await db.memories.update(m.id, { userId: cloudUserId, synced: false, updatedAt: now })
     }
 
     // Mark migration done for this cloud user

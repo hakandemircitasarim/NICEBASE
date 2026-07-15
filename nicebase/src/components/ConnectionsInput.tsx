@@ -128,6 +128,7 @@ export default function ConnectionsInput({
               }
             }}
             placeholder={chips.length === 0 ? placeholder : ''}
+            maxLength={100}
             className="flex-1 min-w-[140px] bg-transparent outline-none text-gray-900 dark:text-gray-100 placeholder:text-gray-400 py-1"
           />
         </div>

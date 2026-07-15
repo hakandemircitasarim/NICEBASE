@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase'
 import { Memory, MemoryCategory, LifeArea } from '../types'
 import { withTimeout } from '../utils/timeout'
+import { parseLocalDate } from '../utils/dateFormat'
 
 type AiyaAction = 'chat' | 'category' | 'classify' | 'analysis' | 'profile'
 
@@ -159,8 +160,9 @@ function findRelevantMemories(memories: Memory[], message: string, limit: number
     // Core memory always important
     if (m.isCore) score += 4
 
-    // Recency bonus
-    const daysSince = (Date.now() - new Date(m.date).getTime()) / (1000 * 60 * 60 * 24)
+    // Recency bonus — parse in the LOCAL calendar so the bare YYYY-MM-DD date
+    // isn't treated as UTC midnight and mis-scored near day boundaries.
+    const daysSince = (Date.now() - parseLocalDate(m.date).getTime()) / (1000 * 60 * 60 * 24)
     if (daysSince < 7) score += 3
     else if (daysSince < 30) score += 2
     else if (daysSince < 90) score += 1
@@ -217,7 +219,7 @@ function buildMemoryStats(memories: Memory[]): string {
   const recentMoods: string[] = []
 
   for (const m of memories) {
-    const mDate = new Date(m.date)
+    const mDate = parseLocalDate(m.date)
 
     // Categories
     const cat = m.category && m.category !== 'uncategorized' ? m.category : null
@@ -291,7 +293,7 @@ function buildMemoryStats(memories: Memory[]): string {
   const olderCats: string[] = []
 
   for (const m of memories) {
-    const mDate = new Date(m.date)
+    const mDate = parseLocalDate(m.date)
     if (mDate >= twoWeeksAgo) {
       if (m.intensity) { recentIntensitySum += m.intensity; recentIntensityN++ }
       if (m.category && m.category !== 'uncategorized') recentCats.push(m.category)
@@ -318,7 +320,7 @@ function buildMemoryStats(memories: Memory[]): string {
     const recentConns: Record<string, number> = {}
     const olderConns: Record<string, number> = {}
     for (const m of memories) {
-      const mDate = new Date(m.date)
+      const mDate = parseLocalDate(m.date)
       if (m.connections?.length) {
         for (const c of m.connections) {
           if (mDate >= oneMonthAgo) {
@@ -348,7 +350,7 @@ function buildMemoryStats(memories: Memory[]): string {
     const recentAreaCounts: Record<string, number> = {}
     const olderAreaCounts: Record<string, number> = {}
     for (const m of memories) {
-      const mDate = new Date(m.date)
+      const mDate = parseLocalDate(m.date)
       const area = m.lifeArea && m.lifeArea !== 'uncategorized' ? m.lifeArea : null
       if (area) {
         if (mDate >= oneMonthAgo) recentAreaCounts[area] = (recentAreaCounts[area] || 0) + 1
@@ -757,5 +759,94 @@ export const aiyaService = {
       memoryContext,
       countUsage: false,
     })
+  },
+
+  // ─── Aiya profile cloud backup ─────────────────────────
+  // The inferred profile ("what Aiya knows about you") is cached in
+  // localStorage for offline-first use; these methods mirror it to the
+  // aiya_profiles table so it survives reinstall / a new device. All three
+  // no-op for local/guest users (no session) — RLS would reject them anyway.
+  async loadProfile(): Promise<{ summary: string; messageCount: number; updatedAt: number } | null> {
+    if (!(await hasActiveSessionCached())) return null
+    try {
+      const { data: userData } = await supabase.auth.getUser()
+      const uid = userData.user?.id
+      if (!uid || uid.startsWith('local')) return null
+
+      const { data, error } = await supabase
+        .from('aiya_profiles')
+        .select('summary, message_count, updated_at')
+        .eq('user_id', uid)
+        .maybeSingle()
+
+      if (error || !data) return null
+
+      const updatedAt = Date.parse(data.updated_at)
+      return {
+        summary: data.summary ?? '',
+        messageCount: data.message_count ?? 0,
+        updatedAt: Number.isNaN(updatedAt) ? 0 : updatedAt,
+      }
+    } catch (error) {
+      // Non-critical — the localStorage cache is still authoritative offline.
+      if (import.meta.env.DEV) {
+        console.warn('[aiyaService] Failed to load profile:', error)
+      }
+      return null
+    }
+  },
+
+  async syncProfile(profile: { summary: string; messageCount: number; updatedAt: number }): Promise<void> {
+    if (!(await hasActiveSessionCached())) return
+    try {
+      const { data: userData } = await supabase.auth.getUser()
+      const uid = userData.user?.id
+      if (!uid || uid.startsWith('local')) return
+
+      const { error } = await supabase
+        .from('aiya_profiles')
+        .upsert({
+          user_id: uid,
+          summary: profile.summary,
+          message_count: profile.messageCount,
+          updated_at: new Date(profile.updatedAt).toISOString(),
+        }, { onConflict: 'user_id' })
+
+      if (error) {
+        // Non-critical — best-effort backup; don't throw.
+        if (import.meta.env.DEV) {
+          console.warn('[aiyaService] Failed to sync profile:', error.message)
+        }
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[aiyaService] Failed to sync profile:', error)
+      }
+    }
+  },
+
+  async clearProfile(): Promise<void> {
+    if (!(await hasActiveSessionCached())) return
+    try {
+      const { data: userData } = await supabase.auth.getUser()
+      const uid = userData.user?.id
+      if (!uid || uid.startsWith('local')) return
+
+      const { error } = await supabase
+        .from('aiya_profiles')
+        .delete()
+        .eq('user_id', uid)
+
+      if (error) {
+        // Non-critical — the local copy is already cleared by the caller.
+        if (import.meta.env.DEV) {
+          console.warn('[aiyaService] Failed to clear profile:', error.message)
+        }
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn('[aiyaService] Failed to clear profile:', error)
+      }
+    }
   },
 }

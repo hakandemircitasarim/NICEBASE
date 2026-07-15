@@ -67,6 +67,11 @@ function App() {
   const bumpMemoriesRefresh = useStore((s) => s.bumpMemoriesRefresh)
   const theme = useStore((s) => s.theme)
   const syncStartedForRef = useRef<string | null>(null)
+  // Tracks a user currently held as a PROVISIONAL minimal seed (real record
+  // fetch timed out on cold start). While set, later auth/network events must
+  // reconcile the real record — otherwise a premium user stays on the free-tier
+  // seed (paywall + wrong limits) for the whole session.
+  const seededUserIdRef = useRef<string | null>(null)
   const subscriptionRef = useRef<{ unsubscribe: () => void } | null>(null)
   const themeRef = useRef(theme)
   themeRef.current = theme
@@ -125,6 +130,19 @@ function App() {
     const SESSION_TIMEOUT = 10000
     const FETCH_TIMEOUT = 8000
 
+    // Prompt to migrate local (guest) memories on EVERY path that establishes a
+    // logged-in cloud user — not only SIGNED_IN. If the app was killed before
+    // the user answered the prompt, session-restore/INITIAL_SESSION would
+    // otherwise never re-offer it and the local rows stay stranded. Idempotent:
+    // migrateLocalMemories no-ops once its per-user done flag is set.
+    const maybePromptMigration = (uid: string) => {
+      countLocalMemories().then((count) => {
+        if (count > 0) {
+          setMigrationPrompt({ show: true, count, userId: uid, confirmDelete: false })
+        }
+      }).catch(() => {})
+    }
+
     // Initialize app and restore session
     const initializeApp = async () => {
       // Initialize native platform (StatusBar, back button, listeners)
@@ -165,6 +183,7 @@ function App() {
             // minimal seed.
             if (useStore.getState().user?.id !== session.user.id) {
               setUser(minimalUserFromSession(session))
+              seededUserIdRef.current = session.user.id
             }
             if (syncStartedForRef.current !== session.user.id) {
               memorySyncService.start(session.user.id)
@@ -180,11 +199,14 @@ function App() {
           }
           if (user) {
             setUser(user)
+            seededUserIdRef.current = null // real record loaded — no longer a seed
             // Start background sync for restored session (service handles duplicate calls)
             if (syncStartedForRef.current !== user.id) {
               memorySyncService.start(user.id)
               syncStartedForRef.current = user.id
             }
+            // Re-offer local→cloud migration if it was never answered.
+            maybePromptMigration(user.id)
           }
         }
       } catch (error) {
@@ -211,6 +233,21 @@ function App() {
               memorySyncService.start(session.user.id)
               syncStartedForRef.current = session.user.id
             }
+            // If the current user is still a provisional minimal seed (real
+            // fetch timed out on cold start), reconcile it now — otherwise a
+            // premium user stays on the free-tier seed for the whole session,
+            // since TOKEN_REFRESHED would normally just no-op here.
+            if (seededUserIdRef.current === session.user.id) {
+              try {
+                const real = await withTimeout(fetchUserData(session.user.id), FETCH_TIMEOUT)
+                if (real) {
+                  setUser(real)
+                  seededUserIdRef.current = null
+                }
+              } catch {
+                // Keep the seed; a later event / the online listener reconciles.
+              }
+            }
             return
           }
 
@@ -231,12 +268,9 @@ function App() {
 
             if (user) {
               setUser(user)
+              seededUserIdRef.current = null
               // Check if there are local memories to migrate — prompt the user
-              countLocalMemories().then((count) => {
-                if (count > 0) {
-                  setMigrationPrompt({ show: true, count, userId: user.id, confirmDelete: false })
-                }
-              }).catch(() => {})
+              maybePromptMigration(user.id)
               // Start background sync for this user (service handles duplicate calls)
               if (syncStartedForRef.current !== user.id) {
                 memorySyncService.start(user.id)
@@ -257,11 +291,14 @@ function App() {
           const user = await withTimeout(fetchUserData(session.user.id), FETCH_TIMEOUT)
           if (user) {
             setUser(user)
+            seededUserIdRef.current = null
             // Start background sync for this user (service handles duplicate calls)
             if (syncStartedForRef.current !== user.id) {
               memorySyncService.start(user.id)
               syncStartedForRef.current = user.id
             }
+            // INITIAL_SESSION can also be a first login with unmigrated guest data.
+            maybePromptMigration(user.id)
           }
         } catch (err) {
           // Timeout or error fetching user data for a valid session (e.g.
@@ -273,6 +310,7 @@ function App() {
           const sess = session
           if (sess?.user && useStore.getState().user?.id !== sess.user.id) {
             setUser(minimalUserFromSession(sess))
+            seededUserIdRef.current = sess.user.id
             if (syncStartedForRef.current !== sess.user.id) {
               memorySyncService.start(sess.user.id)
               syncStartedForRef.current = sess.user.id
@@ -289,12 +327,30 @@ function App() {
 
     subscriptionRef.current = subscription
 
+    // Reconnecting is another chance to heal a provisional minimal seed (the
+    // premium-user-shown-as-free case) even if no auth event fires.
+    const onOnline = async () => {
+      const seededId = seededUserIdRef.current
+      if (!seededId) return
+      try {
+        const real = await withTimeout(fetchUserData(seededId), FETCH_TIMEOUT)
+        if (real && useStore.getState().user?.id === seededId) {
+          setUser(real)
+          seededUserIdRef.current = null
+        }
+      } catch {
+        // Still offline/slow — leave the seed; a later event reconciles.
+      }
+    }
+    if (typeof window !== 'undefined') window.addEventListener('online', onOnline)
+
     return () => {
       // Cleanup: unsubscribe from auth changes and stop sync
       if (subscriptionRef.current) {
         subscriptionRef.current.unsubscribe()
         subscriptionRef.current = null
       }
+      if (typeof window !== 'undefined') window.removeEventListener('online', onOnline)
       memorySyncService.stop()
       syncStartedForRef.current = null
     }

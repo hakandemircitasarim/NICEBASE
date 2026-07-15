@@ -92,6 +92,14 @@ export function getPasswordStrengthLabel(strength: number): string {
 export const MAX_MEMORY_TEXT_LENGTH = 5000
 
 /**
+ * Maximum allowed length for a single Aiya chat message. Bounds the OpenAI input
+ * cost per metered slot (the whole history is re-sent each turn) and prevents a
+ * paste-bomb from spending one quota slot on a ~100K-token request. Enforced on
+ * the client AND server-side in the aiya-chat edge function.
+ */
+export const MAX_AIYA_MESSAGE_LENGTH = 4000
+
+/**
  * Validates memory text
  * @param text - the memory text to validate
  * @param minLength - minimum allowed length (defaults to 10)

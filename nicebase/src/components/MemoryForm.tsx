@@ -671,6 +671,13 @@ export default function MemoryForm({
     try {
       for (let i = 0; i < Math.min(files.length, maxPhotos); i++) {
         const file = files[i]
+        // Guard against absurdly large source images: decoding a huge file at
+        // full resolution BEFORE downscale can OOM a low-end WebView. Skip
+        // oversized files (>25MB) and keep processing the rest.
+        if (file.size > 25 * 1024 * 1024) {
+          toast(t('imageTooLarge'))
+          continue
+        }
         // 1280px / 0.7 keeps inline base64 photos much lighter pre-sync (they
         // live in IndexedDB and, until uploaded, get pushed to Postgres) while
         // staying sharp enough for a journaling thumbnail/detail view.

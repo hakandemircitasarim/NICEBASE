@@ -21,6 +21,7 @@ import { errorLoggingService } from '../services/errorLoggingService'
 import { hapticFeedback } from '../utils/haptic'
 import { generateUUID } from '../utils/uuid'
 import { parseLocalDate } from '../utils/dateFormat'
+import { MAX_AIYA_MESSAGE_LENGTH } from '../utils/formValidation'
 import { useDebounce } from '../hooks/useDebounce'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { useBackButton } from '../hooks/useBackButton'
@@ -810,6 +811,26 @@ export default function Aiya() {
           }
         }
 
+        // Cross-device backup: localStorage is the offline-first cache; the
+        // aiya_profiles cloud row is the backup that survives reinstall / a new
+        // device. Pull it when logged in and keep whichever copy is newer, then
+        // refresh the local cache. loadProfile no-ops for local/guest users.
+        if (userId && currentUser) {
+          try {
+            const cloudProfile = await aiyaService.loadProfile()
+            if (cloudProfile?.summary) {
+              if (!storedProfile?.summary || cloudProfile.updatedAt > storedProfile.updatedAt) {
+                storedProfile = cloudProfile
+                saveJson(profileKey, cloudProfile)
+              }
+            }
+          } catch (err) {
+            if (import.meta.env.DEV) {
+              console.warn('[Aiya] Failed to load profile from cloud:', err)
+            }
+          }
+        }
+
         if (storedProfile?.summary) {
           setProfileSummary(storedProfile.summary)
           setProfileMeta(storedProfile)
@@ -1028,6 +1049,9 @@ export default function Aiya() {
     setProfileSummary('')
     setProfileMeta(null)
     try { localStorage.removeItem(profileKey) } catch { /* ignore */ }
+    // Also clear the cross-device cloud copy so "reset what Aiya knows" is
+    // complete. Best-effort and guarded internally (no-ops for local/guest).
+    void aiyaService.clearProfile()
     setShowProfile(false)
     hapticFeedback('success')
     toast.success(t('aiyaMemoryCleared'))
@@ -1046,20 +1070,33 @@ export default function Aiya() {
       const res = await aiyaService.buildProfile({ memories, history: trimMessages(nextMessages), locale })
       const summary = res.profile?.trim()
       if (summary) {
+        const ts = Date.now()
         setProfileSummary(summary)
-        setProfileMeta({ summary, messageCount: count, updatedAt: Date.now() })
+        setProfileMeta({ summary, messageCount: count, updatedAt: ts })
+        // Best-effort cloud backup so the profile survives reinstall / a new
+        // device. Guests stay localStorage-only. Fire-and-forget — never block UI.
+        if (userId && !userId.startsWith('local')) {
+          void aiyaService.syncProfile({ summary, messageCount: count, updatedAt: ts })
+        }
       }
       // NOTE: the profile build is unmetered and the edge function no longer
       // returns `usage` for it. We deliberately do NOT touch setUsage here — the
       // chat handler is the single source of truth for the quota counter, so a
       // background profile build can never make it jump backward.
     } catch { /* silent */ }
-  }, [memories, locale, profileMeta])
+  }, [memories, locale, profileMeta, userId])
 
   // ─── Send message ──────────────────────────────────────
   const handleSend = useCallback(async (overrideText?: string, overrideChatId?: string) => {
     const text = (overrideText ?? input).trim()
     if (!text || sending) return
+
+    // Bound the message length client-side (the edge function enforces the same
+    // cap server-side). Give immediate, specific feedback instead of a failed send.
+    if (text.length > MAX_AIYA_MESSAGE_LENGTH) {
+      toast.error(t('aiyaMessageTooLong'))
+      return
+    }
 
     // Pre-flight: don't start an optimistic send that is guaranteed to dead-end
     // (gives immediate, specific feedback instead of typing-dots → 30s → error).
@@ -1734,6 +1771,7 @@ export default function Aiya() {
                 }
               }}
               disabled={sending || (!!usageInfo && usageInfo.used >= usageInfo.limit)}
+              maxLength={MAX_AIYA_MESSAGE_LENGTH}
               rows={1}
             />
           </div>

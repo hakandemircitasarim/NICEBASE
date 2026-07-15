@@ -155,8 +155,11 @@ export const memoryService = {
     // Save to local DB
     await db.memories.add(memory)
 
-    // Add to sync queue
-    if (hasSupabaseConfig) {
+    // Add to sync queue — but never for guest (local-*) users. Their ops can't
+    // reach Supabase (RLS) and syncAll never drains them (it runs for the cloud
+    // id only), so enqueuing would just pile up dead IndexedDB rows.
+    // migrateLocalMemories re-enqueues fresh creates under the cloud id at login.
+    if (hasSupabaseConfig && !data.userId.startsWith('local')) {
       await addToSyncQueue('create', memory, data.userId)
     }
 
@@ -187,11 +190,25 @@ export const memoryService = {
     // Update local DB
     await db.memories.put(updated)
 
+    // Orphaned-photo cleanup: when photos are removed/replaced on edit, delete
+    // the Storage objects behind the dropped remote URLs so they don't leak.
+    // Diff the OLD photo list against the NEW one; removePhotosByUrl filters to
+    // remote http(s) URLs, so local/base64 refs are ignored. Best-effort — a
+    // Storage cleanup failure must not fail the edit (the method never throws).
+    if (updates.photos !== undefined) {
+      const newPhotos = updates.photos
+      const dropped = existing.photos.filter((p) => !newPhotos.includes(p))
+      if (dropped.length > 0) {
+        await photoStorageService.removePhotosByUrl(dropped)
+      }
+    }
+
     // Add to sync queue. Include the new updatedAt so the cloud's updated_at
     // column is bumped on every edit — without this, edits never advance the
     // incremental-sync watermark (cross-device updates stay invisible) and
     // optimistic-concurrency conflict detection has no version to compare.
-    if (hasSupabaseConfig) {
+    // Skip guest (local-*) users — their ops can never reach Supabase (RLS).
+    if (hasSupabaseConfig && !existing.userId.startsWith('local')) {
       await addToSyncQueue('update', { id, updates: { ...updates, updatedAt: newUpdatedAt } }, existing.userId)
     }
 
@@ -213,8 +230,9 @@ export const memoryService = {
           updates.lifeArea = result.lifeArea
         }
         await db.memories.update(memoryId, updates)
-        // Update sync queue payload if pending
-        if (hasSupabaseConfig) {
+        // Update sync queue payload if pending. Skip guest (local-*) users —
+        // their ops can never reach Supabase (RLS) and would just pile up.
+        if (hasSupabaseConfig && !userId.startsWith('local')) {
           await addToSyncQueue('update', { id: memoryId, updates }, userId)
         }
       }
@@ -239,8 +257,19 @@ export const memoryService = {
     // Delete from local DB
     await db.memories.delete(id)
 
-    // Add to sync queue
-    if (hasSupabaseConfig) {
+    // Orphaned-photo cleanup: the memory row is gone, so remove the Storage
+    // objects behind its photos too (otherwise the uploaded files leak forever
+    // and stay publicly retrievable). removePhotosByUrl filters to remote
+    // http(s) URLs — local/base64 refs (never uploaded) are ignored, which also
+    // makes this harmless for guest users. Best-effort: it never throws, so a
+    // Storage cleanup failure can't fail the delete. This is the authoritative
+    // point — the 'delete' sync op below only carries { id } (the local row and
+    // its photo list are already gone by the time that op is applied).
+    await photoStorageService.removePhotosByUrl(existing.photos)
+
+    // Add to sync queue. Skip guest (local-*) users — their ops can never reach
+    // Supabase (RLS) and would just pile up as dead IndexedDB rows.
+    if (hasSupabaseConfig && !existing.userId.startsWith('local')) {
       await addToSyncQueue('delete', { id }, existing.userId)
     }
   },
@@ -448,8 +477,24 @@ export const memoryService = {
                   // dismiss a conflict the user never saw.
                   await db.memories.update(id, { synced: true, baseUpdatedAt: cloudRow.updated_at })
                 }
+              } else if (existingLocal) {
+                // The cloud row was deleted on another device. Marking the item
+                // 'done' here would strand the local edit forever: synced:false,
+                // no cloud row, and no pending op — invisibly un-backed-up.
+                // Instead RESURRECT it — upsert the full merged local memory so
+                // the edit re-establishes the cloud row, mirroring how a create
+                // op establishes a synced row.
+                const supabaseData = mapMemoryToSupabase({ ...existingLocal, ...updates })
+                const { error: upErr } = await supabase
+                  .from('memories')
+                  .upsert(supabaseData, { onConflict: 'id' })
+                if (upErr) throw upErr
+                // Keep synced:false when photos still need uploading (the
+                // photosIncomplete throw below drives the retry), matching the
+                // create/update success paths.
+                await db.memories.update(id, { synced: !photosIncomplete, baseUpdatedAt: supabaseData.updated_at })
               } else if (import.meta.env.DEV) {
-                console.warn(`[sync] Update target ${id} missing in cloud (deleted remotely?)`)
+                console.warn(`[sync] Update target ${id} missing in cloud and locally — nothing to resurrect`)
               }
             } else {
               // Success — record the new base. Keep synced:false when photos
@@ -559,22 +604,35 @@ export const memoryService = {
         const applied: { iso: string; t: number }[] = []
         let strandedMin: number | null = null
 
+        // Batch the local reads: one bulkGet instead of a sequential
+        // db.memories.get per row (thousands of IndexedDB round-trips on a fresh
+        // account with many cloud memories). We decide add/put purely in memory
+        // — preserving the exact per-row semantics below — then flush with a
+        // single bulkAdd + bulkPut.
+        const ids = data.map((row) => row.id)
+        const existingRows = await db.memories.bulkGet(ids)
+        const existingById = new Map<string, Memory | undefined>()
+        ids.forEach((id, i) => existingById.set(id, existingRows[i]))
+
+        const toAdd: Memory[] = []
+        const toPut: Memory[] = []
+
         for (const row of data) {
           const memory = mapSupabaseToMemory(row)
-          const existing = await db.memories.get(memory.id)
+          const existing = existingById.get(memory.id)
           const rowT = new Date(row.updated_at).getTime()
           let stranded = false
 
           if (!existing) {
             // New memory from cloud
-            await db.memories.add(memory)
+            toAdd.push(memory)
           } else {
             // Update if cloud version is newer
             const cloudTime = new Date(memory.updatedAt).getTime()
             const localTime = new Date(existing.updatedAt).getTime()
             if (cloudTime > localTime) {
               if (existing.synced) {
-                await db.memories.put(memory)
+                toPut.push(memory)
               } else {
                 // Local has unsynced edits AND the cloud is newer — we skip
                 // writing it (the local edit wins until it's pushed/resolved).
@@ -592,6 +650,9 @@ export const memoryService = {
             applied.push({ iso: row.updated_at, t: rowT })
           }
         }
+
+        if (toAdd.length) await db.memories.bulkAdd(toAdd)
+        if (toPut.length) await db.memories.bulkPut(toPut)
 
         // Advance the watermark to the newest applied row that is still OLDER
         // than any stranded row, so stranded rows are re-fetched next time but we

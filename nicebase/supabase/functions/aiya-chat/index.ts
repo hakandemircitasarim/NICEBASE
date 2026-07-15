@@ -26,12 +26,23 @@ const DEFAULT_LANGUAGE = 'tr'
 const DEFAULT_THEME = 'light'
 
 // Server-side burst rate limits (independent of the daily message quota).
-// chat/analysis/profile share the 'chat' bucket; classify/category share
-// the cheaper-but-unmetered 'classify' bucket.
+// chat/analysis share the 'chat' bucket; classify/category share the
+// cheaper-but-unmetered 'classify' bucket; 'profile' gets its OWN much tighter
+// bucket because it is an UNMETERED full gpt-4o call — sharing the 20/min chat
+// bucket let a single user sustain ~20 expensive profile completions/min
+// indefinitely, bypassing the weekly quota that is the cost-control mechanism.
 const RATE_CHAT_MAX = 20
 const RATE_CHAT_WINDOW_S = 60
 const RATE_CLASSIFY_MAX = 40
 const RATE_CLASSIFY_WINDOW_S = 60
+const RATE_PROFILE_MAX = 3
+const RATE_PROFILE_WINDOW_S = 60
+
+// Hard cap on a single chat message (chars). The whole history is re-sent each
+// turn, so an unbounded message would spend one quota slot on a ~100K-token
+// OpenAI request. Enforced BEFORE metering so an over-cap request is rejected
+// 400 without consuming a slot. Must match the client MAX_AIYA_MESSAGE_LENGTH.
+const MAX_MESSAGE_CHARS = 4000
 
 // Actions whose OpenAI call counts against the user's message quota.
 // NOT 'profile': the profile build is an automatic background call (every few
@@ -384,11 +395,15 @@ serve(async (req) => {
     if (!(await enforceRateLimit('classify', RATE_CLASSIFY_MAX, RATE_CLASSIFY_WINDOW_S, false))) {
       return jsonResponse({ error: 'Rate limit exceeded' }, 429)
     }
-  } else if (isCounted || normalizedAction === 'profile') {
-    // chat/analysis (billed) and the background profile build (not billed, but
-    // an expensive gpt-4o call) all share the burst limiter. Fail OPEN — the
-    // daily quota (meterUsage) is the authoritative ceiling for the billed
-    // actions, and profile is gated by being called only periodically.
+  } else if (normalizedAction === 'profile') {
+    // Unmetered full gpt-4o call → its OWN tight bucket (3/min) so it can't be
+    // driven at the chat bucket's 20/min to bypass the weekly quota.
+    if (!(await enforceRateLimit('profile', RATE_PROFILE_MAX, RATE_PROFILE_WINDOW_S, false))) {
+      return jsonResponse({ error: 'Rate limit exceeded' }, 429)
+    }
+  } else if (isCounted) {
+    // chat/analysis (billed). Fail OPEN — the weekly quota (meterUsage) is the
+    // authoritative ceiling for the billed actions.
     if (!(await enforceRateLimit('chat', RATE_CHAT_MAX, RATE_CHAT_WINDOW_S, false))) {
       return jsonResponse({ error: 'Rate limit exceeded' }, 429)
     }
@@ -398,6 +413,13 @@ serve(async (req) => {
   // server itself rejects (400) never charges the user.
   if (normalizedAction === 'chat' && !message) {
     return jsonResponse({ error: 'Message required' }, 400)
+  }
+  // Reject an over-cap message BEFORE reserving a usage slot, so a paste-bomb
+  // can't spend one quota slot on a ~100K-token OpenAI request. The edge
+  // function is directly callable with a bearer token, so this server-side
+  // guard is the authoritative one (the client cap is just UX).
+  if (normalizedAction === 'chat' && typeof message === 'string' && message.length > MAX_MESSAGE_CHARS) {
+    return jsonResponse({ error: 'Message too long' }, 400)
   }
   if (normalizedAction === 'analysis' && !memoryContext) {
     return jsonResponse({ error: 'No memories for analysis' }, 400)

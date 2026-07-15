@@ -319,7 +319,10 @@ export default function Home() {
   // Compute streak status message
   const streakStatusMessage = useMemo(() => {
     if (streak.currentStreak === 0 || !streak.lastMemoryDate) return null
-    const lastDate = new Date(streak.lastMemoryDate)
+    // Parse as LOCAL midnight, not UTC: `new Date('YYYY-MM-DD')` is UTC and
+    // lands on the previous local day in negative-UTC zones, making daysSince
+    // off by one (the green "protected today" state would never show).
+    const lastDate = parseLocalDate(streak.lastMemoryDate)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     lastDate.setHours(0, 0, 0, 0)
