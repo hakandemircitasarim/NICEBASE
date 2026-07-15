@@ -3,12 +3,15 @@ import { useState, memo, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Edit, Trash2, X, Sparkles, Smile, Heart, Lightbulb, TrendingUp, Mountain,
-  HelpCircle, Zap, Clock,
+  HelpCircle, Zap, Clock, RefreshCw,
 } from 'lucide-react'
 import { Memory } from '../types'
 import { hapticFeedback } from '../utils/haptic'
 import { useLongPress } from '../hooks/useLongPress'
 import { useBackButton } from '../hooks/useBackButton'
+import { useUserId } from '../hooks/useUserId'
+import { useStore } from '../store/useStore'
+import { memoryService } from '../services/memoryService'
 import { parseLocalDate, toLocalISODate } from '../utils/dateFormat'
 import ProgressiveImage from './ProgressiveImage'
 
@@ -108,6 +111,30 @@ function MemoryCard({
     const tenMinutesAgo = Date.now() - 10 * 60 * 1000
     return createdAt >= tenMinutesAgo
   }, [memory.category, memory.synced, memory.createdAt, isLocalUser, isSyncStale])
+
+  // Terminal uncategorized state (synced cloud memory, past the classifying
+  // window, still no category) = classification couldn't be assigned. Instead of
+  // a silent "Uncategorized" chip, offer an explicit tap-to-retry so the user
+  // has a reason + a way to recover (the failure was previously invisible).
+  const canRetryClassify = memory.category === 'uncategorized' && !isLocalUser && !isClassifying
+  const userId = useUserId()
+  const bumpMemoriesRefresh = useStore((s) => s.bumpMemoriesRefresh)
+  const [retryingClassify, setRetryingClassify] = useState(false)
+
+  const handleRetryClassify = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (retryingClassify || !memory.text?.trim()) return
+    hapticFeedback('light')
+    setRetryingClassify(true)
+    try {
+      // _autoCategorize swallows its own errors (logs them); if it succeeds the
+      // Dexie row is updated, so refresh the mounted lists to reflect it.
+      await memoryService._autoCategorize(memory.id, memory.text, userId)
+      bumpMemoriesRefresh()
+    } finally {
+      setRetryingClassify(false)
+    }
+  }
 
   const relativeDate = useMemo(
     () => getRelativeTime(memory.date, locale, t),
@@ -282,19 +309,32 @@ function MemoryCard({
 
         {/* Tags row - category, lifeArea, intensity, connections */}
         <div className="flex flex-wrap gap-1.5 mb-4">
-          {/* Category badge with icon */}
-          <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full ${catMeta.color} ${
-            isClassifying ? 'animate-pulse' : ''
-          }`}>
-            <CatIcon size={12} />
-            {memory.category === 'uncategorized'
-              ? (isLocalUser
-                ? t('aiyaLoginToClassify', { defaultValue: 'Giriş yapın, Aiya sınıflandırsın' })
-                : (isClassifying
-                  ? t('aiyaClassifying', { defaultValue: 'Aiya kategorize ediyor...' })
-                  : t(`categories.${memory.category}`)))
-              : t(`categories.${memory.category}`)}
-          </span>
+          {/* Category badge with icon. Terminal-uncategorized (couldn't classify)
+              becomes a tap-to-retry button so the failure isn't silent. */}
+          {canRetryClassify ? (
+            <button
+              type="button"
+              onClick={handleRetryClassify}
+              disabled={retryingClassify}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 touch-manipulation disabled:opacity-70"
+            >
+              <RefreshCw size={11} className={retryingClassify ? 'animate-spin' : ''} />
+              {retryingClassify ? t('classification.retrying') : t('classification.failedRetry')}
+            </button>
+          ) : (
+            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full ${catMeta.color} ${
+              isClassifying ? 'animate-pulse' : ''
+            }`}>
+              <CatIcon size={12} />
+              {memory.category === 'uncategorized'
+                ? (isLocalUser
+                  ? t('aiyaLoginToClassify', { defaultValue: 'Giriş yapın, Aiya sınıflandırsın' })
+                  : (isClassifying
+                    ? t('aiyaClassifying', { defaultValue: 'Aiya kategorize ediyor...' })
+                    : t(`categories.${memory.category}`)))
+                : t(`categories.${memory.category}`)}
+            </span>
+          )}
 
           {/* Life area (only show if not uncategorized) */}
           {memory.lifeArea !== 'uncategorized' && (
