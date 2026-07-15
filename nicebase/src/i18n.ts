@@ -1280,6 +1280,8 @@ const resources = {
       weeklySummaryBody: 'Bu haftaki anılarına göz atma zamanı 💛',
       aiyaMessageTooLong: 'Mesaj çok uzun, lütfen biraz kısalt',
       imageTooLarge: 'Görsel çok büyük, lütfen daha küçük bir tane seç',
+      avatar: 'Profil fotoğrafı',
+      streakProtectionTitle: 'NICEBASE – Seri Hatırlatıcı',
     },
   },
   en: {
@@ -2534,6 +2536,8 @@ const resources = {
       weeklySummaryBody: 'Time to look back on this week’s memories 💛',
       aiyaMessageTooLong: 'That message is too long — please shorten it a bit',
       imageTooLarge: 'That image is too large — please pick a smaller one',
+      avatar: 'Avatar',
+      streakProtectionTitle: 'NICEBASE – Streak Reminder',
     },
   },
 }

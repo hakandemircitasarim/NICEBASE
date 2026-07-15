@@ -40,9 +40,13 @@ export default function Profile() {
   // with Home and Insights (which use the same local-midnight logic).
   const [currentStreak, setCurrentStreak] = useState(0)
 
-  // Load profile data from localStorage fallback on mount
+  // Load profile data from localStorage fallback on mount.
+  // The guard MUST include every field the write below sets — otherwise a saved
+  // blob with only birthday/location (but no displayName/bio/avatarUrl) leaves
+  // the guard true forever, and each setUser({...}) makes a new user reference
+  // that re-fires this [user] effect → infinite render loop / Profile freeze.
   useEffect(() => {
-    if (user && !user.displayName && !user.bio && !user.avatarUrl) {
+    if (user && !user.displayName && !user.bio && !user.avatarUrl && !user.birthday && !user.location) {
       try {
         const saved = localStorage.getItem(`profile_${user.id}`)
         if (saved) {
@@ -138,7 +142,7 @@ export default function Profile() {
             {user?.avatarUrl ? (
               <img
                 src={user.avatarUrl}
-                alt="Avatar"
+                alt={t('avatar')}
                 className="w-24 h-24 rounded-full object-cover shadow-lg shadow-primary/20 border-4 border-white dark:border-gray-800"
               />
             ) : (

@@ -25,7 +25,8 @@ const AUTH_TIMEOUT_MS = 15000
 export default function Login() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { setUser, user } = useStore()
+  const setUser = useStore((s) => s.setUser)
+  const user = useStore((s) => s.user)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')

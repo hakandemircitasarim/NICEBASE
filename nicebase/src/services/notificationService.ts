@@ -465,7 +465,7 @@ export const notificationService = {
             // Fallback to web scheduling
             const timeUntilReminder = reminderTime.getTime() - now.getTime()
             const timeoutId = setTimeout(() => {
-              notificationService.showNotification('NICEBASE', {
+              notificationService.showNotification(i18n.t('streakProtectionTitle'), {
                 body: message,
                 tag: 'streak-protection',
                 requireInteraction: false,
@@ -481,7 +481,7 @@ export const notificationService = {
           await LocalNotifications.schedule({
             notifications: [
               {
-                title: 'NICEBASE',
+                title: i18n.t('streakProtectionTitle'),
                 body: message,
                 id: notificationId(userId, 3), // Unique ID
                 schedule: {
@@ -508,7 +508,7 @@ export const notificationService = {
       const timeUntilReminder = reminderTime.getTime() - now.getTime()
 
       const timeoutId = setTimeout(() => {
-        notificationService.showNotification('NICEBASE', {
+        notificationService.showNotification(i18n.t('streakProtectionTitle'), {
           body: message,
           tag: `streak-protection-${userId}`,
           requireInteraction: false,

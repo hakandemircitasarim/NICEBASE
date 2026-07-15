@@ -3,7 +3,7 @@ import { mapUserFromSupabase } from './userMapper'
 import { User } from '../types'
 import { errorLoggingService } from '../services/errorLoggingService'
 import { SupabaseError } from '../types/supabase'
-import { DEFAULT_AIYA_LIMIT, DEFAULT_THEME, currentLanguage } from './userDefaults'
+import { DEFAULT_THEME, currentLanguage } from './userDefaults'
 
 /**
  * Fetches user data from Supabase by user ID
@@ -119,15 +119,17 @@ export async function ensureUserExists(
     // `authenticated`, the UPDATE form throws 42501 permission-denied and leaves new
     // users with no public.users row. DO NOTHING has no SET clause, so no UPDATE
     // privilege is required; the row is re-fetched below to honour the race intent.
+    // Do NOT send the billing/metering columns (is_premium, aiya_messages_used,
+    // aiya_messages_limit): migration 20260715130000 REVOKEs client INSERT on
+    // them so a user can't self-grant an inflated quota. They fall to their safe
+    // DB DEFAULTs (false / 0 / 50 / period=now()). Only the service_role edge
+    // function may set them.
     const { error: dbError } = await supabase.from('users').upsert(
       {
         id: userId,
         email: email,
         display_name: metadata?.displayName || null,
         avatar_url: metadata?.avatarUrl || null,
-        is_premium: false,
-        aiya_messages_used: 0,
-        aiya_messages_limit: DEFAULT_AIYA_LIMIT,
         weekly_summary_day: null,
         daily_reminder_time: null,
         language: currentLanguage(),

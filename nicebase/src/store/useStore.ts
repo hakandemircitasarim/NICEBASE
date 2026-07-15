@@ -256,3 +256,16 @@ export const useStore = create<AppState>((set, get) => ({
   },
 }))
 
+// Apply the resolved dark class to <html> synchronously at module load — BEFORE
+// first paint — so a dark-mode user doesn't get a light flash. init() also
+// toggles it, but init() runs only after the async session restore (behind
+// multi-second timeouts), so relying on it alone deferred the theme for the
+// whole cold-start window.
+if (typeof document !== 'undefined') {
+  try {
+    document.documentElement.classList.toggle('dark', resolveTheme(getStoredThemePreference()) === 'dark')
+  } catch {
+    // matchMedia/localStorage unavailable — init() will reconcile later.
+  }
+}
+

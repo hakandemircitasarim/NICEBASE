@@ -27,7 +27,8 @@ interface EditProfileSheetProps {
 
 export default function EditProfileSheet({ onClose }: EditProfileSheetProps) {
   const { t } = useTranslation()
-  const { user, setUser } = useStore()
+  const user = useStore((s) => s.user)
+  const setUser = useStore((s) => s.setUser)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [displayName, setDisplayName] = useState(user?.displayName || '')
@@ -293,7 +294,7 @@ export default function EditProfileSheet({ onClose }: EditProfileSheetProps) {
               {avatarPreview ? (
                 <img
                   src={avatarPreview}
-                  alt="Avatar"
+                  alt={t('avatar')}
                   className="w-28 h-28 rounded-full object-cover border-4 border-white dark:border-gray-800 shadow-lg"
                 />
               ) : (

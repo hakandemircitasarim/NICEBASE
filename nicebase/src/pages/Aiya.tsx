@@ -119,30 +119,30 @@ function trimMessages(msgs: AiyaMessage[]) {
   return msgs.slice(-HISTORY_LIMIT)
 }
 
-function generateTitle(msg: string, t: TFunction): string {
+function generateTitle(msg: string, t: TFunction, locale: string): string {
   const cleaned = msg.trim().replace(/\n/g, ' ')
   if (cleaned.length >= 10) return cleaned.slice(0, 40) + (cleaned.length > 40 ? '…' : '')
-  return t('aiyaNewChat', { defaultValue: 'Yeni Sohbet' }) + ' — ' + new Date().toLocaleDateString()
+  return t('aiyaNewChat', { defaultValue: 'Yeni Sohbet' }) + ' — ' + new Date().toLocaleDateString(locale?.startsWith('tr') ? 'tr-TR' : 'en-US')
 }
 
-function formatTime(ts?: number): string {
+function formatTime(ts?: number, locale?: string): string {
   if (!ts) return ''
   const d = new Date(ts)
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleTimeString(locale?.startsWith('tr') ? 'tr-TR' : 'en-US', { hour: '2-digit', minute: '2-digit' })
 }
 
-function formatDate(ts: number, locale: string): string {
+function formatDate(ts: number, locale: string, t: TFunction): string {
   const now = Date.now()
   const diff = now - ts
   const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-  
+
   if (days === 0) {
-    return new Date(ts).toLocaleTimeString(locale === 'tr' ? 'tr-TR' : 'en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return new Date(ts).toLocaleTimeString(locale === 'tr' ? 'tr-TR' : 'en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
     })
   } else if (days === 1) {
-    return locale === 'tr' ? 'Dün' : 'Yesterday'
+    return t('yesterday')
   } else if (days < 7) {
     return new Date(ts).toLocaleDateString(locale === 'tr' ? 'tr-TR' : 'en-US', { weekday: 'short' })
   } else {
@@ -336,6 +336,7 @@ const MessageBubble = memo(function MessageBubble({
   showTime,
   retryLabel,
   onRetry,
+  locale,
 }: {
   message: AiyaMessage
   isUser: boolean
@@ -343,6 +344,7 @@ const MessageBubble = memo(function MessageBubble({
   showTime: boolean
   retryLabel?: string
   onRetry?: () => void
+  locale?: string
 }) {
   return (
     <div className={`flex items-end gap-2.5 sm:gap-3 ${isUser ? 'justify-end' : 'justify-start'} ${!showAvatar && !isUser ? 'ml-11 sm:ml-12' : ''}`}>
@@ -382,7 +384,7 @@ const MessageBubble = memo(function MessageBubble({
         )}
         {showTime && !message.failed && (
           <p className={`text-[11px] sm:text-xs px-1.5 ${isUser ? 'text-right text-gray-400 dark:text-gray-500' : 'text-left text-gray-400 dark:text-gray-500'}`}>
-            {formatTime(message.ts)}
+            {formatTime(message.ts, locale)}
           </p>
         )}
       </div>
@@ -397,7 +399,8 @@ const MessageBubble = memo(function MessageBubble({
 export default function Aiya() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
-  const { user, setUser } = useStore()
+  const user = useStore((s) => s.user)
+  const setUser = useStore((s) => s.setUser)
   const userId = useUserId()
   const { memories } = useMemories(userId, { autoLoad: Boolean(user) })
   const prefersReducedMotion = useReducedMotion()
@@ -1128,7 +1131,7 @@ export default function Aiya() {
         // Persist the FULL thread — don't truncate stored history (the model
         // context is bounded separately below), so scrollback never vanishes.
         const updated = [...c.messages, userMsg]
-        const title = c.title || generateTitle(text, t)
+        const title = c.title || generateTitle(text, t, locale)
         return { ...c, messages: updated, title, updatedAt: Date.now() }
       })
     })
@@ -1411,7 +1414,7 @@ export default function Aiya() {
                 const snippet = lastMsg
                   ? (lastMsg.role === 'assistant' ? 'Aiya: ' : '') + lastMsg.content.slice(0, 70) + (lastMsg.content.length > 70 ? '…' : '')
                   : t('aiyaEmptyChat', { defaultValue: 'Henüz mesaj yok' })
-                const dateStr = formatDate(chat.updatedAt, locale)
+                const dateStr = formatDate(chat.updatedAt, locale, t)
 
                 return (
                   <motion.div
@@ -1639,6 +1642,7 @@ export default function Aiya() {
                 showTime={Boolean(showTime)}
                 retryLabel={t('aiyaRetry')}
                 onRetry={msg.failed && isUser && activeChatId ? () => handleRetry(msg.content, activeChatId) : undefined}
+                locale={locale}
               />
             )
           })}

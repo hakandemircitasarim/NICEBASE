@@ -12,7 +12,7 @@ interface OnboardingProps {
 
 export default function Onboarding({ onComplete }: OnboardingProps) {
   const { t } = useTranslation()
-  const { language } = useStore()
+  const language = useStore((s) => s.language)
   const [step, setStep] = useState(0)
   useModalPresence(true)
 

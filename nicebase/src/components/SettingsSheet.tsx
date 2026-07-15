@@ -106,15 +106,13 @@ function Section({
 export default function SettingsSheet({ onClose }: SettingsSheetProps) {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
-  const {
-    user,
-    setUser,
-    setThemePreference,
-    setLanguage,
-    themePreference,
-    language,
-    resetOnboarding,
-  } = useStore()
+  const user = useStore((s) => s.user)
+  const setUser = useStore((s) => s.setUser)
+  const setThemePreference = useStore((s) => s.setThemePreference)
+  const setLanguage = useStore((s) => s.setLanguage)
+  const themePreference = useStore((s) => s.themePreference)
+  const language = useStore((s) => s.language)
+  const resetOnboarding = useStore((s) => s.resetOnboarding)
   const [dailyReminderTime, setDailyReminderTime] = useState(
     user?.dailyReminderTime || ''
   )
