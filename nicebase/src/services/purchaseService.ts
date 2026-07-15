@@ -37,20 +37,20 @@ const PLANS: PurchasePlan[] = [
     id: 'monthly',
     titleKey: 'premiumMonthly',
     price: '₺29,99',
-    period: 'premiumMonthly',
+    period: 'perMonth',
   },
   {
     id: 'yearly',
     titleKey: 'premiumYearly',
     price: '₺199,99',
-    period: 'premiumYearly',
+    period: 'perYear',
     badgeKey: 'mostPopular',
   },
   {
     id: 'lifetime',
     titleKey: 'premiumLifetime',
     price: '₺499,99',
-    period: 'premiumLifetime',
+    period: 'oneTime',
     badgeKey: 'bestValue',
   },
 ]

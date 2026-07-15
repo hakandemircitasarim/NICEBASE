@@ -679,8 +679,12 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           </div>
         </div>
 
-        {/* Content - Scrollable */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-8 space-y-3 pt-3">
+        {/* Content - Scrollable. Bottom padding clears the Android nav/gesture
+            bar (the sheet is pinned to the raw viewport bottom). */}
+        <div
+          className="flex-1 overflow-y-auto overscroll-contain px-4 space-y-3 pt-3"
+          style={{ paddingBottom: 'calc(2rem + var(--safe-area-inset-bottom, 0px))' }}
+        >
           {/* Theme */}
           <Section
             id="theme"
@@ -1188,9 +1192,17 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
         type={confirmDialog.type}
       />
 
-      {/* App-lock PIN entry overlay (set / confirm / disable / change) */}
+      {/* App-lock PIN entry overlay (set / confirm / disable / change) —
+          vertically centered + safe-area padded so the title clears the notch
+          and the keypad doesn't clip on short screens. */}
       {pinFlow && (
-        <div className="fixed inset-0 z-[60] bg-white dark:bg-gray-900 flex flex-col">
+        <div
+          className="fixed inset-0 z-[60] bg-white dark:bg-gray-900 flex flex-col items-center justify-center px-6 py-10 overflow-y-auto"
+          style={{
+            paddingTop: 'calc(2.5rem + var(--safe-area-inset-top, 0px))',
+            paddingBottom: 'calc(2.5rem + var(--safe-area-inset-bottom, 0px))',
+          }}
+        >
           <PinPad
             title={pinFlowTitle().title}
             subtitle={pinFlowTitle().subtitle}

@@ -491,10 +491,14 @@ export default function RelationshipSaver() {
                             }}
                             disabled={currentIndex === 0}
                             className="px-6 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl disabled:opacity-50 touch-manipulation"
+                            aria-label={t('previous')}
                           >
                             <ChevronLeft size={24} />
                           </button>
-                          <span className="text-lg text-white/80">
+                          <span
+                            className="text-lg font-semibold text-gray-600 dark:text-gray-400"
+                            aria-label={`${currentIndex + 1} / ${filteredMemories.length}`}
+                          >
                             {currentIndex + 1} / {filteredMemories.length}
                           </span>
                           <button
@@ -505,6 +509,7 @@ export default function RelationshipSaver() {
                             }}
                             disabled={currentIndex === filteredMemories.length - 1}
                             className="px-6 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl disabled:opacity-50 touch-manipulation"
+                            aria-label={t('next')}
                           >
                             <ChevronRight size={24} />
                           </button>

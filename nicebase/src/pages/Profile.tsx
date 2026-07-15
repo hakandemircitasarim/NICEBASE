@@ -20,6 +20,7 @@ import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
 import { hapticFeedback } from '../utils/haptic'
 import { cleanConnectionName, normalizeConnectionKey } from '../utils/connections'
+import { streakService } from '../services/streakService'
 import SettingsSheet from '../components/SettingsSheet'
 import EditProfileSheet from '../components/EditProfileSheet'
 import Paywall from '../components/Paywall'
@@ -35,6 +36,9 @@ export default function Profile() {
   const [showSettings, setShowSettings] = useState(false)
   const [showEditProfile, setShowEditProfile] = useState(false)
   const [showPaywall, setShowPaywall] = useState(false)
+  // Streak is computed via the shared streakService so Profile stays in sync
+  // with Home and Insights (which use the same local-midnight logic).
+  const [currentStreak, setCurrentStreak] = useState(0)
 
   // Load profile data from localStorage fallback on mount
   useEffect(() => {
@@ -68,36 +72,19 @@ export default function Profile() {
       memories.flatMap((m) => m.connections).map(normalizeConnectionKey)
     ).size
 
-    // Simple streak calculation
-    let currentStreak = 0
-    if (memories.length > 0) {
-      const sorted = [...memories].sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-      )
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-
-      const dates = new Set(
-        sorted.map((m) => {
-          const d = new Date(m.date)
-          d.setHours(0, 0, 0, 0)
-          return d.getTime()
-        })
-      )
-
-      let checkDate = new Date(today)
-      if (!dates.has(checkDate.getTime())) {
-        checkDate.setDate(checkDate.getDate() - 1)
-      }
-
-      while (dates.has(checkDate.getTime())) {
-        currentStreak++
-        checkDate.setDate(checkDate.getDate() - 1)
-      }
-    }
-
-    return { totalMemories, coreMemories, totalConnections, currentStreak }
+    return { totalMemories, coreMemories, totalConnections }
   }, [memories])
+
+  // Streak comes from the shared service (same source as Home/Insights).
+  useEffect(() => {
+    let cancelled = false
+    streakService.calculateStreak(userId, memories).then((s) => {
+      if (!cancelled) setCurrentStreak(s.currentStreak)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [userId, memories])
 
   // Top connections — group by normalized key, display the original casing
   // (first occurrence wins).
@@ -285,7 +272,7 @@ export default function Profile() {
             <Flame size={20} className="text-orange-500" />
           </div>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {stats.currentStreak}
+            {currentStreak}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">
             {t('profileStreak')}

@@ -87,9 +87,13 @@ export default function Layout() {
         <div className="flex justify-around items-center h-16 px-1 sm:px-2 overflow-x-auto scrollbar-hide snap-x snap-mandatory">
           {navItems.map((item) => {
             const Icon = item.icon
-            const isActive = item.path === '/' 
-              ? location.pathname === '/' 
-              : location.pathname.startsWith(item.path)
+            const isActive = item.path === '/'
+              ? location.pathname === '/'
+              // Progress (/insights) is a Profile sub-page (like
+              // /profile/connections) — keep the Profile tab lit there too.
+              : item.path === '/profile'
+                ? location.pathname.startsWith('/profile') || location.pathname === '/insights'
+                : location.pathname.startsWith(item.path)
             return (
               <motion.button
                 key={item.path}

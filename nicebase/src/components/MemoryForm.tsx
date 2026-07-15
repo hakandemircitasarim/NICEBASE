@@ -15,6 +15,8 @@ import { compressImage } from '../utils/imageUtils'
 import ImageModal from './ImageModal'
 import { hapticFeedback } from '../utils/haptic'
 import { useBackButton } from '../hooks/useBackButton'
+import { useMemories } from '../hooks/useMemories'
+import { getUniqueConnections } from '../utils/memoryUtils'
 import { toLocalISODate, parseLocalDate } from '../utils/dateFormat'
 import { withTimeout } from '../utils/timeout'
 import { errorLoggingService } from '../services/errorLoggingService'
@@ -219,6 +221,14 @@ export default function MemoryForm({
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const sliderRef = useRef<HTMLDivElement>(null)
+
+  // Load the user's memories to power connection-name autocomplete. Suggestions
+  // are the unique connection names used across all existing memories.
+  const { memories } = useMemories(userId)
+  const connectionSuggestions = useMemo(
+    () => getUniqueConnections(memories),
+    [memories]
+  )
 
   const initialDate = memory?.date
     ? String(memory.date).split('T')[0]
@@ -1279,7 +1289,7 @@ export default function MemoryForm({
                     <ConnectionsInput
                       value={formData.connections}
                       onChange={(val) => setFormData({ ...formData, connections: val })}
-                      suggestions={[]}
+                      suggestions={connectionSuggestions}
                       placeholder={t('connectionsPlaceholder')}
                       hint={t('connectionsHint')}
                     />

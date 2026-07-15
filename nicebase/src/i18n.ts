@@ -1264,6 +1264,11 @@ const resources = {
       purchaseRestored: 'Satın alımların geri yüklendi',
       purchaseRestoreFailed: 'Geri yüklenecek satın alım bulunamadı',
       premiumUpsellAiya: 'Aiya ile sınırsız sohbet için Premium’a geç',
+      premiumCta: 'Premium’e Geç',
+      perMonth: '/ay',
+      perYear: '/yıl',
+      oneTime: 'Tek seferlik',
+      backspace: 'Sil',
     },
   },
   en: {
@@ -2502,6 +2507,11 @@ const resources = {
       purchaseRestored: 'Your purchases were restored',
       purchaseRestoreFailed: 'No purchases found to restore',
       premiumUpsellAiya: 'Go Premium for unlimited chats with Aiya',
+      premiumCta: 'Go Premium',
+      perMonth: '/mo',
+      perYear: '/yr',
+      oneTime: 'One-time',
+      backspace: 'Delete',
     },
   },
 }

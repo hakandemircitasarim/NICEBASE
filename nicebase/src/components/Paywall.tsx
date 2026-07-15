@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -34,6 +34,9 @@ export default function Paywall({ onClose }: PaywallProps) {
   )
   const [busy, setBusy] = useState(false)
 
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+
   useModalPresence(true)
   // iOS-safe scroll lock with proper restore (replaces manual body.overflow).
   useBodyScrollLock(true)
@@ -42,6 +45,47 @@ export default function Paywall({ onClose }: PaywallProps) {
     onClose()
     return true
   }, true)
+
+  // Move focus into the sheet on open (so Tab/Escape work immediately and screen
+  // readers announce the dialog) and restore focus to the opener on close.
+  // Mirrors ImageModal.tsx. Escape itself is handled by useEscapeKey above.
+  useEffect(() => {
+    previouslyFocusedRef.current = (document.activeElement as HTMLElement) || null
+    const timer = window.setTimeout(() => sheetRef.current?.focus(), 0)
+    return () => {
+      window.clearTimeout(timer)
+      previouslyFocusedRef.current?.focus?.()
+    }
+  }, [])
+
+  // Trap Tab within the sheet so focus can't escape to the page behind it.
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab') return
+    const root = sheetRef.current
+    if (!root) return
+    const focusables = Array.from(
+      root.querySelectorAll<HTMLElement>('button:not([disabled]),[tabindex]:not([tabindex="-1"])')
+    )
+    if (focusables.length === 0) {
+      e.preventDefault()
+      root.focus()
+      return
+    }
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+    const active = document.activeElement as HTMLElement | null
+    if (e.shiftKey) {
+      if (!active || active === first || !root.contains(active)) {
+        e.preventDefault()
+        last.focus()
+      }
+    } else {
+      if (!active || active === last || !root.contains(active)) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+  }
 
   // Map a non-success PurchaseResult reason to the right localized toast so the
   // user always gets honest feedback (never a fake success).
@@ -110,10 +154,16 @@ export default function Paywall({ onClose }: PaywallProps) {
 
       {/* Sheet */}
       <motion.div
+        ref={sheetRef}
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        onKeyDown={handleKeyDown}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('premium')}
         className="fixed inset-x-0 bottom-0 z-50 max-h-[92vh] flex flex-col bg-gray-50 dark:bg-gray-900 rounded-t-3xl shadow-2xl"
       >
         {/* Handle & Header */}
@@ -134,7 +184,10 @@ export default function Paywall({ onClose }: PaywallProps) {
         </div>
 
         {/* Content - Scrollable */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-8 pt-2">
+        <div
+          className="flex-1 overflow-y-auto overscroll-contain px-5 pt-2"
+          style={{ paddingBottom: 'calc(2rem + var(--safe-area-inset-bottom, 0px))' }}
+        >
           {isPremium ? (
             /* Celebratory active state */
             <div className="flex flex-col items-center text-center py-10">
@@ -258,7 +311,7 @@ export default function Paywall({ onClose }: PaywallProps) {
                 className="w-full px-6 py-4 gradient-primary text-white rounded-2xl font-bold text-base shadow-lg shadow-primary/30 touch-manipulation disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 <Crown size={18} />
-                {t('premiumTitle')}
+                {t('premiumCta')}
               </motion.button>
 
               {/* Restore */}

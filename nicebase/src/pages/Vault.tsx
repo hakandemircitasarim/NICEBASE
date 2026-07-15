@@ -94,17 +94,20 @@ export default function Vault() {
     }
   }, [searchParams])
 
-  const handleSave = useCallback(async (newMemory?: Memory) => {
+  const handleSave = useCallback(async (_savedMemory?: Memory) => {
     try {
       await refreshMemories()
-      setSuccessMessage(newMemory ? t('memorySaved') : t('memoryUpdated'))
+      // MemoryForm calls onSave(savedMemory) for BOTH create and update, so the
+      // arg is always truthy — derive create-vs-edit from editingMemory instead
+      // (undefined for the add flow, set while editing).
+      setSuccessMessage(editingMemory ? t('memoryUpdated') : t('memorySaved'))
       setShowSuccessAnimation(true)
       setTimeout(() => setShowSuccessAnimation(false), 2000)
     } catch (error) {
       hapticFeedback('error')
       showError(t('saveErrorRetry'))
     }
-  }, [refreshMemories, t, hapticFeedback, showError])
+  }, [refreshMemories, t, hapticFeedback, showError, editingMemory])
 
   const handleDelete = useCallback((id: string) => {
     openConfirm({

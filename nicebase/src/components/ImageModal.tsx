@@ -283,7 +283,7 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
         >
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 z-10 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors touch-manipulation"
+            className="absolute top-4 right-4 z-10 bg-black/50 text-white p-3 rounded-full hover:bg-black/70 transition-colors touch-manipulation"
             aria-label={t('closeImageViewer')}
           >
             <X size={24} />
@@ -292,7 +292,7 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
           {isZoomed && (
             <button
               onClick={resetZoom}
-              className="absolute top-4 left-4 z-10 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors touch-manipulation"
+              className="absolute top-4 left-4 z-10 bg-black/50 text-white p-3 rounded-full hover:bg-black/70 transition-colors touch-manipulation"
               aria-label={t('resetZoom')}
             >
               <ZoomOut size={24} />
@@ -332,7 +332,7 @@ export default function ImageModal({ images, currentIndex: initialIndex, onClose
           )}
 
           <div
-            className="w-full h-full flex items-center justify-center cursor-zoom-in"
+            className={`w-full h-full flex items-center justify-center ${isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}
             style={{
               transform: `translate(${position.x}px, ${position.y}px)`,
               transition: isPanningRef.current ? 'none' : 'transform 0.2s ease-out',
