@@ -1177,6 +1177,29 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
             </div>
           )}
 
+          {/* Legal — privacy, terms, and the account/data-deletion page. */}
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 space-y-2">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm">
+              {t('legal', { defaultValue: 'Legal' })}
+            </h3>
+            {[
+              { href: '/privacy-policy.html', label: t('privacyPolicy', { defaultValue: 'Privacy Policy' }) },
+              { href: '/terms.html', label: t('termsOfService', { defaultValue: 'Terms of Service' }) },
+              { href: '/data-deletion.html', label: t('dataDeletion', { defaultValue: 'Account & Data Deletion' }) },
+            ].map((item) => (
+              <a
+                key={item.href}
+                href={item.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors touch-manipulation border border-gray-200 dark:border-gray-700"
+              >
+                <span>{item.label}</span>
+                <span aria-hidden="true" className="text-gray-400">↗</span>
+              </a>
+            ))}
+          </div>
+
           {/* Developer Tools */}
           {import.meta.env.DEV && (
             <Section

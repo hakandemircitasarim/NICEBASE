@@ -586,6 +586,15 @@ export default function Login() {
                 <label htmlFor="terms" className="text-sm text-gray-600 dark:text-gray-400">
                   {t('acceptTerms')}{' '}
                   <a
+                    href="/terms.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:text-primary-dark font-medium underline"
+                  >
+                    {t('termsOfService', { defaultValue: 'Terms of Service' })}
+                  </a>
+                  {' & '}
+                  <a
                     href="/privacy-policy.html"
                     target="_blank"
                     rel="noopener noreferrer"

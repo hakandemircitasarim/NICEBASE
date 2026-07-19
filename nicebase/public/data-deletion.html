@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NICEBASE - Hesap ve Veri Silme / Account &amp; Data Deletion</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.7; color: #333; }
+  h1 { color: #CC5018; border-bottom: 2px solid #CC5018; padding-bottom: 10px; }
+  h2 { color: #444; margin-top: 30px; }
+  .date { color: #888; font-size: 14px; }
+  .lang-switch { text-align: right; margin-bottom: 20px; }
+  .lang-switch button { color: #CC5018; background: none; border: 1px solid #CC5018; border-radius: 6px; padding: 6px 14px; font-weight: bold; cursor: pointer; margin-left: 6px; }
+  .lang-switch button.active { background: #CC5018; color: #fff; }
+  section { margin-bottom: 20px; }
+  .steps { background: #fff8f4; border-left: 4px solid #CC5018; padding: 12px 16px 12px 34px; border-radius: 6px; }
+  a { color: #CC5018; }
+  ul, ol { padding-left: 24px; }
+  [hidden] { display: none; }
+</style>
+</head>
+<body>
+
+<div class="lang-switch">
+  <button id="btn-tr" class="active" onclick="setLang('tr')">Türkçe</button>
+  <button id="btn-en" onclick="setLang('en')">English</button>
+</div>
+
+<!-- ══════════════════ TÜRKÇE ══════════════════ -->
+<div id="tr">
+  <h1>NICEBASE — Hesap ve Veri Silme</h1>
+  <p class="date">Son güncelleme: 20 Temmuz 2026</p>
+
+  <section>
+    <h2>Uygulama içinden silme (önerilen)</h2>
+    <ol class="steps">
+      <li>NICEBASE uygulamasını açın</li>
+      <li><strong>Profil → Ayarlar</strong> bölümüne gidin</li>
+      <li><strong>“Hesabı Sil”</strong> seçeneğine dokunun ve onaylayın</li>
+    </ol>
+    <p>Bu işlem <strong>geri alınamaz</strong> ve anında gerçekleşir.</p>
+  </section>
+
+  <section>
+    <h2>Uygulamasız silme talebi</h2>
+    <p>Uygulamaya erişiminiz yoksa, hesabınızı sildirmek için hesabınıza kayıtlı e-posta adresinizden <strong>nicebaseapp@gmail.com</strong> adresine “Hesap Silme” konulu bir e-posta gönderin. Talebiniz kimlik doğrulaması sonrası <strong>en geç 30 gün içinde</strong> tamamlanır.</p>
+  </section>
+
+  <section>
+    <h2>Silinen veriler</h2>
+    <p>Hesabınız silindiğinde aşağıdaki tüm verileriniz sunuculardan <strong>kalıcı olarak</strong> kaldırılır:</p>
+    <ul>
+      <li>Hesap bilgileri (e-posta, ad, profil fotoğrafı)</li>
+      <li>Tüm anılarınız (metin ve fotoğraflar)</li>
+      <li>Aiya sohbet geçmişiniz</li>
+      <li>Ayarlar, istatistikler ve başarımlar</li>
+    </ul>
+    <p>Cihazınızda çevrimdışı saklanan kopyalar da hesap silindiğinde temizlenir.</p>
+  </section>
+
+  <section>
+    <h2>İletişim</h2>
+    <p><strong>nicebaseapp@gmail.com</strong></p>
+  </section>
+</div>
+
+<!-- ══════════════════ ENGLISH ══════════════════ -->
+<div id="en" hidden>
+  <h1>NICEBASE — Account &amp; Data Deletion</h1>
+  <p class="date">Last updated: July 20, 2026</p>
+
+  <section>
+    <h2>Delete from within the app (recommended)</h2>
+    <ol class="steps">
+      <li>Open the NICEBASE app</li>
+      <li>Go to <strong>Profile → Settings</strong></li>
+      <li>Tap <strong>“Delete Account”</strong> and confirm</li>
+    </ol>
+    <p>This action is <strong>irreversible</strong> and happens immediately.</p>
+  </section>
+
+  <section>
+    <h2>Request deletion without the app</h2>
+    <p>If you cannot access the app, email <strong>nicebaseapp@gmail.com</strong> from the address registered to your account with the subject “Account Deletion”. After identity verification your request is completed <strong>within 30 days</strong>.</p>
+  </section>
+
+  <section>
+    <h2>What gets deleted</h2>
+    <p>When your account is deleted, all of the following is <strong>permanently</strong> removed from our servers:</p>
+    <ul>
+      <li>Account info (email, name, profile photo)</li>
+      <li>All your memories (text and photos)</li>
+      <li>Your Aiya chat history</li>
+      <li>Settings, statistics and achievements</li>
+    </ul>
+    <p>Offline copies stored on your device are also cleared when the account is deleted.</p>
+  </section>
+
+  <section>
+    <h2>Contact</h2>
+    <p><strong>nicebaseapp@gmail.com</strong></p>
+  </section>
+</div>
+
+<script>
+  function setLang(l){
+    document.getElementById('tr').hidden = (l !== 'tr');
+    document.getElementById('en').hidden = (l !== 'en');
+    document.getElementById('btn-tr').classList.toggle('active', l === 'tr');
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.documentElement.lang = l;
+  }
+  if ((navigator.language || 'tr').toLowerCase().indexOf('en') === 0) setLang('en');
+</script>
+
+</body>
+</html>

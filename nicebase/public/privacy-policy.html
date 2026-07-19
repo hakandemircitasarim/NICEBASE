@@ -10,72 +10,200 @@
   h2 { color: #444; margin-top: 30px; }
   .date { color: #888; font-size: 14px; }
   .lang-switch { text-align: right; margin-bottom: 20px; }
-  .lang-switch a { color: #CC5018; text-decoration: none; font-weight: bold; }
+  .lang-switch button { color: #CC5018; background: none; border: 1px solid #CC5018; border-radius: 6px; padding: 6px 14px; font-weight: bold; cursor: pointer; margin-left: 6px; }
+  .lang-switch button.active { background: #CC5018; color: #fff; }
   section { margin-bottom: 20px; }
+  .note { background: #fff8f4; border-left: 4px solid #CC5018; padding: 12px 16px; border-radius: 6px; font-size: 14px; color: #555; }
+  a { color: #CC5018; }
+  ul { padding-left: 22px; }
+  [hidden] { display: none; }
 </style>
 </head>
 <body>
 
-<h1>NICEBASE Gizlilik Politikasi</h1>
-<p class="date">Son guncelleme: 3 Nisan 2026</p>
+<div class="lang-switch">
+  <button id="btn-tr" class="active" onclick="setLang('tr')">Türkçe</button>
+  <button id="btn-en" onclick="setLang('en')">English</button>
+</div>
 
-<section>
-<h2>1. Toplanan Veriler</h2>
-<p>NICEBASE asagidaki verileri toplar ve isler:</p>
-<ul>
-  <li><strong>Hesap bilgileri:</strong> E-posta adresi, goruntuleme adi, profil fotografi (Google ile giris yapildiginda)</li>
-  <li><strong>Kullanici icerigi:</strong> Anilar (metin ve fotograflar), sohbet gecmisi</li>
-  <li><strong>Uygulama verileri:</strong> Uygulama ayarlari, istatistikler, basarimlar</li>
-</ul>
-</section>
+<!-- ══════════════════ TÜRKÇE ══════════════════ -->
+<div id="tr">
+  <h1>NICEBASE Gizlilik Politikası ve Aydınlatma Metni</h1>
+  <p class="date">Son güncelleme: 20 Temmuz 2026</p>
 
-<section>
-<h2>2. Verilerin Kullanim Amaci</h2>
-<ul>
-  <li>Anilarinizi guvenli bir sekilde saklamak ve senkronize etmek</li>
-  <li>Aiya AI asistani ile kisisellestirilmis sohbet deneyimi sunmak</li>
-  <li>Uygulama ozelliklerini iyilestirmek</li>
-</ul>
-</section>
+  <section>
+    <h2>1. Veri Sorumlusu</h2>
+    <p>6698 sayılı Kişisel Verilerin Korunması Kanunu (“KVKK”) kapsamında kişisel verileriniz, veri sorumlusu sıfatıyla NICEBASE tarafından aşağıda açıklanan kapsamda işlenmektedir.</p>
+    <p class="note"><strong>Veri sorumlusu iletişim:</strong> nicebaseapp@gmail.com &nbsp;|&nbsp; Uygulama: NICEBASE.<br>
+    <em>Not: Ticari/tüzel bir veri sorumlusu iseniz, resmi unvan, adres ve (varsa) VERBİS kayıt bilgilerini buraya ekleyin.</em></p>
+  </section>
 
-<section>
-<h2>3. Ucuncu Taraf Hizmetler</h2>
-<p>NICEBASE asagidaki ucuncu taraf hizmetlerini kullanir:</p>
-<ul>
-  <li><strong>Supabase:</strong> Veritabani ve kimlik dogrulama (veriler sifrelenmis baglanti ile iletilir)</li>
-  <li><strong>OpenAI API:</strong> Aiya AI asistani icin. Sohbet mesajlariniz AI yaniti olusturmak icin OpenAI'a gonderilir. OpenAI'in gizlilik politikasi icin: <a href="https://openai.com/privacy">openai.com/privacy</a></li>
-  <li><strong>Google Sign-In:</strong> Opsiyonel giris yontemi</li>
-</ul>
-</section>
+  <section>
+    <h2>2. İşlenen Kişisel Veriler</h2>
+    <ul>
+      <li><strong>Kimlik ve iletişim:</strong> e-posta adresi, görüntüleme adı, profil fotoğrafı (Google ile giriş yapıldığında)</li>
+      <li><strong>Kullanıcı içeriği:</strong> anılarınız (metin ve fotoğraflar), sohbet geçmişi — bu içerikler özel nitelikli veriler içerebilir</li>
+      <li><strong>Uygulama verileri:</strong> uygulama ayarları, istatistikler, başarımlar</li>
+    </ul>
+  </section>
 
-<section>
-<h2>4. Veri Guvenligi</h2>
-<ul>
-  <li>Tum veri transferleri HTTPS ile sifrelenir</li>
-  <li>Veritabani Row Level Security (RLS) ile korunur - her kullanici sadece kendi verilerine erisebilir</li>
-  <li>Verileriniz offline olarak cihazinizda da saklanir</li>
-</ul>
-</section>
+  <section>
+    <h2>3. İşleme Amaçları ve Hukuki Sebepler (KVKK m.5–6)</h2>
+    <ul>
+      <li>Hizmetin sunulması, anılarınızın saklanması ve senkronizasyonu — <em>sözleşmenin ifası</em></li>
+      <li>Aiya AI asistanı ile kişiselleştirilmiş deneyim — <em>açık rızanız</em></li>
+      <li>Güvenlik, kötüye kullanımın önlenmesi ve yasal yükümlülükler — <em>meşru menfaat / hukuki yükümlülük</em></li>
+      <li>Uygulamanın iyileştirilmesi (isteğe bağlı, anonim/telemetri) — <em>açık rızanız</em></li>
+    </ul>
+  </section>
 
-<section>
-<h2>5. Veri Saklama ve Silme</h2>
-<p>Verileriniz hesabiniz aktif oldugu surece saklanir. Hesabinizi sildiginizde tum verileriniz kalici olarak silinir. Veri silme talebi icin: <strong>nicebaseapp@gmail.com</strong></p>
-</section>
+  <section>
+    <h2>4. Yurt İçi ve Yurt Dışına Aktarım</h2>
+    <p>Hizmetin çalışması için verileriniz aşağıdaki hizmet sağlayıcılarla ve gerektiğinde yurt dışındaki sunucularla paylaşılır. Yurt dışına aktarım <strong>açık rızanıza</strong> dayanır:</p>
+    <ul>
+      <li><strong>Supabase:</strong> veritabanı ve kimlik doğrulama (şifreli bağlantı, Row Level Security)</li>
+      <li><strong>OpenAI:</strong> yalnızca Aiya asistanı kullanıldığında sohbet mesajlarınız yanıt üretimi için gönderilir — <a href="https://openai.com/privacy">openai.com/privacy</a></li>
+      <li><strong>Google:</strong> yalnızca Google ile giriş seçilirse</li>
+    </ul>
+  </section>
 
-<section>
-<h2>6. Cocuklarin Gizliligi</h2>
-<p>NICEBASE 13 yasindan kucuk cocuklara yonelik degildir ve bilerek cocuklardan veri toplamaz.</p>
-</section>
+  <section>
+    <h2>5. Toplama Yöntemi</h2>
+    <p>Kişisel verileriniz, uygulamayı kullanmanız (hesap oluşturma, anı ekleme, sohbet) sırasında elektronik ortamda otomatik ve kısmen otomatik yollarla toplanır.</p>
+  </section>
 
-<section>
-<h2>7. Degisiklikler</h2>
-<p>Bu gizlilik politikasi zaman zaman guncellenebilir. Degisiklikler uygulama icinden ve bu sayfada duyurulur.</p>
-</section>
+  <section>
+    <h2>6. Veri Güvenliği</h2>
+    <ul>
+      <li>Tüm veri transferleri HTTPS/TLS ile şifrelenir</li>
+      <li>Veritabanı Row Level Security (RLS) ile korunur — her kullanıcı yalnızca kendi verilerine erişir</li>
+      <li>Verileriniz çevrimdışı kullanım için cihazınızda da saklanır</li>
+    </ul>
+  </section>
 
-<section>
-<h2>8. Iletisim</h2>
-<p>Sorulariniz icin: <strong>nicebaseapp@gmail.com</strong></p>
-</section>
+  <section>
+    <h2>7. Saklama Süresi ve Silme</h2>
+    <p>Verileriniz hesabınız aktif olduğu sürece saklanır. Hesabınızı sildiğinizde tüm verileriniz sunucudan kalıcı olarak silinir (uygulama içi <strong>Ayarlar → Hesabı Sil</strong>). Silme talebi ve ayrıntılar için: <a href="/data-deletion.html">Hesap ve Veri Silme sayfası</a> veya <strong>nicebaseapp@gmail.com</strong>.</p>
+  </section>
+
+  <section>
+    <h2>8. KVKK m.11 Kapsamında Haklarınız</h2>
+    <p>İlgili kişi olarak; kişisel verinizin işlenip işlenmediğini öğrenme, işlenmişse buna ilişkin bilgi talep etme, işleme amacını ve amacına uygun kullanılıp kullanılmadığını öğrenme, yurt içi/yurt dışı aktarılan üçüncü kişileri bilme, eksik/yanlış işlenmişse düzeltilmesini, KVKK’ya uygun şekilde <strong>silinmesini/yok edilmesini</strong> isteme, bu işlemlerin aktarıldığı üçüncü kişilere bildirilmesini isteme, işlenen verilerin analizi sonucu aleyhinize bir sonuç çıkmasına itiraz etme ve zarara uğramanız hâlinde giderilmesini talep etme haklarına sahipsiniz. Başvurularınızı <strong>nicebaseapp@gmail.com</strong> adresine iletebilirsiniz.</p>
+  </section>
+
+  <section>
+    <h2>9. Çerezler ve Yerel Depolama</h2>
+    <p>Uygulama, oturumu ve tercihlerinizi (tema, dil) sürdürmek için cihazınızın yerel depolamasını (localStorage/IndexedDB) kullanır. Bunlar reklam veya izleme amacı taşımaz.</p>
+  </section>
+
+  <section>
+    <h2>10. Çocukların Gizliliği</h2>
+    <p>NICEBASE 13 yaşından küçük çocuklara yönelik değildir ve bilerek çocuklardan veri toplamaz.</p>
+  </section>
+
+  <section>
+    <h2>11. Değişiklikler</h2>
+    <p>Bu metin zaman zaman güncellenebilir. Değişiklikler uygulama içinden ve bu sayfada duyurulur.</p>
+  </section>
+
+  <section>
+    <h2>12. İletişim</h2>
+    <p>Sorularınız ve talepleriniz için: <strong>nicebaseapp@gmail.com</strong></p>
+  </section>
+</div>
+
+<!-- ══════════════════ ENGLISH ══════════════════ -->
+<div id="en" hidden>
+  <h1>NICEBASE Privacy Policy</h1>
+  <p class="date">Last updated: July 20, 2026</p>
+
+  <section>
+    <h2>1. Data Controller</h2>
+    <p>Your personal data is processed by NICEBASE as the data controller, in the scope described below. Turkish residents’ data is also processed under Law No. 6698 on the Protection of Personal Data (“KVKK”).</p>
+    <p class="note"><strong>Controller contact:</strong> nicebaseapp@gmail.com &nbsp;|&nbsp; App: NICEBASE.<br>
+    <em>Note: if the controller is a company/legal entity, add its legal name, address and (if applicable) registration details here.</em></p>
+  </section>
+
+  <section>
+    <h2>2. Personal Data We Process</h2>
+    <ul>
+      <li><strong>Identity &amp; contact:</strong> email address, display name, profile photo (when signing in with Google)</li>
+      <li><strong>User content:</strong> your memories (text and photos), chat history — this content may include sensitive data</li>
+      <li><strong>App data:</strong> settings, statistics, achievements</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>3. Purposes &amp; Legal Bases</h2>
+    <ul>
+      <li>Providing the service, storing and syncing your memories — <em>performance of a contract</em></li>
+      <li>Personalized experience with the Aiya AI assistant — <em>your explicit consent</em></li>
+      <li>Security, abuse prevention and legal obligations — <em>legitimate interest / legal obligation</em></li>
+      <li>Improving the app (optional, anonymous/telemetry) — <em>your explicit consent</em></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>4. Third Parties &amp; International Transfers</h2>
+    <p>To run the service, your data is shared with the providers below and, where necessary, servers abroad. Transfers abroad rely on your <strong>explicit consent</strong>:</p>
+    <ul>
+      <li><strong>Supabase:</strong> database &amp; authentication (encrypted connection, Row Level Security)</li>
+      <li><strong>OpenAI:</strong> only when you use Aiya, your chat messages are sent to generate responses — <a href="https://openai.com/privacy">openai.com/privacy</a></li>
+      <li><strong>Google:</strong> only if you choose Google Sign-In</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>5. Data Security</h2>
+    <ul>
+      <li>All transfers encrypted with HTTPS/TLS</li>
+      <li>Database protected by Row Level Security — each user accesses only their own data</li>
+      <li>Your data is also stored on your device for offline use</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>6. Retention &amp; Deletion</h2>
+    <p>Your data is kept while your account is active. Deleting your account permanently removes all your data from the server (in-app: <strong>Settings → Delete Account</strong>). For details and requests: <a href="/data-deletion.html">Account &amp; Data Deletion page</a> or <strong>nicebaseapp@gmail.com</strong>.</p>
+  </section>
+
+  <section>
+    <h2>7. Your Rights</h2>
+    <p>You have the right to access, correct, delete, restrict or object to the processing of your personal data, to data portability, and to be informed about third parties to whom data is transferred. Turkish residents additionally hold all rights under Article 11 of the KVKK. To exercise your rights, contact <strong>nicebaseapp@gmail.com</strong>.</p>
+  </section>
+
+  <section>
+    <h2>8. Cookies &amp; Local Storage</h2>
+    <p>The app uses your device’s local storage (localStorage/IndexedDB) to keep your session and preferences (theme, language). These are not used for advertising or tracking.</p>
+  </section>
+
+  <section>
+    <h2>9. Children’s Privacy</h2>
+    <p>NICEBASE is not directed to children under 13 and does not knowingly collect data from them.</p>
+  </section>
+
+  <section>
+    <h2>10. Changes</h2>
+    <p>This policy may be updated from time to time. Changes are announced in the app and on this page.</p>
+  </section>
+
+  <section>
+    <h2>11. Contact</h2>
+    <p>For questions and requests: <strong>nicebaseapp@gmail.com</strong></p>
+  </section>
+</div>
+
+<script>
+  function setLang(l){
+    document.getElementById('tr').hidden = (l !== 'tr');
+    document.getElementById('en').hidden = (l !== 'en');
+    document.getElementById('btn-tr').classList.toggle('active', l === 'tr');
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.documentElement.lang = l;
+  }
+  // Default to the browser language if it is English.
+  if ((navigator.language || 'tr').toLowerCase().indexOf('en') === 0) setLang('en');
+</script>
 
 </body>
 </html>
