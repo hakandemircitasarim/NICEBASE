@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { Home, Archive, MessageCircle, User } from 'lucide-react'
@@ -8,12 +8,23 @@ import { useStore } from '../store/useStore'
 import { useBackButton } from '../hooks/useBackButton'
 import { RouteErrorBoundary } from './RouteErrorBoundary'
 
+// First-run only — keep the tour out of the main bundle.
+const Onboarding = lazy(() => import('./Onboarding'))
+
 export default function Layout() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
   const openModalCount = useStore((s) => s.openModalCount)
   const isModalOpen = openModalCount > 0
+  // Interactive tour lives at the Layout level (not a single page) because it
+  // navigates between routes and spotlights the bottom nav itself.
+  const hasCompletedOnboarding = useStore((s) => s.hasCompletedOnboarding)
+  const setHasCompletedOnboarding = useStore((s) => s.setHasCompletedOnboarding)
+  // The app content is tagged `data-app-shell`; the first-run tour marks it
+  // `inert` + aria-hidden ONLY while its overlay is actually mounted (managed
+  // inside Onboarding), so the lazy-load gap doesn't leave the app inert with no
+  // visible modal.
   const locationRef = useRef(location)
   locationRef.current = location
 
@@ -53,9 +64,10 @@ export default function Layout() {
   // app exits; overlays/forms push their own handlers on top via useBackButton.
   useBackButton(handleBackButton)
 
-  const navItems = [
+  const navItems: Array<{ path: string; icon: typeof Home; label: string; tourId?: string }> = [
     { path: '/', icon: Home, label: t('appName') },
-    { path: '/vault', icon: Archive, label: t('vault') },
+    // Only the Vault tab is spotlighted by the onboarding tour.
+    { path: '/vault', icon: Archive, label: t('vault'), tourId: 'nav-vault' },
     { path: '/aiya', icon: MessageCircle, label: t('aiya') },
     { path: '/profile', icon: User, label: t('profile') },
   ]
@@ -65,6 +77,8 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+     {/* App content — the tour marks this `inert` while its overlay is mounted. */}
+     <div data-app-shell>
       <main
         className={isFullscreenChat ? '' : ''}
         style={isFullscreenChat ? undefined : { paddingBottom: 'calc(4rem + var(--safe-area-inset-bottom, 0px))' }}
@@ -97,6 +111,7 @@ export default function Layout() {
             return (
               <motion.button
                 key={item.path}
+                data-tour={item.tourId}
                 onClick={() => {
                   navigate(item.path)
                   hapticFeedback('light')
@@ -131,6 +146,17 @@ export default function Layout() {
           })}
         </div>
       </nav>
+     </div>
+
+      {/* First-run interactive tour — Aiya walks the user through the real
+          pages with a moving spotlight. Replayable via Settings. The tour
+          plays its own fade-out before flipping the flag, so no
+          AnimatePresence here. */}
+      {!hasCompletedOnboarding && (
+        <Suspense fallback={null}>
+          <Onboarding onComplete={() => setHasCompletedOnboarding(true)} />
+        </Suspense>
+      )}
     </div>
   )
 }

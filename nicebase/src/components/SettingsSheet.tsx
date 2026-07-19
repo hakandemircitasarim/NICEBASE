@@ -823,9 +823,8 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
                 hapticFeedback('light')
                 resetOnboarding()
                 onClose()
-                // The onboarding tour only renders on the Home route, so navigate
-                // there — otherwise (opened from Profile) re-arming the flag looks
-                // like a dead button because nothing appears.
+                // The tour starts with its Home steps, so land the user there
+                // for a clean replay from the beginning.
                 navigate('/')
               }}
               className="w-full flex items-center gap-3 p-4 touch-manipulation text-left"

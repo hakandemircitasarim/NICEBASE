@@ -10,13 +10,20 @@ import { errorLoggingService } from '../services/errorLoggingService'
 const LOCAL_USER_ID_KEY = 'nicebase_local_user_id'
 const MIGRATION_DONE_KEY = 'nicebase_local_migration_done'
 
+// When localStorage is fully blocked, cache the fallback id for the session so
+// every caller gets the SAME guest id — otherwise a memory written under one
+// fallback id (e.g. the onboarding seed) would never be read back under a
+// freshly-generated one.
+let inMemoryFallbackId: string | null = null
+
 /**
  * Gets or creates a local user ID for offline usage
  * @returns Local user ID string
  */
 export function getLocalUserId(): string {
   if (typeof window === 'undefined') {
-    return 'local-user-' + Date.now()
+    if (!inMemoryFallbackId) inMemoryFallbackId = 'local-user-' + Date.now()
+    return inMemoryFallbackId
   }
 
   try {
@@ -30,11 +37,12 @@ export function getLocalUserId(): string {
 
     return localUserId
   } catch (error) {
-    // Fallback if localStorage is not available
+    // Fallback if localStorage is not available — stable per session.
     if (import.meta.env.DEV) {
       console.warn('Failed to access localStorage for local user ID:', error)
     }
-    return 'local-user-' + Date.now()
+    if (!inMemoryFallbackId) inMemoryFallbackId = 'local-user-' + Date.now()
+    return inMemoryFallbackId
   }
 }
 

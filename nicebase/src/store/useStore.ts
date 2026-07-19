@@ -184,6 +184,17 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   resetOnboarding: () => {
+    // Clear the resume marker so a replay starts at the welcome step. Do NOT
+    // clear onboardingSeedDone: the seed memory it guards still exists, so
+    // re-arming it would let a replay create a DUPLICATE first memory. The tour
+    // instead shows an honest "you already have memories" state on the seed step.
+    try {
+      localStorage.removeItem('onboardingStep')
+    } catch (e) {
+      if (import.meta.env.DEV) {
+        console.warn('Failed to clear onboarding resume key on reset:', e)
+      }
+    }
     get().setHasCompletedOnboarding(false)
   },
 

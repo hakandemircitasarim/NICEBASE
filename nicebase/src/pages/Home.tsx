@@ -9,7 +9,6 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import { streakService } from '../services/streakService'
 import { notificationService } from '../services/notificationService'
 import { dailyQuestionService, getDefaultQuestion } from '../services/dailyQuestionService'
-import Onboarding from '../components/Onboarding'
 import MemoryForm from '../components/MemoryForm'
 import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
@@ -29,8 +28,6 @@ export default function Home() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const user = useStore((s) => s.user)
-  const hasCompletedOnboarding = useStore((s) => s.hasCompletedOnboarding)
-  const setHasCompletedOnboarding = useStore((s) => s.setHasCompletedOnboarding)
   const userId = useUserId()
   const { showSuccess, showError, hapticFeedback } = useNotifications()
   const prefersReducedMotion = useReducedMotion()
@@ -373,10 +370,6 @@ export default function Home() {
     }
     return t('thisYear', { defaultValue: 'Bu yıl' })
   }, [t])
-
-  if (!hasCompletedOnboarding && !loading) {
-    return <Onboarding onComplete={() => setHasCompletedOnboarding(true)} />
-  }
 
   if (loading || !hasAttemptedLoad) {
     return (

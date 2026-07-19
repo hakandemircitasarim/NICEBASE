@@ -10,6 +10,7 @@ import {
   MessageCircle, MoreVertical, X, LifeBuoy, Pencil,
 } from 'lucide-react'
 import { useStore } from '../store/useStore'
+import AiyaCharacter from '../components/AiyaCharacter'
 import Paywall from '../components/Paywall'
 import { useUserId } from '../hooks/useUserId'
 import { useMemories } from '../hooks/useMemories'
@@ -155,14 +156,16 @@ function formatDate(ts: number, locale: string, t: TFunction): string {
 
 
 // ─── Aiya Avatar Component ──────────────────────────────
+// Aiya's mascot in a soft circular badge. Static by default so long chat
+// threads don't run dozens of animation loops.
 
 function AiyaAvatar({ size = 28 }: { size?: number }) {
   return (
     <div
-      className="rounded-full bg-gradient-to-br from-primary to-orange-400 flex items-center justify-center flex-shrink-0 shadow-sm"
+      className="rounded-full bg-gradient-to-br from-orange-100 to-orange-200 dark:from-gray-700 dark:to-gray-600 flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden"
       style={{ width: size, height: size }}
     >
-      <Sparkles size={size * 0.5} className="text-white" strokeWidth={2.5} />
+      <AiyaCharacter size={size * 0.8} animated={false} className="translate-y-[6%]" />
     </div>
   )
 }
@@ -360,7 +363,7 @@ const MessageBubble = memo(function MessageBubble({
           transition={{ duration: 0.2, ease: 'easeOut' }}
           className={`px-4 py-3 sm:px-5 sm:py-3.5 rounded-3xl shadow-sm ${
             isUser
-              ? `bg-gradient-to-br from-primary to-orange-500 text-white rounded-br-md shadow-md ${message.failed ? 'opacity-60' : ''}`
+              ? `bg-gradient-to-br from-orange-700 to-orange-800 text-white rounded-br-md shadow-md ${message.failed ? 'opacity-60' : ''}`
               : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-md border border-gray-100 dark:border-gray-700/50'
           }`}
         >
@@ -1358,13 +1361,9 @@ export default function Aiya() {
         <>
         {/* Hero / Start Chat section */}
         <div className={`flex flex-col items-center container-padding text-center ${chats.length === 0 ? 'justify-center h-full min-h-[400px]' : 'pt-8 sm:pt-10 pb-6'}`}>
-          <motion.div
-            animate={prefersReducedMotion ? undefined : { scale: [1, 1.05, 1] }}
-            transition={prefersReducedMotion ? undefined : { duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-            className="mb-4 sm:mb-6"
-          >
-            <AiyaAvatar size={chats.length === 0 ? 80 : 64} />
-          </motion.div>
+          <div className="mb-4 sm:mb-6">
+            <AiyaCharacter size={chats.length === 0 ? 112 : 80} mood="wave" animated={!prefersReducedMotion} />
+          </div>
           <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
             {t('aiyaEmptyTitle', { defaultValue: 'Merhaba! Ben Aiya' })}
           </h2>
@@ -1372,6 +1371,7 @@ export default function Aiya() {
             {t('aiyaEmptyDesc', { defaultValue: 'Anılarını bilen, seni tanıyan özel asistanın. Hemen bir sohbet başlat!' })}
           </p>
           <motion.button
+            data-tour="aiya-start"
             whileTap={{ scale: 0.96 }}
             onClick={createNewChat}
             className="px-6 py-3.5 rounded-2xl gradient-primary text-white font-semibold shadow-lg hover:shadow-xl transition-all touch-manipulation flex items-center gap-2 touch-target"
