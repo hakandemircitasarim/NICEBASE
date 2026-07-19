@@ -344,9 +344,10 @@ export function useOAuth() {
       if (isNative() && data?.url) {
         const Browser = await getBrowserPlugin()
         if (Browser) {
+          // No windowName: '_self' — that web-Browser option interferes with the
+          // native Chrome Custom Tab; let the plugin use its default native behavior.
           await Browser.open({
             url: data.url,
-            windowName: '_self',
           })
 
           // Safety net: if no deep-link callback ever arrives (user abandoned the

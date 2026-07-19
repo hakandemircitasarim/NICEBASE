@@ -9,7 +9,7 @@ import { supabase } from './lib/supabase'
 import { fetchUserData, ensureUserExists } from './lib/userService'
 import { currentLanguage } from './lib/userDefaults'
 import { withTimeout } from './utils/timeout'
-import { initializeNativeApp, updateStatusBar } from './utils/capacitor'
+import { initializeNativeApp, updateStatusBar, setAppForegroundHandler } from './utils/capacitor'
 import { memorySyncService } from './services/memorySyncService'
 import { countLocalMemories, migrateLocalMemories, deleteLocalMemories } from './utils/localUserId'
 import Toaster from './components/Toaster'
@@ -221,6 +221,22 @@ function App() {
 
     initializeApp()
 
+    // On return to foreground, re-verify the session. Without this, a background
+    // token-refresh failure can surface as a false SIGNED_OUT and log the user out.
+    setAppForegroundHandler(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) {
+          // Genuinely no session — clear sync + user state.
+          memorySyncService.stop()
+          syncStartedForRef.current = null
+          setUser(null)
+        }
+      } catch {
+        // Network not ready yet on resume — ignore and stay logged in.
+      }
+    })
+
     // Listen to auth changes (login, logout, token refresh, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
@@ -351,6 +367,7 @@ function App() {
         subscriptionRef.current = null
       }
       if (typeof window !== 'undefined') window.removeEventListener('online', onOnline)
+      setAppForegroundHandler(null)
       memorySyncService.stop()
       syncStartedForRef.current = null
     }

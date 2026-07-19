@@ -364,6 +364,16 @@ export const pushBackButtonHandler = (handler: BackButtonHandler): (() => void) 
   }
 }
 
+// App-foreground callback — App.tsx registers this to re-verify the auth session
+// when the app returns to the foreground, so a background token-refresh failure
+// can't leave the user falsely signed out.
+let appForegroundHandler: (() => void) | null = null
+
+/** Register (or clear with null) a callback run when the app returns to foreground. */
+export const setAppForegroundHandler = (handler: (() => void) | null) => {
+  appForegroundHandler = handler
+}
+
 /**
  * Setup app state listeners (native only)
  * Should only be called once
@@ -378,7 +388,10 @@ export const setupAppListeners = async () => {
     // Handle app state changes
     App.addListener('appStateChange', (data: unknown) => {
       const { isActive } = data as { isActive: boolean }
-      // App state changed - can be used for analytics or background sync
+      // On return to foreground, let the registered handler re-verify the session.
+      if (isActive && appForegroundHandler) {
+        appForegroundHandler()
+      }
       if (import.meta.env.DEV) {
         console.log('App state changed. Is active?', isActive)
       }
