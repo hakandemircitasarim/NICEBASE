@@ -255,6 +255,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   // was the root of repeated pin/cap oscillations; measuring scrollHeight ends it.
   const cardBodyRef = useRef<HTMLDivElement>(null)
   const primaryBtnRef = useRef<HTMLButtonElement>(null)
+  // The interactive hotspot over the spotlight. On interactive steps there is no
+  // Next button (the user must tap the highlighted control to advance), so this is
+  // the focus target instead — keyboard users press Enter/Space on it.
+  const hotspotRef = useRef<HTMLDivElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   // Top safe-area inset feeding the card's minTop floor. Re-measured (below) after
   // mount and on rotation so it can't stay stale vs. a late capacitor.ts patch or an
@@ -711,8 +715,11 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     // re-run to re-focus and keep keyboard focus off <body>. `saving` dep:
     // re-assert focus onto the (kept-focusable) Save button when a save starts,
     // in case anything blurred it.
-    primaryBtnRef.current?.focus({ preventScroll: true })
-  }, [stepIndex, searching, seeded, saving])
+    // Interactive steps have no Next button — the hotspot IS the primary action,
+    // so focus it (Enter/Space there advances by "tapping" the highlighted control).
+    const target = step.interactive ? hotspotRef.current : primaryBtnRef.current
+    target?.focus({ preventScroll: true })
+  }, [stepIndex, searching, seeded, saving, step.interactive])
 
   // Trap Tab focus inside the overlay. role=dialog + aria-modal promise an inert
   // background, but the tour deliberately keeps the real app rendered behind it
@@ -1086,13 +1093,23 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           real control. Ripple invites the tap. */}
       {spot && step.interactive && !searching && (
         <div
-          className="absolute cursor-pointer touch-manipulation"
+          ref={hotspotRef}
+          className="absolute cursor-pointer touch-manipulation outline-none focus-visible:ring-4 focus-visible:ring-white/70"
           role="button"
-          tabIndex={-1}
+          tabIndex={0}
           aria-label={title}
           onClick={(e) => {
             e.stopPropagation()
             handleHotspot()
+          }}
+          onKeyDown={(e) => {
+            // No Next button on interactive steps — Enter/Space here "taps" the
+            // highlighted control to advance, like a real tap.
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              e.stopPropagation()
+              handleHotspot()
+            }
           }}
           style={{ top: spot.top, left: spot.left, width: spot.width, height: spot.height, borderRadius: spot.radius }}
         >
@@ -1391,13 +1408,22 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                       {t('back')}
                     </button>
                   )}
-                  <button
-                    ref={primaryBtnRef}
-                    onClick={next}
-                    className="flex-1 px-4 py-3 gradient-primary text-white rounded-xl font-semibold shadow-md hover:shadow-xl transition-all touch-manipulation"
-                  >
-                    {primaryLabel}
-                  </button>
+                  {/* Interactive steps deliberately have NO Next button so the only
+                      way forward is tapping the highlighted control (the hotspot). */}
+                  {step.interactive ? (
+                    <div className="flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold text-orange-700 dark:text-primary select-none">
+                      <span>{t('tourTapHint', { defaultValue: 'Tap the Vault' })}</span>
+                      <span aria-hidden="true">👇</span>
+                    </div>
+                  ) : (
+                    <button
+                      ref={primaryBtnRef}
+                      onClick={next}
+                      className="flex-1 px-4 py-3 gradient-primary text-white rounded-xl font-semibold shadow-md hover:shadow-xl transition-all touch-manipulation"
+                    >
+                      {primaryLabel}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
