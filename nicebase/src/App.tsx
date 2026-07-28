@@ -51,6 +51,7 @@ function minimalUserFromSession(session: Session): User {
     isPremium: false,
     aiyaMessagesUsed: 0,
     aiyaMessagesLimit: 50,
+    aiyaUsagePeriodStart: null,
     weeklySummaryDay: null,
     dailyReminderTime: null,
     language: currentLanguage(),
@@ -136,8 +137,29 @@ function App() {
     // otherwise never re-offer it and the local rows stay stranded. Idempotent:
     // migrateLocalMemories no-ops once its per-user done flag is set.
     const maybePromptMigration = (uid: string) => {
+      // Never over the password-reset flow: the recovery link opens a session on
+      // /reset-password, and this full-screen, back-button-proof modal would block
+      // the form. Guarded HERE (not per-auth-event) so every caller — cold-start
+      // init, INITIAL_SESSION, USER_UPDATED after the reset — is covered.
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/reset-password')) return
+      // Guest data is claimable only by the FIRST account the offer was shown to
+      // on this device (marker below, cleared once the guest data is migrated or
+      // deleted). A different account logging in later — e.g. a family member or
+      // a second-hand device — must not be offered ownership of someone else's
+      // guest memories.
+      try {
+        const claimant = localStorage.getItem('nicebase_guest_claimant')
+        if (claimant && claimant !== uid) return
+      } catch {
+        /* storage unavailable — fall through to the offer */
+      }
       countLocalMemories().then((count) => {
         if (count > 0) {
+          try {
+            localStorage.setItem('nicebase_guest_claimant', uid)
+          } catch {
+            /* ignore */
+          }
           setMigrationPrompt({ show: true, count, userId: uid, confirmDelete: false })
         }
       }).catch(() => {})
@@ -207,6 +229,11 @@ function App() {
             }
             // Re-offer local→cloud migration if it was never answered.
             maybePromptMigration(user.id)
+          } else {
+            // Profile fetch timed out but the SESSION is valid — the migration
+            // offer only needs the user id, so don't let a slow fetch silently
+            // skip it for the whole session (guest memories would look "lost").
+            maybePromptMigration(session.user.id)
           }
         }
       } catch (error) {
@@ -302,6 +329,13 @@ function App() {
         memorySyncService.stop()
         syncStartedForRef.current = null
         setUser(null)
+      } else if (event === 'PASSWORD_RECOVERY') {
+        // The user just opened a password-reset email link: a session exists, but
+        // they are standing on the ResetPassword form. Treating this like a normal
+        // login (generic branch below) popped the full-screen migrate-local-
+        // memories modal OVER the reset form — an unrelated, back-button-proof
+        // decision blocking the password change. Do nothing here; the post-reset
+        // SIGNED_IN/USER_UPDATED event runs the normal flow afterwards.
       } else if (session?.user) {
         try {
           const user = await withTimeout(fetchUserData(session.user.id), FETCH_TIMEOUT)
@@ -331,6 +365,9 @@ function App() {
               memorySyncService.start(sess.user.id)
               syncStartedForRef.current = sess.user.id
             }
+            // The migration offer only needs the id — don't let the failed
+            // profile fetch skip it for the whole session.
+            maybePromptMigration(sess.user.id)
           }
         }
       } else if (event !== 'INITIAL_SESSION') {

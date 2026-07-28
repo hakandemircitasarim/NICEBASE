@@ -103,34 +103,54 @@ export const exportService = {
     const doc = new jsPDF()
     const lang = i18n.language || 'tr'
     const dateLocale = lang === 'tr' ? 'tr-TR' : 'en-US'
-    
+
+    // jsPDF's built-in fonts are Latin-1 (WinAnsi) only: ç/ö/ü render fine but
+    // Ğğ Şş İı (and emoji) come out as garbage bytes. Until a Unicode TTF is
+    // bundled, transliterate exactly those six Turkish letters to their ASCII
+    // lookalikes and drop anything else non-encodable, so the PDF reads cleanly
+    // instead of corrupted. Full-fidelity text exports remain available via
+    // CSV/JSON, which are UTF-8.
+    const CHAR_MAP: Record<string, string> = {
+      // Turkish letters missing from WinAnsi → ASCII lookalikes
+      Ğ: 'G', ğ: 'g', Ş: 'S', ş: 's', İ: 'I', ı: 'i',
+      // Common typographic punctuation → ASCII (readable instead of dropped)
+      '‘': "'", '’': "'", '“': '"', '”': '"',
+      '–': '-', '—': '-', '…': '...', '•': '-', ' ': ' ',
+    }
+    const pdfSafe = (s: string) =>
+      s
+        .replace(/[ĞğŞşİı‘’“”–—…• ]/g, (ch) => CHAR_MAP[ch] ?? ch)
+        // Keep Latin-1 plus € and ™ (WinAnsi-encodable by jsPDF); drop the rest
+        // (emoji etc.) rather than emitting garbage bytes.
+        .replace(/[^\x20-\xFF\n€™]/g, '')
+
     // Title
     doc.setFontSize(20)
-    doc.text(i18n.t('exportReportTitle'), 14, 20)
-    
+    doc.text(pdfSafe(i18n.t('exportReportTitle')), 14, 20)
+
     // Date
     doc.setFontSize(10)
-    doc.text(`${i18n.t('exportCreatedDate')}: ${new Date().toLocaleDateString(dateLocale)}`, 14, 30)
-    doc.text(`${i18n.t('exportTotalMemories')}: ${memories.length}`, 14, 35)
-    
+    doc.text(pdfSafe(`${i18n.t('exportCreatedDate')}: ${new Date().toLocaleDateString(dateLocale)}`), 14, 30)
+    doc.text(pdfSafe(`${i18n.t('exportTotalMemories')}: ${memories.length}`), 14, 35)
+
     // Table
     const tableData = memories.map(m => [
-      formatMemoryDate(m.date, dateLocale),
-      m.text.substring(0, 50) + (m.text.length > 50 ? '...' : ''),
-      formatCategoryCell(m),
+      pdfSafe(formatMemoryDate(m.date, dateLocale)),
+      pdfSafe(m.text.substring(0, 50) + (m.text.length > 50 ? '...' : '')),
+      pdfSafe(formatCategoryCell(m)),
       m.intensity.toString(),
-      formatLifeAreaCell(m),
-      m.isCore ? i18n.t('yes') : i18n.t('no'),
+      pdfSafe(formatLifeAreaCell(m)),
+      pdfSafe(m.isCore ? i18n.t('yes') : i18n.t('no')),
     ])
-    
+
     autoTable(doc, {
-      head: [[i18n.t('exportDate'), i18n.t('exportText'), i18n.t('exportCategory'), i18n.t('exportIntensity'), i18n.t('exportLifeArea'), i18n.t('exportCore')]],
+      head: [[i18n.t('exportDate'), i18n.t('exportText'), i18n.t('exportCategory'), i18n.t('exportIntensity'), i18n.t('exportLifeArea'), i18n.t('exportCore')].map(pdfSafe)],
       body: tableData,
       startY: 40,
       styles: { fontSize: 8 },
       headStyles: { fillColor: [255, 107, 53] },
     })
-    
+
     const pdfBlob = doc.output('blob')
     await downloadBlob(pdfBlob, `${filename}.pdf`)
   },

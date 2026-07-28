@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -191,7 +191,18 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
   // iOS-safe scroll lock with proper restore (replaces manual body.overflow).
   useBodyScrollLock(true)
   useEscapeKey(onClose, true)
+  // Android back peels ONE layer: an in-progress PIN flow first (just cancel the
+  // PIN step), the whole sheet only otherwise. Ref-read so the handler (registered
+  // once) always sees the current flow state.
+  const pinFlowRef = useRef<typeof pinFlow>(null)
+  pinFlowRef.current = pinFlow
   useBackButton(() => {
+    if (pinFlowRef.current) {
+      setPinFlow(null)
+      setPinError('')
+      setTempPin('')
+      return true
+    }
     onClose()
     return true
   }, true)
@@ -219,7 +230,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
           if (!error) {
             const { data: userData } = await supabase
               .from('users')
-              .select('id, email, display_name, bio, avatar_url, birthday, location, is_premium, aiya_messages_used, aiya_messages_limit, weekly_summary_day, daily_reminder_time, language, theme, created_at')
+              .select('id, email, display_name, bio, avatar_url, birthday, location, is_premium, aiya_messages_used, aiya_messages_limit, aiya_usage_period_start, weekly_summary_day, daily_reminder_time, language, theme, created_at')
               .eq('id', user.id)
               .single()
 
@@ -247,7 +258,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
         if (!error) {
           const { data: userData } = await supabase
             .from('users')
-            .select('id, email, display_name, bio, avatar_url, birthday, location, is_premium, aiya_messages_used, aiya_messages_limit, weekly_summary_day, daily_reminder_time, language, theme, created_at')
+            .select('id, email, display_name, bio, avatar_url, birthday, location, is_premium, aiya_messages_used, aiya_messages_limit, aiya_usage_period_start, weekly_summary_day, daily_reminder_time, language, theme, created_at')
             .eq('id', user.id)
             .single()
 
@@ -262,7 +273,12 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
   }
 
   const handleSaveReminders = async () => {
-    if (!user) return
+    // Guests can open this section and tap Save — tell them why nothing will
+    // persist instead of silently no-opping.
+    if (!user) {
+      toast.error(t('loginRequiredForReminders'))
+      return
+    }
 
     const updates: Record<string, unknown> = {}
     // Track whether the notification permission was denied so we don't ALSO
@@ -352,7 +368,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
       if (!error) {
         const { data } = await supabase
           .from('users')
-          .select('id, email, display_name, bio, avatar_url, birthday, location, is_premium, aiya_messages_used, aiya_messages_limit, weekly_summary_day, daily_reminder_time, language, theme, created_at')
+          .select('id, email, display_name, bio, avatar_url, birthday, location, is_premium, aiya_messages_used, aiya_messages_limit, aiya_usage_period_start, weekly_summary_day, daily_reminder_time, language, theme, created_at')
           .eq('id', user.id)
           .single()
 
@@ -1043,8 +1059,11 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
             </div>
           </Section>
 
-          {/* Security */}
-          {user && (
+          {/* Security — NOT gated on `user`: the App Lock PIN is device-level and
+              keeps enforcing after logout, so its manage/disable UI must stay
+              reachable for logged-out users too. Only the account-specific
+              change-password button requires a user. */}
+          {(
             <Section
               id="security"
               expandedSection={expandedSection}
@@ -1055,6 +1074,7 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
               title={t('security')}
             >
               <div className="mt-3">
+                {user && (
                 <button
                   onClick={() => {
                     hapticFeedback('light')
@@ -1094,9 +1114,10 @@ export default function SettingsSheet({ onClose }: SettingsSheetProps) {
                 >
                   {t('changePassword')}
                 </button>
+                )}
 
                 {/* App lock (PIN) — a privacy gate on the journal. */}
-                <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                <div className={user ? 'mt-4 pt-4 border-t border-gray-100 dark:border-gray-700' : ''}>
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div>
                       <p className="font-semibold text-gray-900 dark:text-gray-100 text-sm">{t('appLock')}</p>

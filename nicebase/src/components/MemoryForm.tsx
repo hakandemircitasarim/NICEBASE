@@ -669,6 +669,11 @@ export default function MemoryForm({
     
     setUploading(true)
     try {
+      // One bad file must not sink the whole batch: compress per-file inside its
+      // own try/catch, keep every success, and report the failures. (The old
+      // single try around the loop threw away ALREADY-compressed photos when a
+      // later file failed to decode — e.g. a HEIC share the WebView can't read.)
+      let failedCount = 0
       for (let i = 0; i < Math.min(files.length, maxPhotos); i++) {
         const file = files[i]
         // Guard against absurdly large source images: decoding a huge file at
@@ -678,14 +683,28 @@ export default function MemoryForm({
           toast(t('imageTooLarge'))
           continue
         }
-        // 1280px / 0.7 keeps inline base64 photos much lighter pre-sync (they
-        // live in IndexedDB and, until uploaded, get pushed to Postgres) while
-        // staying sharp enough for a journaling thumbnail/detail view.
-        const compressed = await compressImage(file, 1280, 0.7)
-        newPhotos.push(compressed)
+        try {
+          // 1280px / 0.7 keeps inline base64 photos much lighter pre-sync (they
+          // live in IndexedDB and, until uploaded, get pushed to Postgres) while
+          // staying sharp enough for a journaling thumbnail/detail view.
+          const compressed = await compressImage(file, 1280, 0.7)
+          newPhotos.push(compressed)
+        } catch (fileError) {
+          failedCount++
+          errorLoggingService.logError(
+            fileError instanceof Error ? fileError : new Error(`Photo decode failed: ${file.name}`),
+            'warning',
+            userId
+          )
+        }
       }
-      setFormData(prev => ({ ...prev, photos: [...prev.photos, ...newPhotos] }))
-      hapticFeedback('success')
+      if (newPhotos.length > 0) {
+        setFormData(prev => ({ ...prev, photos: [...prev.photos, ...newPhotos] }))
+        hapticFeedback('success')
+      }
+      if (failedCount > 0) {
+        toast.error(t('photoUploadError'))
+      }
 
       // The user selected more photos than the remaining slots allowed — the
       // extras were dropped, so tell them instead of silently truncating.

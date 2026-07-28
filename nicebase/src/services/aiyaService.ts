@@ -457,12 +457,32 @@ export function buildTieredMemoryContext(
 }
 
 async function invokeAiya<T>(payload: Record<string, unknown>): Promise<T> {
-  const response = await withTimeout(
-    supabase.functions.invoke(FUNCTION_NAME, { body: payload }),
-    REQUEST_TIMEOUT_MS
-  )
+  // Abort the underlying HTTP request when the timeout fires. Without the signal,
+  // the request kept running invisibly after the client gave up — a slow-but-
+  // successful reply was metered server-side yet discarded client-side, and the
+  // user's retry then consumed a SECOND weekly slot for the same message. The
+  // abort tears the connection down so the edge function terminates early.
+  // withTimeout stays as a slightly-longer safety net in case abort is swallowed.
+  const controller = new AbortController()
+  const abortTimer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  let response
+  try {
+    response = await withTimeout(
+      supabase.functions.invoke(FUNCTION_NAME, { body: payload, signal: controller.signal }),
+      REQUEST_TIMEOUT_MS + 2000
+    )
+  } finally {
+    clearTimeout(abortTimer)
+  }
 
   if (response.error) {
+    // Our own 30s abort surfaces as a generic FunctionsFetchError ("Failed to
+    // send a request...") — rethrow it with 'timeout' in the message so the
+    // caller's error mapping shows the specific network/timeout copy, exactly
+    // as the pre-abort withTimeout rejection used to.
+    if (controller.signal.aborted) {
+      throw new Error(`Request timeout after ${REQUEST_TIMEOUT_MS}ms`)
+    }
     // Extract the actual error message from the Edge Function response
     const err = response.error
     let detail = ''
@@ -674,17 +694,26 @@ export const aiyaService = {
     if (!chats || chats.length === 0) return
 
     try {
-      // Only sync chats that were recently updated (within the last 5 minutes)
-      // instead of syncing ALL chats every time, which wastes egress bandwidth
-      const FIVE_MINUTES = 5 * 60 * 1000
-      const now = Date.now()
+      // Bandwidth guard: only push chats changed since the LAST SUCCESSFUL sync
+      // (persisted marker), not a fixed "last 5 minutes" window. A time window
+      // silently excluded forever any chat whose sync failed (offline, app kill)
+      // and wasn't retried within 5 minutes — it would never reach other devices.
+      // With the marker, a failed push leaves the marker untouched, so the next
+      // sync attempt (mount catch-up or debounced auto-sync) retries it.
+      const markerKey = `aiyaLastSyncedAt_${userId}`
+      let lastSynced = 0
+      try {
+        lastSynced = parseInt(localStorage.getItem(markerKey) || '0', 10) || 0
+      } catch {
+        /* localStorage unavailable — sync all non-empty chats */
+      }
       // Never sync empty (zero-message) chats — a phantom New Chat left unsent
       // shouldn't create a cloud row. Defense-in-depth alongside client pruning.
-      const recentChats = chats.filter((c) => c.messages.length > 0 && now - c.updatedAt < FIVE_MINUTES)
+      const pendingChats = chats.filter((c) => c.messages.length > 0 && c.updatedAt > lastSynced)
 
-      if (recentChats.length === 0) return
+      if (pendingChats.length === 0) return
 
-      const chatsToSync = recentChats.map((chat) => ({
+      const chatsToSync = pendingChats.map((chat) => ({
         id: chat.id,
         user_id: userId,
         title: chat.title,
@@ -700,9 +729,19 @@ export const aiyaService = {
         .upsert(chatsToSync, { onConflict: 'id' })
 
       if (error) {
-        // Non-critical — log but don't throw to avoid blocking other syncs
+        // Non-critical — log but don't throw to avoid blocking other syncs.
+        // Marker intentionally NOT advanced: these chats stay pending.
         if (import.meta.env.DEV) {
           console.warn('[aiyaService] Failed to sync chats:', error.message)
+        }
+      } else {
+        // Advance to the newest updatedAt actually pushed (not Date.now(), so an
+        // edit racing this upsert still lands after the marker and syncs next time).
+        const newest = Math.max(...pendingChats.map((c) => c.updatedAt))
+        try {
+          localStorage.setItem(markerKey, String(newest))
+        } catch {
+          /* ignore — worst case we re-push next time */
         }
       }
     } catch (error) {

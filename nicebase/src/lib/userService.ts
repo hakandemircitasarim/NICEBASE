@@ -17,7 +17,7 @@ export async function fetchUserData(userId: string): Promise<User | null> {
     // This drastically reduces PostgREST egress.
     const { data, error } = await supabase
       .from('users')
-      .select('id, email, display_name, bio, avatar_url, birthday, location, is_premium, aiya_messages_used, aiya_messages_limit, weekly_summary_day, daily_reminder_time, language, theme, created_at')
+      .select('id, email, display_name, bio, avatar_url, birthday, location, is_premium, aiya_messages_used, aiya_messages_limit, aiya_usage_period_start, weekly_summary_day, daily_reminder_time, language, theme, created_at')
       .eq('id', userId)
       // `.single()` throws a 406 when 0 rows are returned. In auth flows, the
       // `public.users` row may not exist yet (race/trigger/app-created row).

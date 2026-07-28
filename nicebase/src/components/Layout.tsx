@@ -47,7 +47,12 @@ export default function Layout() {
     }
     const parent = PARENT[currentPath]
     if (parent) {
-      navigate(parent)
+      // replace (not push): back-navigation must never GROW the history stack.
+      // A push here left ...Profile, Insights, Profile on the stack, so the next
+      // back's navigate(-1) from Profile landed on Insights again — back then
+      // oscillated Profile↔Insights forever. With replace, the sub-page entry is
+      // consumed and back continues to wherever the user really came from.
+      navigate(parent, { replace: true })
       return true
     }
     // Otherwise honour real history when there is any (vault, relationship-saver,

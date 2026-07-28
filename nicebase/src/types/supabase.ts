@@ -23,6 +23,8 @@ export interface SupabaseUserRow {
   aiyaMessagesUsed?: number // Support camelCase for backward compatibility
   aiya_messages_limit?: number
   aiyaMessagesLimit?: number // Support camelCase for backward compatibility
+  aiya_usage_period_start?: string | null
+  aiyaUsagePeriodStart?: string | null // Support camelCase for backward compatibility
   weekly_summary_day?: number | null
   weeklySummaryDay?: number | null // Support camelCase for backward compatibility
   daily_reminder_time?: string | null

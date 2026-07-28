@@ -276,14 +276,15 @@ export default function Login() {
           setPendingVerificationEmail(data.user.email || email)
         } else {
           // A real session exists (confirmation disabled / auto-confirmed):
-          // create the user record and log them in.
+          // create the user record and log them in. Do NOT send the
+          // billing/metering columns (is_premium, aiya_messages_used,
+          // aiya_messages_limit): migration 20260715130000 REVOKEd client
+          // INSERT on them, so including them fails the ENTIRE upsert — the DB
+          // defaults already set the correct initial values.
           const { error: dbError } = await supabase.from('users').upsert(
             {
               id: data.user.id,
               email: data.user.email,
-              is_premium: false,
-              aiya_messages_used: 0,
-              aiya_messages_limit: 50,
               weekly_summary_day: null,
               daily_reminder_time: null,
               language: currentLanguage(),

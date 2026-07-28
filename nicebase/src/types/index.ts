@@ -43,6 +43,10 @@ export interface User {
   isPremium: boolean
   aiyaMessagesUsed: number
   aiyaMessagesLimit: number
+  // Start of the current weekly Aiya metering window (server-rolled lazily by
+  // increment_aiya_usage). Lets the client stop pre-flight-blocking sends once
+  // the week has expired, so the server can actually roll the window.
+  aiyaUsagePeriodStart: string | null
   weeklySummaryDay: number | null // 0-6, Sunday-Saturday
   dailyReminderTime: string | null // HH:mm format
   language: 'tr' | 'en'

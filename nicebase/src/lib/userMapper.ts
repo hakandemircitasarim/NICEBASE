@@ -14,6 +14,7 @@ export function mapUserFromSupabase(data: SupabaseUserRow): User {
     isPremium: data.is_premium ?? data.isPremium ?? false,
     aiyaMessagesUsed: data.aiya_messages_used ?? data.aiyaMessagesUsed ?? 0,
     aiyaMessagesLimit: data.aiya_messages_limit ?? data.aiyaMessagesLimit ?? 50,
+    aiyaUsagePeriodStart: data.aiya_usage_period_start ?? data.aiyaUsagePeriodStart ?? null,
     weeklySummaryDay: data.weekly_summary_day ?? data.weeklySummaryDay ?? null,
     dailyReminderTime: data.daily_reminder_time ?? data.dailyReminderTime ?? null,
     language: data.language ?? 'tr',

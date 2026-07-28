@@ -486,25 +486,24 @@ export default function Aiya() {
   const messages = activeChat?.messages ?? []
 
   // Usage info — trust the server-returned limit (it reflects premium tiers),
-  // falling back to the user's stored limit, then the default.
+  // falling back to the user's stored limit, then the default. `blocked` is the
+  // pre-flight gate: it must go FALSE once the weekly window has expired even if
+  // used >= limit, because the server only rolls the window inside the chat RPC —
+  // if the client kept refusing to send, the counter could never reset and the
+  // user would be capped forever. When expired (or the period is unknown), let
+  // the request through; the server is authoritative and will roll or reject.
   const usageInfo = useMemo(() => {
     if (!user) return null
 
     const fallbackLimit = user.aiyaMessagesLimit || DEFAULT_AIYA_LIMIT
+    const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+    const periodStart = user.aiyaUsagePeriodStart ? new Date(user.aiyaUsagePeriodStart).getTime() : NaN
+    const periodExpired = !Number.isFinite(periodStart) || Date.now() - periodStart >= WEEK_MS
 
     // If the API provided usage, prefer its authoritative used + limit.
-    if (usage) {
-      return {
-        used: usage.used,
-        limit: usage.limit || fallbackLimit,
-      }
-    }
-
-    // Fallback to stored user data.
-    return {
-      used: user.aiyaMessagesUsed || 0,
-      limit: fallbackLimit,
-    }
+    const used = usage ? usage.used : user.aiyaMessagesUsed || 0
+    const limit = usage ? usage.limit || fallbackLimit : fallbackLimit
+    return { used, limit, blocked: used >= limit && !periodExpired }
   }, [usage, user])
 
   // Build profile block (shared between full and compact prompts)
@@ -736,6 +735,19 @@ export default function Aiya() {
           setChats((prev) => {
             const sourceChats: AiyaChat[] = []
 
+            // Messages have no ids, so a true per-message merge isn't possible —
+            // but chats are append-only, so the copy with MORE messages is the
+            // superset (or at worst the survivor of a rare concurrent fork).
+            // Picking by message count (updatedAt only as a tiebreak) means a
+            // stale-but-longer copy can never be clobbered by a fresher-but-
+            // shorter one from another device, which silently dropped messages.
+            const pickRicher = (a: AiyaChat, b: AiyaChat): AiyaChat => {
+              if (a.messages.length !== b.messages.length) {
+                return a.messages.length > b.messages.length ? a : b
+              }
+              return a.updatedAt >= b.updatedAt ? a : b
+            }
+
             if (mergedFromCloud) {
               const cloudMap = new Map(mergedFromCloud.map(c => [c.id, c]))
               const localMap = new Map((stored || []).map(c => [c.id, c]))
@@ -745,7 +757,7 @@ export default function Aiya() {
                 const cloud = cloudMap.get(id)
                 const local = localMap.get(id)
                 if (cloud && local) {
-                  sourceChats.push(cloud.updatedAt > local.updatedAt ? cloud : local)
+                  sourceChats.push(pickRicher(cloud, local))
                 } else if (cloud) {
                   sourceChats.push(cloud)
                 } else if (local) {
@@ -764,8 +776,8 @@ export default function Aiya() {
             for (const c of sourceChats) finalMap.set(c.id, c)
             for (const c of prev) {
               const existing = finalMap.get(c.id)
-              if (existing && c.updatedAt > existing.updatedAt) {
-                finalMap.set(c.id, c)
+              if (existing) {
+                finalMap.set(c.id, pickRicher(c, existing))
               }
             }
             for (const c of newChatsInState) finalMap.set(c.id, c)
@@ -1106,7 +1118,9 @@ export default function Aiya() {
 
     // Pre-flight: don't start an optimistic send that is guaranteed to dead-end
     // (gives immediate, specific feedback instead of typing-dots → 30s → error).
-    if (usageInfo && usageInfo.used >= usageInfo.limit) {
+    // `blocked` (not used>=limit): once the weekly window expires this must let
+    // the send through so the server can roll the window.
+    if (usageInfo?.blocked) {
       setErrorIsLimit(true)
       setErrorMessage(t('aiyaLimitReached'))
       return
@@ -1208,7 +1222,16 @@ export default function Aiya() {
         // Use userRef to avoid adding `user` to deps (which would cause stale closures)
         const currentUser = userRef.current
         if (currentUser) {
-          setUser({ ...currentUser, aiyaMessagesUsed: res.usage.used })
+          // If the counter went DOWN, the server just rolled the weekly window —
+          // refresh the cached period start too (approximately "now"), otherwise
+          // periodExpired would stay true for the rest of the session and the
+          // client-side pre-flight guard could never re-engage at the new cap.
+          const windowRolled = res.usage.used < (currentUser.aiyaMessagesUsed || 0)
+          setUser({
+            ...currentUser,
+            aiyaMessagesUsed: res.usage.used,
+            aiyaUsagePeriodStart: windowRolled ? new Date().toISOString() : currentUser.aiyaUsagePeriodStart,
+          })
         }
       }
 
@@ -1266,7 +1289,7 @@ export default function Aiya() {
   // retry would delete the bubble and then early-return, losing the message.
   const handleRetry = useCallback((text: string, chatId: string) => {
     if (sending) return
-    if (usageInfo && usageInfo.used >= usageInfo.limit) { setErrorIsLimit(true); setErrorMessage(t('aiyaLimitReached')); return }
+    if (usageInfo?.blocked) { setErrorIsLimit(true); setErrorMessage(t('aiyaLimitReached')); return }
     if (typeof navigator !== 'undefined' && !navigator.onLine) { setErrorIsLimit(false); setErrorMessage(t('aiyaNetworkError')); return }
     // Guards passed — the send will proceed, so it's safe to drop the failed
     // bubble (handleSend re-adds it) and clear the error.
@@ -1719,8 +1742,12 @@ export default function Aiya() {
           </div>
         )}
 
-        {/* Usage cap: at-limit banner, or a near-limit "N left" hint. */}
-        {usageInfo && usageInfo.used >= usageInfo.limit ? (
+        {/* Usage cap: at-limit banner, or a near-limit "N left" hint. Gated on
+            `blocked` (same condition as the composer), NOT raw used>=limit —
+            after the weekly window expires the composer re-enables, and showing
+            "limit reached" above a working input would contradict itself. The
+            near-limit hint is likewise suppressed once the period expired. */}
+        {usageInfo?.blocked ? (
           <div className="container-padding pt-3 max-w-4xl mx-auto w-full">
             <div className="text-xs sm:text-sm text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 px-4 py-2.5 rounded-2xl text-center">
               <p>{t('aiyaLimitReached')}</p>
@@ -1732,7 +1759,7 @@ export default function Aiya() {
               </button>
             </div>
           </div>
-        ) : usageInfo && usageInfo.limit > 0 && usageInfo.used / usageInfo.limit >= 0.8 ? (
+        ) : usageInfo && usageInfo.limit > 0 && usageInfo.used / usageInfo.limit >= 0.8 && usageInfo.used < usageInfo.limit ? (
           <div className="container-padding pt-2 max-w-4xl mx-auto w-full">
             <p className="text-[11px] sm:text-xs text-orange-600 dark:text-orange-400 text-center font-medium">
               {t('aiyaRemaining', { count: Math.max(0, usageInfo.limit - usageInfo.used) })}
@@ -1774,7 +1801,7 @@ export default function Aiya() {
                   handleSend()
                 }
               }}
-              disabled={sending || (!!usageInfo && usageInfo.used >= usageInfo.limit)}
+              disabled={sending || !!usageInfo?.blocked}
               maxLength={MAX_AIYA_MESSAGE_LENGTH}
               rows={1}
             />
@@ -1782,7 +1809,7 @@ export default function Aiya() {
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => handleSend()}
-            disabled={sending || !input.trim() || (!!usageInfo && usageInfo.used >= usageInfo.limit)}
+            disabled={sending || !input.trim() || !!usageInfo?.blocked}
             className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl gradient-primary text-white flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-all touch-manipulation flex-shrink-0 shadow-lg touch-target"
             aria-label={t('aiyaSend', { defaultValue: 'Gönder' })}
           >

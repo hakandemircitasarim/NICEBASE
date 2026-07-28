@@ -53,6 +53,9 @@ export function clearLocalUserId(): void {
   if (typeof window !== 'undefined') {
     try {
       localStorage.removeItem(LOCAL_USER_ID_KEY)
+      // The guest data era is over (migrated or deleted) — release the claimant
+      // marker so any FUTURE guest memories are claimable by the next login.
+      localStorage.removeItem('nicebase_guest_claimant')
     } catch (error) {
       // Failed to clear local user ID - non-critical
       if (import.meta.env.DEV) {
