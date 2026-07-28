@@ -118,7 +118,7 @@ export default function AiyaDemo({ seeded, firstName, onEngage }: AiyaDemoProps)
               animate={{ opacity: 1, y: 0 }}
               className="flex justify-end"
             >
-              <div className="max-w-[80%] px-3.5 py-2.5 rounded-2xl rounded-br-md bg-gradient-to-br from-orange-700 to-orange-800 text-white text-[13px] leading-relaxed shadow-sm">
+              <div className="max-w-[80%] px-3.5 py-2.5 rounded-2xl rounded-br-md bg-gradient-to-br from-primary to-orange-500 text-white text-[13px] leading-relaxed shadow-sm">
                 {m.text}
               </div>
             </motion.div>
@@ -153,7 +153,7 @@ export default function AiyaDemo({ seeded, firstName, onEngage }: AiyaDemoProps)
               key={c.key}
               whileTap={{ scale: 0.96 }}
               onClick={() => ask(c)}
-              className="px-3.5 py-2 rounded-full border border-primary/25 bg-primary/5 dark:bg-primary/10 text-orange-700 dark:text-primary text-[13px] font-medium hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors touch-manipulation"
+              className="px-3.5 py-2 rounded-full border border-primary/25 bg-primary/5 dark:bg-primary/10 text-primary text-[13px] font-medium hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors touch-manipulation"
             >
               {c.label}
             </motion.button>

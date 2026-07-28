@@ -284,14 +284,13 @@
     @apply bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg;
   }
 
-  /* Primary CTA fill used app-wide. White button text over the original
-     from-primary(#FF6B35)/to-primary-dark(#E55A2B) gradient only reached
-     ~2.8–3.6:1 — below WCAG AA (4.5:1). Deepened to orange-700→orange-800
-     (~5.2:1 and ~7.3:1 with white) so every primary button passes AA at once,
-     while staying the same warm-orange brand hue. The lighter #FF6B35 token
-     itself is unchanged and still used for accents/borders/icons. */
+  /* Primary CTA fill used app-wide — the bright warm brand gradient.
+     NOTE: white button text over this reaches ~2.8–3.6:1, below WCAG AA
+     (4.5:1). A darker orange-700→orange-800 variant passed AA but was
+     reverted by explicit brand/design choice: the deep tone read as
+     maroon and clashed with the app's warm look. */
   .gradient-primary {
-    @apply bg-gradient-to-r from-orange-700 to-orange-800;
+    @apply bg-gradient-to-r from-primary to-primary-dark;
   }
 
   .text-gradient {

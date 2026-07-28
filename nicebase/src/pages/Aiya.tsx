@@ -363,7 +363,7 @@ const MessageBubble = memo(function MessageBubble({
           transition={{ duration: 0.2, ease: 'easeOut' }}
           className={`px-4 py-3 sm:px-5 sm:py-3.5 rounded-3xl shadow-sm ${
             isUser
-              ? `bg-gradient-to-br from-orange-700 to-orange-800 text-white rounded-br-md shadow-md ${message.failed ? 'opacity-60' : ''}`
+              ? `bg-gradient-to-br from-primary to-orange-500 text-white rounded-br-md shadow-md ${message.failed ? 'opacity-60' : ''}`
               : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-md border border-gray-100 dark:border-gray-700/50'
           }`}
         >

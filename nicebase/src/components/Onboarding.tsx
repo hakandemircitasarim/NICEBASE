@@ -1239,7 +1239,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   </motion.div>
                   <div className={bigCard ? 'mt-4 w-full' : 'flex-1 min-w-0'}>
                     {!bigCard && (
-                      <div className="text-[11px] font-bold text-orange-700 dark:text-primary uppercase tracking-wider mb-0.5">
+                      <div className="text-[11px] font-bold text-primary uppercase tracking-wider mb-0.5">
                         Aiya
                       </div>
                     )}
@@ -1264,8 +1264,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                 <div className="mt-4">
                   <div className="relative rounded-2xl border border-primary/25 bg-primary/5 dark:bg-primary/10 p-4 text-left">
                     <div className="flex items-center gap-1.5 mb-1.5">
-                      <Sparkles size={13} className="text-orange-700 dark:text-primary" />
-                      <span className="text-[11px] font-bold text-orange-700 dark:text-primary uppercase tracking-wider">
+                      <Sparkles size={13} className="text-primary" />
+                      <span className="text-[11px] font-bold text-primary uppercase tracking-wider">
                         {t('tourSeedMemoryLabel')}
                       </span>
                     </div>
@@ -1333,7 +1333,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   // (seed flag already set → no timer) is never stuck.
                   <div className="flex flex-col gap-2.5">
                     {justSaved && (
-                      <div className="flex items-center justify-center gap-2 text-emerald-700 dark:text-success font-semibold text-sm">
+                      <div className="flex items-center justify-center gap-2 text-success font-semibold text-sm">
                         <Check size={17} strokeWidth={3} />
                         {t('tourSeedSavedNote')}
                       </div>
@@ -1411,7 +1411,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   {/* Interactive steps deliberately have NO Next button so the only
                       way forward is tapping the highlighted control (the hotspot). */}
                   {step.interactive ? (
-                    <div className="flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold text-orange-700 dark:text-primary select-none">
+                    <div className="flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold text-primary select-none">
                       <span>{t('tourTapHint', { defaultValue: 'Tap the Vault' })}</span>
                       <span aria-hidden="true">👇</span>
                     </div>
