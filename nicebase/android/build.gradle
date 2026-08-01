@@ -40,6 +40,20 @@ allprojects {
                 }
             }
         }
+
+        // Capacitor plugin modules never set Kotlin's jvmTarget, so it follows
+        // the JDK running Gradle (21 under Android Studio's JBR) while the Java
+        // target above stays 17. Release builds abort on that mismatch:
+        //   "Inconsistent JVM-target compatibility detected for tasks
+        //    compileReleaseJavaWithJavac (17) and compileReleaseKotlin (21)"
+        // Pin Kotlin to the same 17 so both toolchains agree. Matched by task
+        // name rather than KotlinCompile.class, because the Kotlin plugin is
+        // not on the root project's buildscript classpath.
+        project.tasks.matching { it.name ==~ /compile.*Kotlin/ }.configureEach {
+            kotlinOptions {
+                jvmTarget = '17'
+            }
+        }
     }
 }
 

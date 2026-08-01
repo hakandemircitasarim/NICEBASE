@@ -144,8 +144,8 @@ NICEBASE'i bugün indirin ve duygusal direncinizi oluşturmaya başlayın!
 **Turkish:** NICEBASE
 
 ### Short Description (80 characters max)
-**English:** Preserve beautiful memories and maintain emotional well-being with your personal emotional anchor.  
-**Turkish:** Güzel anılarınızı saklayın ve kişisel duygusal çapanızla duygusal sağlığınızı koruyun.
+**English:** Save your happiest memories and revisit them whenever you need a lift. (70)  
+**Turkish:** Güzel anılarınızı saklayın, ihtiyaç duyduğunuzda yeniden hatırlayın. (68)
 
 ### Full Description (4000 characters max)
 
