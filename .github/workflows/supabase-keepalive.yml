@@ -1,0 +1,38 @@
+name: Supabase Keep-Alive
+
+# Free-tier Supabase projects are paused after ~7 days without activity.
+# A paused project makes every auth/API call fail with "Failed to fetch",
+# which is what got a Play review rejected. Ping the database every 3 days.
+# Scheduled workflows only run from the default branch (main).
+
+on:
+  schedule:
+    - cron: '17 6 */3 * *'
+  workflow_dispatch: # Manuel tetikleme butonu
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Query database through the REST API
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY secrets are not set"
+            exit 1
+          fi
+          # A real table read reaches Postgres, which counts as project activity.
+          # RLS returns an empty list for the anon role; only the status matters.
+          status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+            "$SUPABASE_URL/rest/v1/users?select=id&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          echo "Supabase responded with HTTP $status"
+          if [ "$status" != "200" ]; then
+            echo "::error::Supabase did not respond with 200 (got $status). The project may be paused — restore it from the Supabase dashboard."
+            exit 1
+          fi
