@@ -1,6 +1,13 @@
 import type { TFunction } from 'i18next'
 
 /**
+ * Shared react-hot-toast id for auth failures: a repeated tap (or a second
+ * auth path failing at the same time) replaces the visible error instead of
+ * stacking an identical copy under it.
+ */
+export const AUTH_ERROR_TOAST_ID = 'auth-error'
+
+/**
  * Map a raw Supabase/auth error message to a localized, user-friendly string.
  * Keep the raw message only for logging — never show it to the user (it's
  * English and inconsistent). Falls back to a generic localized message.

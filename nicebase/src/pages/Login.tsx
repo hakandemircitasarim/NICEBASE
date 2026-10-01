@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase'
 import { useStore } from '../store/useStore'
 import { fetchUserData } from '../lib/userService'
 import { errorLoggingService } from '../services/errorLoggingService'
-import { authErrorMessage } from '../utils/authErrors'
+import { AUTH_ERROR_TOAST_ID, authErrorMessage } from '../utils/authErrors'
 import LoadingSpinner from '../components/LoadingSpinner'
 import OAuthButtons from '../components/OAuthButtons'
 import ForgotPasswordForm from '../components/ForgotPasswordForm'
@@ -171,7 +171,7 @@ export default function Login() {
         'error'
       )
       const msg = error instanceof Error ? error.message : String(error || '')
-      toast.error(authErrorMessage(msg, t))
+      toast.error(authErrorMessage(msg, t), { id: AUTH_ERROR_TOAST_ID })
     } finally {
       setLoading(false)
     }
@@ -208,7 +208,7 @@ export default function Login() {
         'error'
       )
       const msg = error instanceof Error ? error.message : String(error || '')
-      toast.error(authErrorMessage(msg, t))
+      toast.error(authErrorMessage(msg, t), { id: AUTH_ERROR_TOAST_ID })
     } finally {
       setForgotPasswordLoading(false)
     }
@@ -346,7 +346,7 @@ export default function Login() {
       hapticFeedback('error')
       const msg = error instanceof Error ? error.message : String(error || '')
       if (msg.includes('timeout') || msg.includes('Timeout')) {
-        toast.error(t('connectionTimeout'))
+        toast.error(t('connectionTimeout'), { id: AUTH_ERROR_TOAST_ID })
       } else {
         // Login blocked because the account's email was never confirmed —
         // give the user a reachable "resend confirmation email" affordance.
@@ -357,7 +357,7 @@ export default function Login() {
           error instanceof Error ? error : new Error('Authentication error'),
           'error'
         )
-        toast.error(authErrorMessage(msg, t))
+        toast.error(authErrorMessage(msg, t), { id: AUTH_ERROR_TOAST_ID })
       }
     } finally {
       // ALWAYS reset loading state regardless of outcome
