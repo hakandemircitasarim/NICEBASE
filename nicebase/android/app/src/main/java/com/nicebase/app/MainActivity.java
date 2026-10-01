@@ -21,14 +21,21 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Android 15 (API 35) enforces edge-to-edge. Apply only the status bar
-        // inset as top padding so content doesn't render behind it. Bottom is not
-        // padded — the app's fixed bottom nav already sits above the system nav bar.
+        // Android 15 (API 35) enforces edge-to-edge, and on Android 16 a
+        // targetSdk 36 app can no longer opt out via the manifest. Apply only the
+        // status bar inset as top padding so content doesn't render behind it.
+        // Bottom is not padded — the app's fixed bottom nav already sits above
+        // the system nav bar.
+        // Pass the insets on with that top already consumed: Capacitor's
+        // SystemBars plugin (on the WebView's parent) would otherwise inject the
+        // full status-bar height as --safe-area-inset-top and double the offset.
+        // It still handles the nav-bar inset (--safe-area-inset-bottom) and the
+        // keyboard (IME) margin for the WebView.
         View contentView = findViewById(android.R.id.content);
         ViewCompat.setOnApplyWindowInsetsListener(contentView, (view, windowInsets) -> {
             Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.statusBars());
             view.setPadding(0, insets.top, 0, 0);
-            return windowInsets;
+            return windowInsets.inset(0, insets.top, 0, 0);
         });
 
         // Create notification channels for Android 8.0+
