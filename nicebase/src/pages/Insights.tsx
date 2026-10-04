@@ -86,7 +86,7 @@ export default function Insights() {
   const navigate = useNavigate()
   const prefersReducedMotion = useReducedMotion()
   const userId = useUserId()
-  const { memories, loading, error, refreshMemories } = useMemories(userId)
+  const { memories, loading, hasLoaded, error, refreshMemories } = useMemories(userId)
   const { showError, hapticFeedback } = useNotifications()
   const theme = useStore(state => state.theme)
 
@@ -103,13 +103,6 @@ export default function Insights() {
   const [streak, setStreak] = useState({ currentStreak: 0, longestStreak: 0, lastMemoryDate: null as string | null, streakStartDate: null as string | null })
   const [badges, setBadges] = useState<Badge[]>([])
   const [achievements, setAchievements] = useState<Achievement[]>([])
-
-  // Avoid flashing the empty/get-started screen before the first load commits
-  // (useMemories starts loading=false and loads in an effect).
-  const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false)
-  useEffect(() => {
-    if (loading || error || memories.length > 0) setHasAttemptedLoad(true)
-  }, [loading, error, memories.length])
 
   const lang = (i18n?.language || 'tr').startsWith('tr') ? 'tr' : 'en'
   const locale = lang === 'tr' ? 'tr-TR' : 'en-US'
@@ -418,7 +411,8 @@ export default function Insights() {
     </div>
   )
 
-  if (loading || !hasAttemptedLoad) {
+  // hasLoaded avoids flashing the empty/get-started screen before the first load.
+  if (loading || !hasLoaded) {
     return (
       <div className={containerClass}>
         {Header}

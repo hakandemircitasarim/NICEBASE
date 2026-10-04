@@ -13,6 +13,8 @@ interface UseMemoriesOptions {
 interface UseMemoriesReturn {
   memories: Memory[]
   loading: boolean
+  /** True once the first load attempt has finished (success or error). */
+  hasLoaded: boolean
   error: Error | null
   loadMemories: () => Promise<void>
   refreshMemories: () => Promise<void>
@@ -30,6 +32,11 @@ export function useMemories(
   const { t } = useTranslation()
   const [memories, setMemories] = useState<Memory[]>([])
   const [loading, setLoading] = useState(false)
+  // Set in `finally`, so it flips deterministically. Pages used to infer "a load
+  // happened" from observing loading=true in a render, but on an empty table the
+  // Dexie query can resolve before React commits that render — true and false
+  // get batched together, the inference never fires, and the page spins forever.
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [error, setError] = useState<Error | null>(null)
   // Global refresh signal — bumped after cross-component mutations (e.g. the
   // local→cloud memory migration in App) so a mounted list re-queries Dexie
@@ -65,6 +72,7 @@ export function useMemories(
       toast.error(tRef.current('memoriesLoadError'), { id: 'memories-load-error' })
     } finally {
       setLoading(false)
+      setHasLoaded(true)
     }
   }, [userId])
 
@@ -83,6 +91,7 @@ export function useMemories(
   return {
     memories,
     loading,
+    hasLoaded,
     error,
     loadMemories,
     refreshMemories,

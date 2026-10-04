@@ -23,7 +23,9 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog'
 export default function Vault() {
   const { t } = useTranslation()
   const userId = useUserId()
-  const { memories, loading, error, refreshMemories } = useMemories(userId)
+  // hasLoaded keeps the loading/skeleton state as the first thing the user sees,
+  // so the "no memories" illustration can't flash before the first load.
+  const { memories, loading, hasLoaded, error, refreshMemories } = useMemories(userId)
   const { showSuccess, showError, hapticFeedback } = useNotifications()
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
@@ -41,12 +43,6 @@ export default function Vault() {
   const [selectedImages, setSelectedImages] = useState<string[]>([])
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [displayCount, setDisplayCount] = useState(20)
-  // True once an initial load has begun. useMemories starts with loading=false
-  // before its effect kicks in, so on the very first paint memories=[] and
-  // loading=false would briefly satisfy the empty-state condition and flash
-  // the "no memories" illustration before skeletons appear. Gating on this
-  // flag keeps the loading/skeleton state as the first thing the user sees.
-  const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false)
   const { openConfirm, confirmDialogProps } = useConfirmDialog()
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
@@ -72,14 +68,6 @@ export default function Vault() {
     setFilterDate,
     clearFilters,
   } = useMemoryFilters(memories, { isCore: initialIsCore, filterMonth: initialFilterMonth, filterDay: initialFilterDay })
-
-  // Mark that a real load has started (or finished) so the empty state can't
-  // flash before the first skeleton frame.
-  useEffect(() => {
-    if (loading || error || memories.length > 0) {
-      setHasAttemptedLoad(true)
-    }
-  }, [loading, error, memories.length])
 
   // Reset the "load more" window whenever the active filters/search/sort/
   // dateRange/connections change, so a deep expansion from a previous view
@@ -322,7 +310,7 @@ export default function Vault() {
             {t('tryAgain')}
           </motion.button>
         </motion.div>
-      ) : filteredMemories.length === 0 && !loading && hasAttemptedLoad ? (
+      ) : filteredMemories.length === 0 && !loading && hasLoaded ? (
         <VaultEmptyState
           hasFilters={Boolean(
             searchQuery ||
@@ -339,7 +327,7 @@ export default function Vault() {
         />
       ) : (
         <VaultMemoryList
-          loading={loading || !hasAttemptedLoad}
+          loading={loading || !hasLoaded}
           memories={filteredMemories}
           displayCount={displayCount}
           isLoadingMore={false}

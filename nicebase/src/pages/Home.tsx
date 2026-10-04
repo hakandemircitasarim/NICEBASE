@@ -113,19 +113,13 @@ export default function Home() {
   }, [userId, user, t, showSuccess])
 
   // Use memories hook - loadStreak must be defined before this
-  const { memories, loading, error, refreshMemories } = useMemories(userId, {
+  // hasLoaded distinguishes "first load not finished" from "genuinely empty" so
+  // the first-run screen doesn't flash before the first load commits.
+  const { memories, loading, hasLoaded, error, refreshMemories } = useMemories(userId, {
     onLoadComplete: async (loadedMemories) => {
       await loadStreak(loadedMemories)
     }
   })
-
-  // Distinguish "still loading / not yet attempted" from "genuinely empty" so the
-  // first-run screen doesn't flash before the first load commits (useMemories
-  // starts loading=false and loads in an effect).
-  const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false)
-  useEffect(() => {
-    if (loading || error || memories.length > 0) setHasAttemptedLoad(true)
-  }, [loading, error, memories.length])
 
   // Core-memory count, computed once per memories change (was recomputed inline
   // twice every render — once for the animation key, once for the value).
@@ -371,7 +365,7 @@ export default function Home() {
     return t('thisYear', { defaultValue: 'Bu yıl' })
   }, [t])
 
-  if (loading || !hasAttemptedLoad) {
+  if (loading || !hasLoaded) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex items-center justify-center min-h-[60vh]">

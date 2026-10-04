@@ -6,6 +6,7 @@ import { addToSyncQueue } from './syncQueueHelper'
 import { SyncQueueItemV2 } from '../lib/db'
 import { photoStorageService, isLocalPhotoRef } from './photoStorageService'
 import { errorLoggingService } from './errorLoggingService'
+import { useStore } from '../store/useStore'
 
 // Explicit column list for memory pulls — keep in one place.
 const MEMORY_COLUMNS = 'id, user_id, text, category, categories, intensity, date, connections, life_area, is_core, photos, created_at, updated_at'
@@ -574,6 +575,10 @@ export const memoryService = {
       }
     }
 
+    // Set when the pull below writes to the local DB, so mounted lists are told
+    // to re-query (e.g. a fresh install pulling cloud memories after login).
+    let pulledChanges = false
+
     // Also pull from Supabase to sync any remote changes
     // Use INCREMENTAL sync: only fetch memories updated since last pull
     // This avoids SELECT * on every poll, saving massive egress bandwidth
@@ -653,6 +658,7 @@ export const memoryService = {
 
         if (toAdd.length) await db.memories.bulkAdd(toAdd)
         if (toPut.length) await db.memories.bulkPut(toPut)
+        if (toAdd.length || toPut.length) pulledChanges = true
 
         // Advance the watermark to the newest applied row that is still OLDER
         // than any stranded row, so stranded rows are re-fetched next time but we
@@ -722,6 +728,7 @@ export const memoryService = {
                   .maybeSingle()
                 if (!stillThere) {
                   await db.memories.delete(local.id)
+                  pulledChanges = true
                 }
               }
             }
@@ -734,6 +741,8 @@ export const memoryService = {
     } catch (error) {
       if (import.meta.env.DEV) console.warn('[memoryService] Failed to pull from Supabase:', error)
     }
+
+    if (pulledChanges) useStore.getState().bumpMemoriesRefresh()
   },
 
   async getSyncStatus(userId: string): Promise<{ pending: number; inProgress: number; failed: number; abandoned: number; total: number }> {
